@@ -22,15 +22,19 @@ path = "src/main.rs"
 # in (a workspace test build), so `AppState` also registers only
 # `WEB_ENGINES`. storage and license-server keep sqlx's own SQLite for
 # meta.db and auth.db; that isn't the engine.
+# `ai-native` (phase 6, Q1): the server calls the user's model provider
+# with the key the page sends per call, through seaquel-http's client under
+# the egress guard (`SEAQUEL_AI_EGRESS`).
 seaquel-core = { path = "../seaquel-core", default-features = false, features = [
     "engine-postgres",
     "engine-mysql",
     "engine-mssql",
     "storage",
     "license-server",
+    "ai-native",
 ] }
 seaquel-types = { path = "../seaquel-types" }
-seaquel-rpc = { path = "../seaquel-rpc", features = ["storage", "workspace"] }
+seaquel-rpc = { path = "../seaquel-rpc", features = ["storage", "workspace", "ai"] }
 # `TokioExecutor`, Core's clock for the editor's runs (phase 5b).
 seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }
 
@@ -65,12 +69,14 @@ libc = "0.2"
 # a workspace test build's feature unification does. Dev only: the "Web
 # server dependencies" CI step reads the normal dependencies, which keep
 # neither git2 nor plist.
-seaquel-rpc = { path = "../seaquel-rpc", features = ["storage", "workspace", "git", "imports"] }
+seaquel-rpc = { path = "../seaquel-rpc", features = ["storage", "workspace", "git", "imports", "ai"] }
 # The /rpc and /rpc/stream tests' fake "postgres" engine (`tests/common`):
 # the real Postgres dialect, no database behind it.
 seaquel-engine = { path = "../seaquel-engine" }
 seaquel-engine-postgres = { path = "../seaquel-engine-postgres" }
 seaquel-runtime = { path = "../seaquel-runtime" }
+# The assistant's tests: the mock provider and the loopback-only client.
+seaquel-ai = { path = "../seaquel-ai", features = ["testing"] }
 http-body-util = { workspace = true }
 tokio-tungstenite = "0.24"
 tempfile = "3"

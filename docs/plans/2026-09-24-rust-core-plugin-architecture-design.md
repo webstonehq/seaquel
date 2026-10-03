@@ -143,6 +143,23 @@ restarts Core from the last snapshot. The demo's TypeScript twins, the
 sql.js storage and `duckdb.ts` are deleted (about 7,800 production lines),
 and the old `localStorage` file is deleted unread. The tutorial keeps its
 own DuckDB-WASM. Its measured cost is in "Phase 8 cost" below.
+Phase 6: built; manual checks passed (see
+2026-10-08-rust-core-phase-6-plan.md). The AI assistant runs in Core on
+desktop, web and the demo: `seaquel-ai` (wasm-clean) holds the provider
+wire for Anthropic and OpenAI-compatible APIs, the tool registry, the
+prompt and the limits, and `seaquel-http` the native client with the
+license crate's roots and proxies and a guard for the web's outbound
+calls (`SEAQUEL_AI_EGRESS`). Core runs a turn as a stream (`ai.chat`,
+`CoreEvent::Ai`): it reads the key itself on desktop (the page can no
+longer read one), takes it per call on web and in the demo, runs every
+tool call the model asks for on Core's read-only paths with byte and time
+budgets, asks the page for approvals and dashboard tools, and stores the
+user's message and the reply, tool calls included (migration `0007`). The
+MCP server's eight tools are the same registry. The inline prompt only
+inserts what it generates. The demo has the assistant again, with the
+visitor's key in page memory. Found on the way and fixed here: web kept
+every closed tab's database connections. Its measured cost is in "Phase 6
+cost" below.
 
 ## Problem
 
@@ -608,6 +625,22 @@ entries unchanged, same crate version and service. The web workspace has no
 passes the password to `db_connect` on both targets; `ConnectionConnect {
 id, secrets }` is phase 5.)
 
+(As built in phase 6: AI keys follow the same split. On desktop Core
+writes `ai-api-key:<id>` inside the settings call and reads it itself for
+every model call; the `secret` group refuses `ai-api-key:*` on every
+transport, and `settings.aiProviderHasKey` tells the settings form a key
+is saved without handing it over, so no AI key reaches the webview. On web
+the vault keeps the key encrypted in the browser as before, and the page
+sends it with each `ai.chat`, `ai.generate`, `ai.models` and `ai.test`
+together with the provider id it belongs to (`SuppliedSecret`: redacted
+`Debug`, never serialized back, dropped with the call; a key for another
+provider is `AI_PROVIDER_CHANGED`). The vault's promise changed from "the
+server never sees the key" to "the server holds it in memory during the
+call", as for database passwords. The demo keeps a visitor's key in page
+memory for the session only. Wherever the key comes from, a provider's
+error message has it replaced by `<redacted>` before it is shown, and it
+reaches no log, event or stored row.)
+
 ## The RPC surface for GUIs
 
 **Status after phase 1.** `seaquel-rpc` exists, earlier than planned and
@@ -704,6 +737,22 @@ MCP server use one registry, so each tool is written once.
 - `explain_query`
 - `list_saved_queries`, `run_saved_query`
 - the dashboard tools, once dashboards are in Core
+
+(As built in phase 6: one registry, `seaquel_ai::tools`, with two
+profiles. `Profile::Mcp` is the phase 4 surface byte for byte: the eight
+tools, their `connection` argument, `sql`, `max_rows` 1–1,000 (100 by
+default), 4 MB results, the same messages and `INSTRUCTIONS`, pinned by
+`tool-schemas.json` and the MCP suite, which passed unchanged. MCP's
+`format.rs`, its sharing rule and its tool bodies moved into `seaquel-ai`
+and Core's `ai::tools::call`; `seaquel-mcp` keeps the connection
+resolution, connect-on-first-use and its call timeout, and its `src/` went
+from 2,008 to 1,506 lines. `Profile::Assistant` is the in-app assistant's:
+the same seven query and schema tools bound to the chat's connection, the
+same JSON under a 256 KB budget, approvals for the three data tools, and
+the five dashboard tools as client tools the page answers. No tool writes.
+The dashboard tools didn't come to MCP: they run in the page and write
+storage, which the CLI opens read-only until phase 7. Write tools behind a
+per-connection opt-in are still a follow-up.)
 
 ### CLI (first cut)
 
@@ -896,7 +945,10 @@ As built in phase 8 (details in that plan's Decisions 1–24 and task notes):
 - **The demo's connection is Core's** (`Workspace::ensure_demo_connection`),
   and the sample data stays TypeScript content seeded through `db.execute`.
 - **No AI in the demo** for now: no key can be kept or sent there, so the
-  assistant is off until phase 6.
+  assistant is off until phase 6. (Phase 6 brought it back: the module's
+  Core calls the provider through a fetch bridge the page passes to
+  `open`, with the visitor's key kept in page memory for the session. The
+  module grew to 1,600.7 KB brotli.)
 - **The tutorial stayed on its TypeScript `DuckDBProvider`**, with its own
   DuckDB-WASM instance apart from the demo's.
 - **Size:** the module is 1,481 KB brotli (6.26 MB raw), under its
@@ -1029,6 +1081,12 @@ that's fine.
 **Phase 6: `seaquel-ai`**
 - LLM calls move out of the webview into Rust.
 - The assistant and MCP share the tool registry.
+- (As built: `seaquel-ai` is a wasm-clean domain crate and `seaquel-http`
+  the native client, which the license crate now uses too. Core runs the
+  turn on every interface, the demo included, and web model calls run in
+  `seaquel-server` under `SEAQUEL_AI_EGRESS`. No new providers, no CLI
+  `ask` and no MCP write tools; those are follow-ups. See "As built in
+  phase 6" under "Secrets" and "MCP tool set".)
 
 **Phase 7: CLI, then TUI**
 - By this point they're mostly presentation code.
@@ -3511,6 +3569,194 @@ live suite and every frozen fixture unchanged), Core's `browser` build,
 the size budget, and the deletion of about 7,800 lines of twins once every
 replay passed through the module.
 
+## Phase 6 cost
+
+Source: `2026-10-08-phase-6-effort.md` and the phase 6 plan's notes, plus
+line counts measured against `ef5014a` (Clean up); phase 6 is uncommitted
+on top of it. Times are agent wall time as logged, review and probe fixes
+included, but not the plan, the spikes, the review passes themselves or
+the owner's answers. Tasks 1 and 2 overlapped, as did 5 and 6 and 7 and 8,
+and about a third of most rows was builds and test runs on the shared
+target. Checkpoint 6b isn't in it yet.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes | Logged |
+|---|---|---|---|---|
+| 1. The recorder and the TypeScript baseline | 0.6–0.9 h | ~0.4 h | ~0.6 h (two rounds) | ~1.0 h |
+| 2. `seaquel-http`, the wire, the mock, the egress guard | 1.5–2.2 h | ~0.5 h | ~0.6 h (two rounds) | ~1.1 h |
+| 3. The registry, the prompt, the renderers | 1.2–1.8 h | ~0.9 h | ~0.25 h | ~1.15 h |
+| 4. Core runs a turn | 2.5–3.5 h | ~0.8 h | ~0.6 h (two rounds) | ~1.4 h |
+| 5. The RPC group and the transports | 1.2–1.8 h | ~0.8 h | ~0.35 h | ~1.15 h |
+| 6. MCP onto the registry | 0.5–0.9 h | ~0.35 h | ~0.2 h | ~0.55 h |
+| Checkpoint 6a | (in Task 10) | ~0.27 h | — | ~0.27 h |
+| 7. The GUIs on Core | 2–3 h | ~1.6 h | ~0.85 h (two rounds) | ~2.45 h |
+| 8. The demo's assistant | 0.8–1.2 h | ~0.4 h | ~0.25 h | ~0.65 h |
+| 9. Probe | 0.8–1.2 h | ~1.65 h | ~3.5 h (F1/F2/F5 ~0.9 h; F4 and its three reviews ~2.6 h) | ~5.15 h |
+| 10. Docs and measurement | 0.8–1.2 h | ~0.7 h | — | ~0.7 h |
+| Review fixes (the plan's row) | 5.7–8.4 h | | | |
+| Probe fixes (the plan's row) | 2–3.5 h | | | |
+| **Total** | **~19.6–29.6 h** (expect ~24.5 h) | **~8.4 h** | **~7.2 h** | **~15.6 h** |
+
+**The phase came in at about 64% of its expectation**, 4 h under the
+bottom of its range, and about 13 h of that is phase 6's own work: F4,
+which wasn't a phase 6 bug, took 2.6 h of the probe fixes. Calendar time
+from the first task to the last probe fix was about 11 hours.
+
+- **First passes ran at about half their estimates** (~8.4 h against
+  11.9–17.7 h), as in phase 8. The spikes had settled streaming, cancel,
+  the wasm client and the egress checks with running code, and Task 1's
+  recorder generated every expected request from a model of Core's turn,
+  so Task 4 replayed all 133 of its recorded cases on its first run. Task
+  4, the riskiest row, took 0.8 h against 2.5–3.5 h. Only the probe ran
+  over (1.65 h against 0.8–1.2 h): two-minute stalls in three browsers on
+  two builds, and Postgres running out of connections twice.
+- **Review fixes were ~3.7 h, about 64% of Tasks 1–8's first passes**,
+  against the ~55% budgeted and phase 8's 28%. As the plan expected, the
+  reviews found every way around the new mechanisms: a turn whose stream
+  id another stream could take, a reply lost when its own write was
+  refused, a supplied key used
+  for another provider, unbounded decoder and SSE buffers, the OS proxy
+  reaching a server build through feature unification. None reopened a
+  design.
+- **Probe fixes were ~3.5 h**, at the top of their 2–3.5 h budget, but
+  only ~0.9 h was phase 6's (the toast over Stop, oversized replies, and
+  a web reconnect that failed with no secret store). The rest was F4, web
+  keeping every closed tab's database connections, which the owner chose
+  to fix here; it took three review rounds, because a quiet reconnect has
+  many ways to move the user's active connection.
+- **Checkpoint 6a found nothing to fix.** Its live run with every engine
+  took about 9 minutes.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~10,840 | ~1,670 |
+| Rust, tests (test files, `testing/` modules and inline `#[cfg(test)]`) | ~12,110 | ~490 |
+| Fixtures (`seaquel-ai`'s `ts-baseline` and `tool-schemas.json`; plus the regenerated `wasm-made/meta.db`) | ~69,460 | 0 |
+| TypeScript/Svelte/JS, production | ~2,150 | ~1,920 |
+| TypeScript/JS, tests | ~4,990 | ~1,190 |
+| Generated TS types | ~175 | ~13 |
+
+Measured with `git diff --numstat` against `ef5014a` plus the untracked
+files, leaving out `Cargo.lock`, `Cargo.toml` files, the docs, READMEs
+outside the fixtures, the message files, `ci.yml`, `tauri.conf.json` and
+`.env.example`; inline test modules counted from their `#[cfg(test)]` line;
+files under `testing/` (`ai/testing.ts`, `seaquel-ai/src/testing/`)
+counted as tests; the migration counted as production Rust. The recorder
+in `docs/plans/artifacts` isn't counted.
+
+Where the production Rust went: `seaquel-ai` ~4,860 (about 1,040 of it
+moved from `seaquel-mcp`), Core ~3,150 (the turn, the tools, keys, chat
+writes, the window ownership and connect timeout of F4), `seaquel-http`
+~880 (the license crate's 248-line client among it), `seaquel-workspace`
+~460 (the AI wire types), `seaquel-server` ~460, `seaquel-rpc` ~460,
+`seaquel-browser` ~230 (the fetch bridge) and `seaquel-storage` ~100.
+`seaquel-mcp` lost ~1,290 production lines and gained ~170. **The
+TypeScript lost its whole AI stack** (`providers.ts`, `tool-definitions.ts`,
+the loop in `services/ai/index.ts`, most of `context.ts` and
+`resolveMentions`: about 1,240 lines), and production TypeScript still
+grew by about 230 lines because the assistant's view model, its reply and
+tool-line rendering, the session keys and the fetch bridge came in, and F4
+added about 330 (`connection-watch.ts`, the quiet reconnects). The
+fixtures are mostly JSON: the 21-round turns, the 256 KB and 64 KB inputs
+and `changes.json` (about 4.3 MB).
+
+### Measured
+
+- **The browser module** is 1,600.7 KB brotli (1,639,075 of the
+  2,000,000-byte budget, 82%), 6,866.4 KB raw, 2,198.8 KB gzip -9, against
+  1,481.0 KB and 6,262.4 KB at the end of phase 8. Almost all of the
+  ~120 KB is the assistant (Task 5 measured the jump at ~99 KB: Core's
+  `ai` and `seaquel-ai`); the fetch bridge itself is small, since
+  `wasm-bindgen-futures` was already in. `wasm-opt` still makes it larger
+  (1,671.1 KB) and is skipped.
+- **Events and first text through each transport**, against a mock
+  provider sending 200 one-word deltas 5 ms apart, then a one-delta
+  reply. Debug builds, on the shared target, one run each:
+
+  | Transport | Events (200 deltas) | First `text` | Whole turn | One delta: first `text` |
+  |---|---|---|---|---|
+  | `dispatch_stream`, which the desktop's `core_stream` wraps | `started`, 29 `text`, `done` | 2.6 ms | 1.45 s | 1.5 ms |
+  | The web socket (`seaquel-server`'s harness: axum in process, no Node proxy) | `started`, 29 `text`, `done` | 2.4 ms | 1.45 s | 4.5 ms |
+  | The demo's module (the `test-hooks` build under Node, the page's fetch bridge over Node's `fetch`) | `started`, 26 `text`, `done` | 60 ms | 1.28 s | 7.9 ms |
+
+  The mock's 5 ms timers run late, so 200 deltas took 1.3–1.45 s, and
+  the text arrived in one event per 50 ms as Decision 11 coalesces it. In
+  the module the first delta waited for the first 50 ms window; natively
+  it went out at once. The desktop row is Core's stream without the Tauri
+  channel (`run_core_stream` is private to `src-tauri`, and this task
+  changed no product code); the channel only serializes each event. The
+  probe measured the real thing in browsers: 10,000 tiny deltas reached
+  the page as 4 `text` frames, and the longest gap between frames while
+  streaming was 34–50 ms.
+
+### Bugs found
+
+By who found them first, counted from the effort log and the plan's
+notes; a judgment call where one fix covers several. The bracketed number
+is how many were older than phase 6. The survey's fourteen aren't in the
+table.
+
+| Area | Implementer | Review | Probe |
+|---|---|---|---|
+| The wire, HTTP and egress (Task 2) | — | 10 | — |
+| The registry and the prompt (Task 3) | — | 6 | 1 [1] |
+| Core's turn (Task 4) | — | 12 | 1 |
+| The RPC group, transports and MCP (Tasks 5, 6) | 1 | 6 | 1 [1] |
+| The GUI (Task 7) | 1 | 9 | 1 |
+| The demo (Task 8) | 1 [1] | 3 | — |
+| Connections on web (F4, F5) | — | 12 | 2 [2] |
+| **Total** | **3 [1]** | **58** | **6 [4]** |
+
+The review column includes the reviews of the probe fixes, which are most
+of the connections row. The probe column counts Checkpoint 6a's find (at
+DEBUG, rmcp's own log line writes each MCP tool call's SQL to stderr, a
+follow-up) with the probe's.
+
+The serious ones:
+
+- **Web kept every closed tab's database connections** (the probe, F4,
+  older than phase 6): six Postgres backends per page load, so one user's
+  reloads could exhaust a default Postgres. Connections now belong to the
+  window that opened them, a reconnect replaces the window's older ones,
+  and a window gone for 10 minutes is reaped; the page notices a reaped or
+  lost connection and reconnects it quietly.
+- **A supplied key could be used for another provider** (Task 7 review)
+  if the connection's provider changed between the page reading the key
+  and the turn starting.
+- **A reply too large to store was lost whole** on web, and a 9 MB reply
+  overflowed `marked`'s stack in the demo (the probe, F2): replies are now
+  cut at 1 MiB and stored with a note.
+- **A turn's stream id could be taken by a query stream**, and a reply
+  whose write was refused for size was dropped (Task 4 review).
+- **The decoder and the SSE parser had no budget** (Task 2 review): a
+  hostile provider could make Core hold hundreds of MB.
+- **A server build could pick up the OS proxy** through feature
+  unification, out of the egress guard's sight (Task 5 review).
+
+### What was harder than expected
+
+- **Waiting states.** A turn waits on the provider, an approval, a page's
+  dashboard tool, a query and its own reply write, and each can be
+  stopped from four places (Stop, a closed socket, a reload, eviction).
+  The rule that a transport cancels a turn and keeps polling it, never
+  drops it, came out of Task 4's review and cost a test per transport.
+- **Quiet reconnects.** F4's fix was mostly in Core and short; making the
+  page reconnect what Core had closed, without moving the active
+  connection, closing tabs or racing a user's Disconnect, took three
+  review rounds.
+- **Measuring in browsers.** Two-minute stalls in three browsers on two
+  builds made the probe the longest row; Playwright's own polling over a
+  5,000-table sidebar looked like an app freeze until a CPU profile said
+  otherwise.
+
+What went to plan: the wire matched the recorded TypeScript requests on
+the first replay, the MCP suite passed unchanged on the registry, no key
+or marker reached any log in the probe, and the egress guard refused
+every loopback and private form the probe tried.
+
 ## Risks
 
 - **Port size.** About 5k lines of dialect code and 14k lines of state
@@ -3539,7 +3785,8 @@ replay passed through the module.
   the seeded demo 40–200 ms sooner than the TypeScript demo in each of
   Chromium, Firefox and WebKit, since Core opens without waiting for
   DuckDB-WASM. Merging the editor module into it would save about 480 KB
-  brotli; not done.)
+  brotli; not done. Phase 6 added the assistant and the fetch bridge:
+  1,600.7 KB brotli, 82% of the budget.)
 - **Browser storage.** The demo keeps its metadata as one SQLite file in
   memory, saved whole to IndexedDB after each call that committed. A crash
   between a commit and its save loses that change; two tabs each start from
@@ -3557,7 +3804,17 @@ replay passed through the module.
 - **AI on web.** Moving LLM calls server-side means the tenant container makes
   outbound calls to `api.anthropic.com` or a custom base URL. Air-gapped
   installs need that to be off or configurable. It also means API keys transit
-  the server per request, same as database passwords today.
+  the server per request, same as database passwords today. (Phase 6 made
+  it configurable: `SEAQUEL_AI_EGRESS` is `public` by default (`https:`
+  to public addresses only, checked on the parsed host and on every DNS
+  answer, no redirects), `any` for a model server on the private network,
+  or `off`, which refuses every model call with `AI_EGRESS_BLOCKED`. The
+  keys do transit the server, held for the call only. What remains: behind
+  an HTTP proxy, a name the server can't resolve goes to the proxy, which
+  then decides what it may reach; an operator who needs private targets
+  blocked there has to block them in the proxy. And an OpenAI-compatible
+  server on the user's own laptop, which web used to reach from the
+  browser, isn't reachable from the server.)
 - **Concurrent writers.** The desktop app and `seaquel mcp` writing the same
   SQLite file is new. WAL and busy timeouts handle correctness. Stale GUI state
   is handled by `StorageChanged` events, but only for data Core knows was

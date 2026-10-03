@@ -7,7 +7,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoreClient, ResubscribedInfo, WorkspaceEvent } from "$lib/core/client";
-import type { SendAIMessageParams } from "$lib/services/ai";
 import type { DashboardTabManager } from "../dashboard-tabs.svelte.js";
 
 vi.mock("$lib/utils/environment", () => ({
@@ -15,11 +14,6 @@ vi.mock("$lib/utils/environment", () => ({
   isWeb: () => false,
   isDemo: () => false,
 }));
-let behaviour: (p: SendAIMessageParams) => Promise<void> = async () => {};
-vi.mock("$lib/services/ai", () => ({
-  sendAIMessage: vi.fn((p: SendAIMessageParams) => behaviour(p)),
-}));
-vi.mock("$lib/services/ai-mentions", () => ({ resolveMentions: (c: string) => c }));
 vi.mock("$lib/stores/ai-settings.svelte", () => ({
   aiSettingsStore: { settings: { shareSchemaGlobally: true, shareDataGlobally: true } },
 }));
@@ -43,6 +37,9 @@ const { ChangeFeed } = await import("./change-feed");
 const { LibrarySync } = await import("./sync");
 const { RecordingLibrary } = await import("./recording-library");
 const { setLibrary } = await import("./index");
+const { setAi } = await import("../ai/index");
+const { FakeAi } = await import("../ai/testing");
+let ai: InstanceType<typeof FakeAi>;
 import type { StoredKind } from "./types";
 
 /** A Core client whose event channel the test drives. */
@@ -82,6 +79,7 @@ async function openPage(origin: string) {
       projectId: "p1",
       name: "Local",
       type: "postgres",
+      providerConnectionId: "pc-1",
       activeAIProviderId: "prov",
       activeAIModel: "model",
     } as never,
@@ -106,15 +104,7 @@ async function openPage(origin: string) {
     (chatId) => restoration.loadAIChatMessages(chatId),
     (chatId) => ui.abortStreamFor(chatId),
   );
-  ui = new UIStateManager(
-    state,
-    () => {},
-    async () => ({ rows: [], truncated: false }),
-    chats,
-    (chatId) => chats.persistMessages(chatId),
-    dashboards,
-    {} as DashboardTabManager,
-  );
+  ui = new UIStateManager(state, () => {}, chats, dashboards, {} as DashboardTabManager);
   const settings = vi.fn(async (_kind: string, _ids: readonly string[] | null) => {});
   const views = {
     connections: { refreshFromLibrary: vi.fn(async () => {}) },
@@ -134,6 +124,9 @@ async function openPage(origin: string) {
     client: () => channel.client,
     origin: () => origin,
     seqs: state.librarySeqs,
+    // As `UseDatabase` wires it: a stopped turn's own store is let through.
+    acceptOwn: (event) =>
+      event.kind === "chatMessages" && event.scope !== null && chats.awaitsOwnStore(event.scope),
   });
   const sync = new LibrarySync(state, feed, views);
   sync.start();
@@ -171,7 +164,8 @@ async function settle() {
 beforeEach(() => {
   vi.useFakeTimers();
   toasts.length = 0;
-  behaviour = async () => {};
+  ai = new FakeAi();
+  setAi(ai);
   library = new RecordingLibrary();
   library.seedProject("p1");
   library.seedConnection("conn-1", { projectId: "p1" });
@@ -334,19 +328,21 @@ describe("other windows' 5d-2 changes", () => {
     await vi.advanceTimersByTimeAsync(10);
     const streaming = (await one.chats.createChat("Streaming"))!;
     const two = await openPage("tab-2");
-    let signal: AbortSignal | undefined;
-    behaviour = (p) => {
-      signal = p.signal;
-      return new Promise(() => {});
-    };
+    ai.scripts = [
+      async (turn) => {
+        await turn.stopped();
+      },
+    ];
     await one.ui.sendAIMessage("hello");
+    await settle();
     expect(one.state.aiStreamingChatId).toBe(streaming);
 
     await two.chats.deleteChat(streaming);
     changedElsewhere(one, "chat", "conn-1", [streaming]);
     await settle();
 
-    expect(signal?.aborted).toBe(true);
+    // The turn was cancelled in Core.
+    expect(ai.turns[0].cancelled).toBe(true);
     expect(one.state.isAIStreaming).toBe(false);
     expect(one.state.aiChatsByConnection["conn-1"].map((c) => c.id)).toEqual([older]);
     expect(one.state.activeAIChatIdByConnection["conn-1"]).toBe(older);
@@ -358,15 +354,37 @@ describe("other windows' 5d-2 changes", () => {
     const one = await openPage("tab-1");
     const chatId = (await one.chats.createChat("Chat"))!;
     let finish!: () => void;
-    behaviour = (p) =>
-      new Promise<void>((resolve) => {
-        finish = () => {
-          p.onChunk("done");
-          p.onDone();
-          resolve();
-        };
-      });
+    ai.scripts = [
+      async (turn) => {
+        await new Promise<void>((resolve) => (finish = resolve));
+        // Core stores the turn and answers its rows.
+        const { chatId: chat, userMessage, assistantMessageId } = turn.request;
+        const rows = [
+          {
+            id: userMessage.id,
+            role: "user" as const,
+            content: userMessage.content,
+            timestamp: "2030-01-01T00:00:00.000Z",
+          },
+          {
+            id: assistantMessageId,
+            role: "assistant" as const,
+            content: "done",
+            timestamp: "2030-01-01T00:00:01.000Z",
+          },
+        ];
+        const { seq } = await library.putChatMessages(chat, rows);
+        turn.emit({ type: "text", delta: "done" });
+        turn.emit({
+          type: "done",
+          messages: rows.map((r) => ({ ...r, chatId: chat })),
+          seq,
+          stop: "end",
+        });
+      },
+    ];
     await one.ui.sendAIMessage("hello");
+    await settle();
 
     // Another window stored a message in this chat meanwhile.
     await library.putChatMessages(chatId, [
@@ -387,6 +405,68 @@ describe("other windows' 5d-2 changes", () => {
       "hello",
       "done",
     ]);
+  });
+
+  it("Stop: Core's later store of the stopped reply reaches the page despite its own origin", async () => {
+    // Review: on Stop the transport ends the stream at once, so the
+    // re-read after the turn runs before Core stores what streamed; Core's
+    // `chatMessages` event then carries this page's origin.
+    const one = await openPage("tab-1");
+    const chatId = (await one.chats.createChat("Chat"))!;
+    ai.scripts = [
+      async (turn) => {
+        turn.emit({ type: "text", delta: "Partial" });
+        await turn.stopped();
+      },
+    ];
+    await one.ui.sendAIMessage("hello");
+    await settle();
+    const turn = ai.turns[0].request;
+    one.ui.cancelAIStream();
+    await settle();
+    // The re-read answered first, without the reply.
+    expect(library.messages.get(chatId) ?? []).toEqual([]);
+
+    // Now Core stores both rows and announces them with this page's origin.
+    await library.putChatMessages(chatId, [
+      {
+        id: turn.userMessage.id,
+        role: "user",
+        content: "hello",
+        timestamp: "2030-01-01T00:00:00.000Z",
+      },
+      {
+        id: turn.assistantMessageId,
+        role: "assistant",
+        content: "Partial",
+        timestamp: "2030-01-01T00:00:01.000Z",
+      },
+    ]);
+    const reads = () => library.callsOf("listChatMessages").length;
+    const before = reads();
+    one.emit({
+      type: "storageChanged",
+      kind: "chatMessages",
+      scope: chatId,
+      ids: [turn.userMessage.id, turn.assistantMessageId],
+      origin: "tab-1",
+      seq: library.seq(),
+    });
+    await settle();
+    expect(reads()).toBe(before + 1);
+    expect(one.chats.awaitsOwnStore(chatId)).toBe(false);
+
+    // Once applied, this page's own writes are skipped again.
+    one.emit({
+      type: "storageChanged",
+      kind: "chatMessages",
+      scope: chatId,
+      ids: null,
+      origin: "tab-1",
+      seq: library.seq(),
+    });
+    await settle();
+    expect(reads()).toBe(before + 1);
   });
 
   it("every new kind reloads on resubscribe and a new epoch", async () => {

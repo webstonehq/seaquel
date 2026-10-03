@@ -3,4 +3,10 @@
 /**
  * One message of `chatMessagesPut`. Its id is the GUI's (Decision 24).
  */
-export type ChatMessageDraft = { id: string, role: "user" | "assistant", content: string, timestamp: string, query?: string, dashboardId?: string, };
+export type ChatMessageDraft = { id: string, role: "user" | "assistant", content: string, timestamp: string, query?: string, dashboardId?: string, 
+/**
+ * A reply's tool calls (phase 6, Decision 23): a JSON list, stored as
+ * given when present. Absent keeps what the message had (none for a
+ * new one), as an older release's put does.
+ */
+parts?: Array<unknown>, };

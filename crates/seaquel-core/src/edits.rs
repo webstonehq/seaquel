@@ -569,7 +569,10 @@ impl Workspace {
             return one(RunEvent::error(e.code, e.message));
         }
         let (token, closed, guard) =
-            core.register_stream((owner, stream_id), connection_id.clone());
+            match core.register_stream((owner, stream_id), Some(connection_id.clone())) {
+                Ok(registered) => registered,
+                Err(e) => return one(RunEvent::error(e.code, e.message)),
+            };
         Box::pin(async_stream::stream! {
             let _guard = guard;
             if token.is_cancelled() {

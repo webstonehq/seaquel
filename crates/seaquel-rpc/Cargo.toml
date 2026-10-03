@@ -28,6 +28,12 @@ workspace = ["seaquel-core/workspace"]
 # `dispatch_workspace` refuses both on a Core without `LocalFiles`
 # whatever the features.
 imports = ["storage", "seaquel-core/imports"]
+# Phase 6: the `ai` group (`ai.chat`, a stream, and `respond`, `generate`,
+# `models`, `test`) through Core's `ai`. Without it the group answers
+# NOT_SUPPORTED. Which client Core calls the model with, and where it may
+# go, are Core's builder policies (`ai_http`, `ai_egress`), not this
+# feature.
+ai = ["workspace", "storage", "seaquel-core/ai"]
 
 [dependencies]
 seaquel-core = { path = "../seaquel-core", default-features = false }
@@ -42,13 +48,15 @@ ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Turns on both workspace groups for this crate's own tests.
-seaquel-rpc = { path = ".", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports"] }
+seaquel-rpc = { path = ".", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports", "ai"] }
 # Real engines for tests/db.rs: SQLite in temp files, Postgres when
 # SEAQUEL_TEST_POSTGRES is set.
-seaquel-core = { path = "../seaquel-core", default-features = false, features = ["engine-sqlite", "engine-postgres"] }
+seaquel-core = { path = "../seaquel-core", default-features = false, features = ["engine-sqlite", "engine-postgres", "ai-native"] }
+# tests/ai.rs: the mock provider and the loopback-only client.
+seaquel-ai = { path = "../seaquel-ai", features = ["testing"] }
 # `TokioExecutor`, Core's clock for `db.run`/`db.page`.
 seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }
 tempfile = "3"
 # Only to point libgit2 at an empty config dir in tests/git.rs.
 git2 = { workspace = true }
-tokio = { version = "1", features = ["macros", "rt", "time"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }

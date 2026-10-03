@@ -51,6 +51,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "history params",
         include_str!("../migrations/0006_history_params.sql"),
     ),
+    (
+        7,
+        "ai message parts",
+        include_str!("../migrations/0007_ai_message_parts.sql"),
+    ),
 ];
 
 const DATA_STEPS: &[&str] = &[

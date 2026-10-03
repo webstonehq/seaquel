@@ -166,7 +166,7 @@ export class DatabaseState {
   activeAIChatIdByConnection = $state<Record<string, string | null>>({});
   aiMessagesByChat = $state<Record<string, AIMessage[]>>({});
   isAIStreaming = $state(false);
-  /** The chat whose turn is streaming, if any: deleting it aborts the turn, and a close flush saves it. */
+  /** The chat whose turn is streaming, if any: deleting it or sending elsewhere stops the turn. */
   aiStreamingChatId = $state<string | null>(null);
   /**
    * Chats the web's budget has filled (`max_chat_bytes`, Q17): a refused
@@ -174,11 +174,13 @@ export class DatabaseState {
    */
   aiChatFull = $state<Record<string, true>>({});
   /**
-   * Per chat, each message as it was last loaded or sent (its stored form,
-   * as JSON text): a put sends only the ones that differ (Decision 24).
-   * Not reactive: nothing shows it.
+   * Per chat, the ids of the messages Core has stored, as last loaded or
+   * answered (a turn's `done`/`error` rows, phase 6). A message the page
+   * shows and Core hasn't stored (a turn in flight, a message waiting for
+   * a model, a refused turn) stays on screen when the list is read again;
+   * a stored one gone from the list was deleted. Not reactive.
    */
-  readonly aiMessagesSent = new Map<string, Map<string, string>>();
+  readonly aiMessagesStored = new Map<string, Set<string>>();
   /**
    * Per project, the connection order as last read or stored: a view-state
    * save first stores the page's order when it differs (a connection was

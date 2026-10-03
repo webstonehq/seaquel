@@ -5,9 +5,6 @@
 //! air-gap bundles verified with Ed25519. Core exposes each behind its own
 //! feature.
 
-#[cfg(any(feature = "desktop", feature = "server"))]
-mod http;
-
 #[cfg(feature = "desktop")]
 pub mod desktop;
 

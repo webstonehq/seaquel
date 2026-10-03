@@ -38,7 +38,7 @@ import { DatabaseSync } from "node:sqlite";
 import { loadTestModule, testModuleMissing, type TestModule } from "$lib/core/browser/testing/node";
 import { openModuleCore, type ModuleCore } from "$lib/core/browser/testing/meta";
 import type { RustStorageClient } from "$lib/storage/rust-client";
-import type { SendAIMessageParams } from "$lib/services/ai";
+import type { FakeTurn } from "./ai/testing";
 import type { SchemaTable } from "$lib/types";
 import type { SettingKey } from "./library/types";
 
@@ -53,7 +53,6 @@ const rec = vi.hoisted(() => {
     toasts: [] as { kind: string; message: string }[],
     secretCalls: [] as { method: string; key: string; value?: string }[],
     secrets: new Map<string, string>(),
-    ai: null as null | ((p: unknown) => Promise<void>),
     /** What a workflow query node's run answers. */
     workflowRows: (() => []) as () => Record<string, unknown>[],
   };
@@ -96,10 +95,6 @@ vi.mock("$lib/engine", () => ({
 vi.mock("$lib/stores/ssh-host-key-prompt.svelte", () => ({
   sshHostKeyPromptStore: { prompt: async () => true },
 }));
-vi.mock("$lib/services/ai", () => ({
-  sendAIMessage: (p: unknown) => (rec.ai ? rec.ai(p) : Promise.resolve()),
-}));
-vi.mock("$lib/services/ai-mentions", () => ({ resolveMentions: (c: string) => c }));
 vi.mock("mode-watcher", () => ({ mode: { current: "light" } }));
 vi.mock("$lib/themes/apply", () => ({ applyTheme: () => {}, cacheThemeColors: () => {} }));
 vi.mock("$lib/stores/license.svelte.js", () => ({ licenseStore: { status: "personal" } }));
@@ -152,6 +147,11 @@ const { UIStateManager } = await import("./ui-state.svelte.js");
 const { AIChatManager } = await import("./ai-chat-manager.svelte.js");
 const { WorkflowState } = await import("./workflow-state.svelte.js");
 const { WorkflowManager } = await import("./workflow-manager.svelte.js");
+const { setAi } = await import("./ai/index");
+const { FakeAi } = await import("./ai/testing");
+/** The assistant's turns (phase 6: Core runs them); each `send` step sets its script. */
+const fakeAi = new FakeAi();
+setAi(fakeAi);
 
 // ---------------------------------------------------------------- types
 
@@ -366,6 +366,16 @@ const CORE_ONLY_COLUMNS: Record<string, string[]> = {
 };
 
 /**
+ * Columns the recording predates that these cases must leave NULL: dropped
+ * from the dump only when NULL, so a value there still shows as a
+ * difference (as Rust's replay checks its `LINK_COLUMNS`).
+ */
+const NULL_ONLY_COLUMNS: Record<string, string[]> = {
+  // Phase 6's stored tool calls (0007): the page's `chatMessagesPut` writes none.
+  ai_messages: ["parts"],
+};
+
+/**
  * The file's rows, as the recording holds them: without the columns above
  * and without the string-secrets upgrade's own `app_state` key (Core's
  * open sets it; the recording never had it).
@@ -376,7 +386,12 @@ async function dump(db: Db): Promise<Record<string, Row[]>> {
     let rows = await db.query<Row>(`SELECT * FROM ${table} ORDER BY ${order}`);
     if (table === "app_state")
       rows = rows.filter((r) => r.key !== "connectionStringSecretsUpgraded");
-    for (const row of rows) for (const column of CORE_ONLY_COLUMNS[table] ?? []) delete row[column];
+    for (const row of rows) {
+      for (const column of CORE_ONLY_COLUMNS[table] ?? []) delete row[column];
+      for (const column of NULL_ONLY_COLUMNS[table] ?? []) {
+        if (row[column] === null) delete row[column];
+      }
+    }
     if (rows.length) out[table] = rows;
   }
   return out;
@@ -452,15 +467,7 @@ async function openPage(db: Db, name: string, windowId: string, load: boolean) {
   );
   dashboards.setSyncActive((tabId) => panes.syncGlobalActiveState(tabId));
   dashboardTabs.setOnClose((id) => dashboards.closeDashboard(id));
-  const ui = new UIStateManager(
-    state,
-    schedule,
-    async () => ({ rows: [], truncated: false }),
-    aiChats,
-    (chatId) => aiChats.persistMessages(chatId),
-    dashboards,
-    dashboardTabs,
-  );
+  const ui = new UIStateManager(state, schedule, aiChats, dashboards, dashboardTabs);
   const queryTabs = new QueryTabManager(state, tabs, schedule);
   const schemaTabs = new SchemaTabManager(state, tabs, schedule);
   const explainTabs = new ExplainTabManager(state, tabs, schedule, setActiveView);
@@ -511,15 +518,12 @@ async function openPage(db: Db, name: string, windowId: string, load: boolean) {
     { getForType: async () => provider } as never,
     async () => {},
     () => {},
-    () => ui.resetAISessionState(),
   );
   projects.setStarterTabManager(starterTabs);
   projects.setConnectionManager(connections);
-  /** `UseDatabase.flush`: the view state, then a chat still streaming. */
+  /** `UseDatabase.flush`: the view state (a streaming turn is Core's to store). */
   const flush = async () => {
     await windowState.flush();
-    const streaming = state.aiStreamingChatId;
-    if (streaming) await aiChats.persistMessages(streaming);
   };
   if (load) {
     await projects.initialize();
@@ -1030,7 +1034,33 @@ const EXEMPT: Record<string, string> = {
  * Cases this replay can't set up, each with where it is replayed instead.
  * A stale entry (a case no file defines) fails the test.
  */
+/** Phase 6 Task 7: Core stores a turn (two writes, Decision 31), not the page. */
+const CORE_STORES_THE_TURN =
+  "Core stores the assistant's turn since phase 6 (Decision 31): its rows are pinned by " +
+  "Rust's `seaquel-core/tests/ai_replay.rs` (`page.json`), and the page's view of a turn " +
+  "by `hooks/database/ai/page-replay.svelte.test.ts` and `ai/turn.svelte.test.ts`.";
+
 const SKIPPED_CASES: Record<string, string> = {
+  "chats/first-turn": CORE_STORES_THE_TURN,
+  "chats/second-turn": CORE_STORES_THE_TURN,
+  "chats/error-turn": CORE_STORES_THE_TURN,
+  "chats/stream-throws": CORE_STORES_THE_TURN,
+  "chats/stop": CORE_STORES_THE_TURN,
+  "chats/stop-with-approval-pending": CORE_STORES_THE_TURN,
+  "chats/flush-saves-streaming": CORE_STORES_THE_TURN,
+  "chats/two-tabs-same-chat": CORE_STORES_THE_TURN,
+  // The page still writes the title (`chatUpdate {title, touched}`), but
+  // the case's recorded rows hold the turn's messages, which Core stores
+  // now; the title write is pinned by `ai/turn.svelte.test.ts` ("the first
+  // message titles the chat").
+  "chats/retitle-stored-chat":
+    "Its recorded rows hold the turn's messages, which Core stores since phase 6 (Decision 31; " +
+    "`seaquel-core/tests/ai_replay.rs`). The page's title write (`chatUpdate {title, touched}`) " +
+    "is pinned by `hooks/database/ai/turn.svelte.test.ts`.",
+  // A turn now needs the chat's connection open in Core (Decision 6); this
+  // replay's connections aren't. Deleting a streaming chat is pinned by
+  // `ai/turn.svelte.test.ts` ("a chat deleted during a turn cancels it").
+  "chats/delete-streaming": CORE_STORES_THE_TURN,
   // The seed goes in through a reopen of Core (the module has no raw write
   // into an open file), and the open's frozen baseline rewrites a stored
   // `active_view` of `canvas` to `workflow`, as on any open of such a file.
@@ -1046,7 +1076,7 @@ async function replay(c: Case, fx: Fixture): Promise<string[]> {
   rec.toasts.length = 0;
   rec.secretCalls.length = 0;
   rec.secrets = new Map(Object.entries(c.secrets ?? {}));
-  rec.ai = null;
+  fakeAi.scripts = [];
   rec.workflowRows = () => [];
   vi.useFakeTimers({
     toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
@@ -1146,7 +1176,7 @@ async function replay(c: Case, fx: Fixture): Promise<string[]> {
       if (why.length) failures.push(`${c.name} step ${i} (${step.op}):\n${why.join("\n")}`);
     }
   } finally {
-    rec.ai = null;
+    fakeAi.scripts = [];
     vi.clearAllTimers();
     vi.useRealTimers();
   }
@@ -2384,38 +2414,37 @@ const dashboardCases: Case[] = [
 
 // ---------------------------------------------------------------- cases: chats
 
-type Ai = (p: SendAIMessageParams) => Promise<void>;
+/** A turn's script (`FakeAi`): what Core's events say. */
+type Ai = (turn: FakeTurn) => Promise<void>;
 
-/** A reply in two chunks, then the end of the turn. */
+/** A reply in two chunks; the turn then ends with no stored rows (these cases are skipped). */
 const say =
-  (text: string, dashboardId?: string): Ai =>
-  async (p) => {
-    p.onChunk(text.slice(0, 4));
-    if (dashboardId) p.onDashboardCreated?.(dashboardId);
-    p.onChunk(text.slice(4));
-    p.onDone();
+  (text: string): Ai =>
+  async (turn) => {
+    turn.emit({ type: "text", delta: text.slice(0, 4) });
+    turn.emit({ type: "text", delta: text.slice(4) });
   };
-const failing: Ai = async (p) => p.onError("rate_limit");
+const failing: Ai = async (turn) =>
+  turn.emit({ type: "error", code: "RATE_LIMITED", message: "Rate limited" });
 const throwing: Ai = async () => {
   throw new TypeError("Failed to fetch");
 };
-const aborted = (p: SendAIMessageParams) =>
-  new Promise<void>((resolve) => p.signal!.addEventListener("abort", () => resolve()));
 /** A turn that streams a chunk, then waits until it's stopped. */
-const hanging: Ai = async (p) => {
-  p.onChunk("Partial");
-  await aborted(p);
+const hanging: Ai = async (turn) => {
+  turn.emit({ type: "text", delta: "Partial" });
+  await turn.stopped();
 };
 /** A turn that asks to run a query, then waits until it's stopped. */
-const approving: Ai = async (p) => {
-  p.onChunk("Checking");
-  p.onApprovalRequired?.(
-    "SELECT count(*) FROM orders",
-    { id: "c1", name: "Local", type: "postgres" } as never,
-    () => {},
-    () => {},
-  );
-  await aborted(p);
+const approving: Ai = async (turn) => {
+  turn.emit({ type: "text", delta: "Checking" });
+  turn.emit({
+    type: "toolCall",
+    callId: "call_1",
+    name: "run_query",
+    sql: "SELECT count(*) FROM orders",
+  });
+  turn.emit({ type: "approvalRequired", callId: "call_1", sql: "SELECT count(*) FROM orders" });
+  await turn.stopped();
 };
 
 function chatRow(over: Row = {}): Row {
@@ -2451,7 +2480,7 @@ const CHAT_1 = {
 
 function send(content: string, ai: Ai): Step {
   return step("ui.sendAIMessage", { content }, async (t) => {
-    rec.ai = ai as (p: unknown) => Promise<void>;
+    fakeAi.scripts = [ai];
     // Resolves once the turn is dispatched (the chat made first, through Core).
     await t.page.ui.sendAIMessage(content);
     return t.page.state.activeAIChatId;
@@ -2482,7 +2511,7 @@ const chatCases: Case[] = [
     name: "chats/second-turn",
     note: "A turn in a stored chat: only its two new messages change.",
     seed: standard(CHAT_1),
-    steps: [open(), activate("c1"), send("And yesterday?", say("Seven yesterday.", "dash-9"))],
+    steps: [open(), activate("c1"), send("And yesterday?", say("Seven yesterday."))],
   },
   {
     name: "chats/error-turn",
@@ -2577,13 +2606,13 @@ const chatCases: Case[] = [
       activate("c1"),
       step("ui.sendAIMessage", { page: "main", content: "Main's question" }, async (t) =>
         t.on("main", (p) => {
-          rec.ai = say("Main's answer") as (p: unknown) => Promise<void>;
+          fakeAi.scripts = [say("Main's answer")];
           return p.ui.sendAIMessage("Main's question");
         }),
       ),
       step("ui.sendAIMessage", { page: "second", content: "Second's question" }, async (t) =>
         t.on("second", (p) => {
-          rec.ai = say("Second's answer") as (p: unknown) => Promise<void>;
+          fakeAi.scripts = [say("Second's answer")];
           return p.ui.sendAIMessage("Second's question");
         }),
       ),
@@ -3927,8 +3956,9 @@ describe.skipIf(missing)("the state fixtures through the module", () => {
     expect([...skippedSeen].sort(), "every skipped case is defined").toEqual(
       Object.keys(SKIPPED_CASES).sort(),
     );
-    // 112 cases and 377 steps recorded, less the skipped case's 2 steps.
-    expect(cases).toBe(111);
-    expect(steps).toBe(375);
+    // 112 cases and 377 steps recorded, less the skipped cases' steps (one
+    // seeding case, and phase 6's ten turn cases).
+    expect(cases).toBe(101);
+    expect(steps).toBe(338);
   }, 600_000);
 });

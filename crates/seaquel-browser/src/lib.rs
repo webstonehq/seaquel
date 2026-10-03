@@ -12,11 +12,14 @@
 //!
 //! The exports are strings and bytes, like the editor module's:
 //!
-//! - `open(bridge, image?, onTrap?) → Promise<number>`: the commit counter
-//!   after the open;
+//! - `open(bridge, image?, onTrap?, fetch?) → Promise<number>`: the commit
+//!   counter after the open; `fetch` is the page's fetch bridge for the
+//!   assistant's model calls (phase 6, `src/fetch.rs`), without which every
+//!   `ai` call answers `NOT_SUPPORTED`;
 //! - `call(body) → Promise<string>`: a `CoreResponse`;
 //! - `stream(body, onEvent) → Promise<number>`: each `CoreEvent` to
-//!   `onEvent`, then the count;
+//!   `onEvent`, then the count; `ai.chat` is a stream too, stopped with
+//!   `db.cancel` and polled to its end so its reply is stored;
 //! - `events(onEvent) → id`, `unsubscribe(id)`;
 //! - `snapshot() → Uint8Array`, `commits() → number`;
 //! - `ensureDemoConnection() → Promise<string>` (Decision 19).
@@ -34,6 +37,9 @@
 //! formatter and nothing else.
 
 pub mod log;
+
+#[cfg(target_arch = "wasm32")]
+mod fetch;
 
 #[cfg(target_arch = "wasm32")]
 mod module;

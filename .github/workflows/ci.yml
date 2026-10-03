@@ -51,6 +51,9 @@ jobs:
       - name: Rustfmt
         run: cargo fmt --all --check
 
+      # Core's assistant and its tests (phase 6: tests/ai_turn.rs,
+      # tests/ai_replay.rs) are on here because seaquel-server enables
+      # `seaquel-core/ai-native` and the workspace build unifies it.
       - name: Clippy
         run: cargo clippy --workspace --exclude seaquel --all-targets --features seaquel-runtime/tokio -- -D warnings
 
@@ -77,18 +80,26 @@ jobs:
       - name: Pure crates build for wasm32
         run: cargo clippy --target wasm32-unknown-unknown -p seaquel-types -p seaquel-runtime -p seaquel-engine -p seaquel-sql -p seaquel-wasm -- -D warnings
 
+      # Phase 6: the AI domain crate builds for wasm32 (the demo's module
+      # links it in Task 8). No tokio, reqwest or clock; its `testing`
+      # feature (the mock provider) is native-only and stays off here.
+      - name: seaquel-ai builds for wasm32
+        run: cargo clippy --target wasm32-unknown-unknown -p seaquel-ai -- -D warnings
+
       # Phase 8 Decision 14: the crates the demo's module links, built for
       # wasm32 as the module uses them. Core's `browser` admits `storage`
       # and `workspace` and still refuses every engine (`engine-duckdb` is
       # the native driver), secrets, SSH, git, licensing and the imports;
-      # the bare `browser` set is checked too. The module registers DuckDB's
-      # browser driver itself, so that crate has its own line.
+      # the bare `browser` set is checked too, and (phase 6) the set with
+      # the assistant (`ai`, without the native client). The module registers
+      # DuckDB's browser driver itself, so that crate has its own line.
       # seaquel-storage compiles SQLite's C for wasm32 through sqlite-wasm-rs,
       # with the clang and llvm-ar set in the workflow's `env`.
       - name: Core builds for wasm32 (browser)
         run: |
           cargo clippy --target wasm32-unknown-unknown -p seaquel-core -p seaquel-rpc --no-default-features --features seaquel-core/browser -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p seaquel-core -p seaquel-rpc --no-default-features --features seaquel-core/browser,seaquel-core/storage,seaquel-core/workspace,seaquel-rpc/storage,seaquel-rpc/workspace -- -D warnings
+          cargo clippy --target wasm32-unknown-unknown -p seaquel-core -p seaquel-rpc --no-default-features --features seaquel-core/browser,seaquel-core/storage,seaquel-core/workspace,seaquel-core/ai,seaquel-rpc/storage,seaquel-rpc/workspace,seaquel-rpc/ai -- -D warnings
 
       - name: Storage builds for wasm32
         run: cargo clippy --target wasm32-unknown-unknown -p seaquel-storage --all-targets -- -D warnings

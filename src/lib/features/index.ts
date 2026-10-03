@@ -45,7 +45,10 @@ export interface FeatureFlags {
   appUpdater: boolean;
   /** Allow editing connection settings */
   editConnections: boolean;
-  /** Offer the AI assistant (off in the demo: it can keep no API key, Q7 A) */
+  /**
+   * Offer the AI assistant. On everywhere: in the demo the visitor's key is
+   * kept in page memory for the session (phase 6, Q2 B).
+   */
   aiAssistant: boolean;
   /** Allow saving queries */
   savedQueries: boolean;
@@ -75,7 +78,7 @@ export function getFeatures(): FeatureFlags {
     fileExport: !demo && !web, // OS-save-dialog exports — Tauri-only
     appUpdater: !demo && !web, // Web tenant containers update via the platform, not the UI
     editConnections: !demo,
-    aiAssistant: !demo, // No key can be kept or sent in the demo (Q7 A; phase 6)
+    aiAssistant: true, // The demo's key lives in page memory for the session (phase 6, Q2 B)
     savedQueries: true,
     connectionTypeSelector: !demo,
     sharedProjects: !demo && !web, // Desktop only until server-side git lands

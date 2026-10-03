@@ -14,7 +14,14 @@ use common::Env;
 
 /// [`Env`] on the server's own Core.
 fn web_env() -> Env {
-    Env::with_core(Arc::new(seaquel_server::web_core()), 4, Arc::default())
+    Env::with_core(
+        Arc::new(seaquel_server::web_core(
+            seaquel_core::ai::AiEgress::Public,
+            None,
+        )),
+        4,
+        Arc::default(),
+    )
 }
 
 async fn call(env: &Env, group: &str, method: &str, params: Json) -> (StatusCode, Json) {

@@ -21,6 +21,8 @@ members = [
     "crates/seaquel-ssh",
     "crates/seaquel-git",
     "crates/seaquel-license",
+    "crates/seaquel-http",
+    "crates/seaquel-ai",
     "crates/seaquel-workspace",
     "crates/seaquel-mcp",
     "crates/seaquel-cli",

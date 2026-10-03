@@ -14,7 +14,7 @@ import type { TablePageParams } from "./TablePageParams";
  * A `db` call. `Debug` never shows a secret or a connection string
  * (see [`ConnectParams`]).
  */
-export type DbRequest = { "method": "connect", "params": ConnectParams } | { "method": "test", "params": ConnectParams } | { "method": "disconnect", "params": { connectionId: string, } } | { "method": "query", "params": { connectionId: string, sql: string, 
+export type DbRequest = { "method": "connect", "params": ConnectParams } | { "method": "test", "params": ConnectParams } | { "method": "disconnect", "params": { connectionId: string, } } | { "method": "bindSaved", "params": { connectionId: string, savedConnectionId: string, } } | { "method": "query", "params": { connectionId: string, sql: string, 
 /**
  * Absent is none.
  */
@@ -22,4 +22,4 @@ params?: unknown[], } } | { "method": "execute", "params": { connectionId: strin
 /**
  * Absent is none.
  */
-params?: unknown[], } } | { "method": "transaction", "params": { connectionId: string, statements: Array<BatchStatement>, } } | { "method": "engine", "params": { connectionId: string, request: EngineRequest, } } | { "method": "cancel", "params": { streamId: string, } } | { "method": "queryStream", "params": QueryStreamParams } | { "method": "run", "params": RunParams } | { "method": "page", "params": PageParams } | { "method": "planEdits", "params": PlanEditsParams } | { "method": "applyChanges", "params": ApplyChangesParams } | { "method": "tablePage", "params": TablePageParams } | { "method": "duckdbExtension", "params": { connectionId: string, action: ExtensionAction, } };
+params?: unknown[], } } | { "method": "transaction", "params": { connectionId: string, statements: Array<BatchStatement>, } } | { "method": "engine", "params": { connectionId: string, request: EngineRequest, } } | { "method": "alive", "params": { connectionIds: Array<string>, } } | { "method": "cancel", "params": { streamId: string, } } | { "method": "queryStream", "params": QueryStreamParams } | { "method": "run", "params": RunParams } | { "method": "page", "params": PageParams } | { "method": "planEdits", "params": PlanEditsParams } | { "method": "applyChanges", "params": ApplyChangesParams } | { "method": "tablePage", "params": TablePageParams } | { "method": "duckdbExtension", "params": { connectionId: string, action: ExtensionAction, } };

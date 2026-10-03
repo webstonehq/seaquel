@@ -21,7 +21,20 @@ pub fn status_for(code: &str) -> StatusCode {
         // The edits service (phase 5c): an edit Core won't build (no such
         // table, no primary key, a key that isn't the primary key). Its
         // limits (`WEB_EDIT_LIMITS`) refuse with `INVALID_ARGUMENT`.
-        | "NOT_EDITABLE" => StatusCode::BAD_REQUEST,
+        | "NOT_EDITABLE"
+        // The assistant (phase 6, Decision 15): Core's own refusals of a
+        // model call, a turn on a connection opened for another saved
+        // connection, and a model that asked for too many tool calls (a
+        // turn's ending; never an HTTP answer, mapped for completeness).
+        | "NO_PROVIDER"
+        | "NO_MODEL"
+        | "NO_API_KEY"
+        | "AI_DISABLED"
+        | "CONNECTION_MISMATCH"
+        | "TOOL_LIMIT"
+        // A read of a secret the web workspace has nowhere to keep (it has
+        // no store; probe F5): the client must supply it.
+        | "NO_SECRET_STORE" => StatusCode::BAD_REQUEST,
         // Secrets (the web workspace has no store), SSH tunnels, and calls
         // an engine has no Rust implementation for.
         NOT_SUPPORTED => StatusCode::NOT_IMPLEMENTED,
@@ -40,13 +53,22 @@ pub fn status_for(code: &str) -> StatusCode {
         | "WORKFLOW_NOT_FOUND"
         | "CHAT_NOT_FOUND"
         | "THEME_NOT_FOUND"
-        | "AI_PROVIDER_NOT_FOUND" => StatusCode::NOT_FOUND,
+        | "AI_PROVIDER_NOT_FOUND"
+        // `ai.respond` for a turn or call the workspace isn't waiting on
+        // (another user's, a finished one, a closed socket's).
+        | "NOT_FOUND" => StatusCode::NOT_FOUND,
         // The database refused the login (not the app's session: that's
         // Node's 401).
         "AUTH_ERROR" => StatusCode::BAD_REQUEST,
-        "CONNECTION_ERROR" | "TLS_ERROR" => StatusCode::BAD_GATEWAY,
+        // The model provider refused or failed (phase 6): its status, its
+        // error event, or a reply that can't be read.
+        "CONNECTION_ERROR" | "TLS_ERROR" | "PROVIDER_ERROR" => StatusCode::BAD_GATEWAY,
+        // Model calls are off on this server (`SEAQUEL_AI_EGRESS=off`), or
+        // the provider's address isn't one it may reach.
+        "AI_EGRESS_BLOCKED" => StatusCode::SERVICE_UNAVAILABLE,
         "TIMEOUT" => StatusCode::GATEWAY_TIMEOUT,
-        "RESULT_TOO_LARGE" => StatusCode::PAYLOAD_TOO_LARGE,
+        // A user's message to the assistant past the web's cap.
+        "RESULT_TOO_LARGE" | "MESSAGE_TOO_LONG" => StatusCode::PAYLOAD_TOO_LARGE,
         // A transaction statement matched fewer rows than it expected (a
         // stale key); the transaction was rolled back. Or the workspace was
         // evicted while this call ran. Or the call needs the user's
@@ -65,13 +87,20 @@ pub fn status_for(code: &str) -> StatusCode {
         | "TRANSACTION_OPEN"
         | "NAME_TAKEN"
         | "LAST_PROJECT"
-        | "STORAGE_READ_ONLY" => StatusCode::CONFLICT,
+        | "STORAGE_READ_ONLY"
+        // The assistant (phase 6): the chat can't take another turn
+        // (`CHAT_FULL`), or one is already running on it.
+        | "CHAT_FULL"
+        | "TURN_IN_PROGRESS"
+        | "AI_PROVIDER_CHANGED" => StatusCode::CONFLICT,
         // The user holds as many connections as the web server allows
         // (`WEB_CONNECTION_LIMITS`), or has as many calls in flight
         // (`MAX_IN_FLIGHT_BYTES_PER_USER`, `MAX_EDIT_CALLS_PER_USER`).
-        seaquel_core::TOO_MANY_CONNECTIONS | crate::routes::rpc::TOO_MANY_REQUESTS => {
-            StatusCode::TOO_MANY_REQUESTS
-        }
+        // Also past `WEB_AI_LIMITS`' turns in flight, and the provider's own
+        // rate limit (`RATE_LIMITED`).
+        seaquel_core::TOO_MANY_CONNECTIONS
+        | crate::routes::rpc::TOO_MANY_REQUESTS
+        | "RATE_LIMITED" => StatusCode::TOO_MANY_REQUESTS,
         // The user's metadata file reached its size cap
         // (`SEAQUEL_USER_DB_MAX_BYTES`, phase 5d-2): nothing was written.
         "STORAGE_FULL" => StatusCode::INSUFFICIENT_STORAGE,
@@ -104,6 +133,9 @@ mod tests {
             StatusCode::TOO_MANY_REQUESTS
         );
         assert_eq!(status_for("AUTH_ERROR"), StatusCode::BAD_REQUEST);
+        // The web workspace has no secret store (probe F5): a client's
+        // problem, never a server fault.
+        assert_eq!(status_for("NO_SECRET_STORE"), StatusCode::BAD_REQUEST);
         assert_eq!(status_for("TLS_ERROR"), StatusCode::BAD_GATEWAY);
         assert_eq!(status_for("TIMEOUT"), StatusCode::GATEWAY_TIMEOUT);
         assert_eq!(
@@ -132,6 +164,28 @@ mod tests {
             assert_eq!(status_for(code), StatusCode::NOT_FOUND, "{code}");
         }
         assert_eq!(status_for("STORAGE_FULL"), StatusCode::INSUFFICIENT_STORAGE);
+        // The assistant (phase 6, Decision 15 and Task 4's codes).
+        for (code, status) in [
+            ("NO_PROVIDER", StatusCode::BAD_REQUEST),
+            ("NO_MODEL", StatusCode::BAD_REQUEST),
+            ("NO_API_KEY", StatusCode::BAD_REQUEST),
+            ("AI_DISABLED", StatusCode::BAD_REQUEST),
+            ("CONNECTION_MISMATCH", StatusCode::BAD_REQUEST),
+            ("TOOL_LIMIT", StatusCode::BAD_REQUEST),
+            ("AI_EGRESS_BLOCKED", StatusCode::SERVICE_UNAVAILABLE),
+            ("PROVIDER_ERROR", StatusCode::BAD_GATEWAY),
+            ("RATE_LIMITED", StatusCode::TOO_MANY_REQUESTS),
+            ("TOO_MANY_REQUESTS", StatusCode::TOO_MANY_REQUESTS),
+            ("CHAT_FULL", StatusCode::CONFLICT),
+            ("TURN_IN_PROGRESS", StatusCode::CONFLICT),
+            ("AI_PROVIDER_CHANGED", StatusCode::CONFLICT),
+            ("NOT_FOUND", StatusCode::NOT_FOUND),
+            ("TIMEOUT", StatusCode::GATEWAY_TIMEOUT),
+            // A user's message past the web's cap (F1/F2/F5 review P1).
+            ("MESSAGE_TOO_LONG", StatusCode::PAYLOAD_TOO_LARGE),
+        ] {
+            assert_eq!(status_for(code), status, "{code}");
+        }
         for code in ["STORAGE_ERROR", "STORAGE_CORRUPT", "SOMETHING_ELSE"] {
             assert_eq!(status_for(code), StatusCode::INTERNAL_SERVER_ERROR);
         }

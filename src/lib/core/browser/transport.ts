@@ -38,9 +38,40 @@ import { log } from "$lib/utils/logger";
 import type { DuckDbBridge } from "./duckdb-bridge";
 import type { SnapshotStore } from "./snapshot-store";
 
+/**
+ * The fetch bridge `open` takes for the assistant's model calls (phase 6;
+ * `crates/seaquel-browser/src/fetch.rs`). Rust picks each request's id.
+ * `start` resolves with the status once the head arrives, `read` with the
+ * next body chunk or `null` at the end, and `abort` stops a request (an
+ * unknown or finished id does nothing). The page's is `makeFetchBridge`
+ * (`./fetch-bridge.ts`).
+ */
+export interface FetchBridge {
+  start(
+    id: number,
+    method: string,
+    url: string,
+    headers: [string, string][],
+    body: Uint8Array,
+  ): Promise<number>;
+  read(id: number): Promise<Uint8Array | null>;
+  abort(id: number): void;
+  /**
+   * Aborts every request still running (`makeFetchBridge`'s; optional for
+   * other bridges): a trap restart calls it, since the dead instance can't
+   * drop its own requests.
+   */
+  abortAll?(): void;
+}
+
 /** The module's exports (`src/lib/wasm/browser-pkg/seaquel_browser.js`). */
 export interface BrowserModule {
-  open(bridge: DuckDbBridge, image: Uint8Array | undefined, onTrap: () => void): Promise<number>;
+  open(
+    bridge: DuckDbBridge,
+    image: Uint8Array | undefined,
+    onTrap: () => void,
+    fetch?: FetchBridge,
+  ): Promise<number>;
   call(body: Uint8Array): Promise<string>;
   stream(body: Uint8Array, onEvent: (json: string) => void): Promise<number>;
   events(onEvent: (json: string) => void): number;
@@ -60,7 +91,7 @@ export interface BrowserModule {
  * fail when the interface gains or loses one without this list.
  */
 export const BROWSER_MODULE_EXPORTS = {
-  open: 3,
+  open: 4,
   call: 1,
   stream: 2,
   events: 1,
@@ -103,6 +134,15 @@ export interface BrowserCoreOptions {
   store: SnapshotStore | null;
   /** The stored snapshot to open, or `null` for a new file. */
   image: Uint8Array | null;
+  /**
+   * The page's fetch bridge for the assistant's model calls, passed to
+   * every `open`: the first and each one a trap restart makes, so a
+   * restarted module still has the assistant. Without one every `ai` call
+   * is `NOT_SUPPORTED`. The module never keeps a key: the page sends the
+   * visitor's with each call (Q2 B), so after a restart it simply sends it
+   * again.
+   */
+  fetch?: FetchBridge;
   /**
    * How long a restart waits for saves in flight before it reopens on the
    * newest that landed (default `SAVE_WAIT_MS`): a save the store never
@@ -283,7 +323,13 @@ export class BrowserCore {
   private async reinstantiate(): Promise<void> {
     this.generation += 1;
     this.module.__seaquel_reinstantiate();
-    // The dead instance's DuckDB connections: nothing will close them.
+    // The dead instance's model requests and DuckDB connections: nothing
+    // will close them.
+    try {
+      this.options.fetch?.abortAll?.();
+    } catch {
+      // a bridge that throws: its requests are lost either way
+    }
     await this.options.bridge.closeAll?.().catch(() => {});
   }
 
@@ -344,7 +390,13 @@ export class BrowserCore {
     let commits: number;
     try {
       commits = await Promise.race([
-        (async () => this.module.open(this.options.bridge, image ?? undefined, this.onTrap))(),
+        (async () =>
+          this.module.open(
+            this.options.bridge,
+            image ?? undefined,
+            this.onTrap,
+            this.options.fetch,
+          ))(),
         trapped,
       ]);
     } catch (error) {

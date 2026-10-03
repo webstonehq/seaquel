@@ -7,17 +7,25 @@
  * - Web (hosted / self-hosted): `VaultKeyringService` — browser-derived VK
  *   encrypts payloads, server stores ciphertext in `user_credentials`. See
  *   `src/lib/services/vault/`.
- * - Demo (in-browser only): no-op — credentials are not persisted.
+ * - Demo (in-browser only): no-op — credentials are not persisted. The
+ *   assistant's key is kept in page memory for the session
+ *   (`./session-keys.ts`, `aiKeyVault()`).
  */
 
 import { isTauri, isWeb } from "$lib/utils/environment";
 import { log } from "$lib/utils/logger";
 import { VaultKeyringService } from "$lib/services/vault/vault-keyring";
 import { callSecret } from "$lib/storage/rust-client";
+import { sessionKeys } from "./session-keys";
 
 export interface KeyringService {
   setDbPassword(connectionId: string, password: string): Promise<void>;
   getDbPassword(connectionId: string): Promise<string | null>;
+  /**
+   * Web (the vault) only: like `getDbPassword`, but a stored password that
+   * can't be decrypted throws instead of answering null (F4 re-review M-a).
+   */
+  getDbPasswordStrict?(connectionId: string): Promise<string | null>;
   deleteDbPassword(connectionId: string): Promise<void>;
 
   setSshPassword(connectionId: string, password: string): Promise<void>;
@@ -37,10 +45,10 @@ export interface KeyringService {
   /**
    * Web only (the vault). On the desktop Core writes a provider's key in
    * the `settings` call that saves the provider (Decision 8, Q19), and
-   * these reject.
+   * these reject. Reading a key is the vault's alone (`aiKeyVault`): the
+   * desktop page never reads one (phase 6, Decision 7).
    */
   setAIApiKeyForProvider(id: string, key: string): Promise<void>;
-  getAIApiKeyForProvider(id: string): Promise<string | null>;
   /** Web only, as `setAIApiKeyForProvider`. */
   deleteAIApiKeyForProvider(id: string): Promise<void>;
 
@@ -60,7 +68,7 @@ export interface KeyringService {
 /**
  * Desktop: the OS keychain through Core (`core_call` `Secret::*`), under the
  * service `app.seaquel.desktop`, with keys `db:<id>`, `ssh:<id>`,
- * `ssh-key:<id>`, `license-key` and `ai-api-key:<id>`. That's the layout
+ * `ssh-key:<id>` and `license-key` (Core keeps `ai-api-key:<id>`). That's the layout
  * `tauri-plugin-keyring` used, so existing entries read back unchanged.
  *
  * `get*` returns `null` on any failure, as it always has, but logs the error
@@ -142,9 +150,6 @@ class TauriKeyringService implements KeyringService {
   setAIApiKeyForProvider(): Promise<void> {
     return Promise.reject(new Error("AI API keys are saved with their provider (settings)"));
   }
-  getAIApiKeyForProvider(id: string): Promise<string | null> {
-    return this.get(`ai-api-key:${id}`);
-  }
   deleteAIApiKeyForProvider(): Promise<void> {
     return Promise.reject(new Error("AI API keys are removed with their provider (settings)"));
   }
@@ -191,9 +196,6 @@ class NoopKeyringService implements KeyringService {
   }
   async deleteLicenseKey(): Promise<void> {}
   async setAIApiKeyForProvider(): Promise<void> {}
-  async getAIApiKeyForProvider(): Promise<string | null> {
-    return null;
-  }
   async deleteAIApiKeyForProvider(): Promise<void> {}
   isAvailable(): boolean {
     return false;
@@ -227,4 +229,29 @@ export function getKeyringService(): KeyringService {
   }
 
   return keyringService;
+}
+
+/**
+ * Where the page finds a provider's API key to send with an `ai` call:
+ * the web's vault (Q1: the server calls the provider with the key the page
+ * sends), and the demo's session keys (Q2 B: in page memory, forgotten on
+ * reload). `null` on the desktop, where Core reads the keychain and the
+ * page never sees a key (Decision 7).
+ */
+export interface AiKeyVault {
+  /** Whether the vault holds a key for the provider; never unlocks it. */
+  hasAIApiKeyForProvider(id: string): Promise<boolean>;
+  /**
+   * The key, decrypted (unlocking the vault if needed). `quiet`: an unlock
+   * this starts isn't announced with a toast (an assistant send, probe F1).
+   */
+  getAIApiKeyForProvider(id: string, options?: { quiet?: boolean }): Promise<string | null>;
+}
+
+export function aiKeyVault(): AiKeyVault | null {
+  // On the build constant itself, so Rollup drops the session keys from
+  // the desktop and web builds.
+  if (import.meta.env.VITE_BUILD_TARGET === "demo") return sessionKeys();
+  if (!isWeb()) return null;
+  return getKeyringService() as VaultKeyringService;
 }

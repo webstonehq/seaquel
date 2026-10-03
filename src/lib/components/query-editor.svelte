@@ -88,7 +88,7 @@
 	const explainViz = createExplainVisualize(ctx, paramDialog, viewState);
 	const saveExport = createSaveFormatExport(ctx);
 	const cellEdit = createCellEditing(ctx);
-	const ai = createAIInlinePrompt(ctx, { onExecute: exec.handleExecute });
+	const ai = createAIInlinePrompt(ctx);
 
 	function handleParamExecute(values: import("$lib/types").ParameterValue[]) {
 		const result = exec.handleParamExecute(values);
@@ -313,6 +313,7 @@
 								bind:text={ai.text}
 								loading={ai.loading}
 								bind:error={ai.error}
+								notice={ai.notice}
 								onSubmit={ai.submit}
 								onClose={ai.close}
 								focusOnMount={ai.focusOnMount}

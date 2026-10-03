@@ -47,7 +47,9 @@ impl PostgresDriver {
 /// The pool: sqlx's defaults, at most `open.max_pool_size` connections
 /// when that is set.
 fn pool_options(open: OpenOptions) -> PoolOptions<Postgres> {
-    let options = PoolOptions::<Postgres>::new();
+    let options = PoolOptions::<Postgres>::new()
+        .idle_timeout(Some(seaquel_engine::POOL_IDLE_TIMEOUT))
+        .acquire_timeout(seaquel_engine::POOL_ACQUIRE_TIMEOUT);
     match open.max_pool_size {
         Some(n) => options.max_connections(n.max(1)),
         None => options,
@@ -597,6 +599,16 @@ mod tests {
             max_pool_size: Some(4),
         };
         assert_eq!(pool_options(web).get_max_connections(), 4);
+        // Idle pooled connections close after 10 minutes, and waiting for
+        // one (the first, at connect, included) gives up after 30 s.
+        assert_eq!(
+            pool_options(web).get_idle_timeout(),
+            Some(std::time::Duration::from_secs(600))
+        );
+        assert_eq!(
+            pool_options(web).get_acquire_timeout(),
+            std::time::Duration::from_secs(30)
+        );
         let zero = OpenOptions {
             max_pool_size: Some(0),
         };

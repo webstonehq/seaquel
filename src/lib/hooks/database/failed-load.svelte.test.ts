@@ -222,26 +222,6 @@ describe("a failed load blocks the save that would replace it", () => {
     expect(replacingWrites()).toEqual([]);
   });
 
-  it("AI chat messages: a new message is put on its own, not over the chat's history", async () => {
-    // Decision 24: messages are upserted by id, so a failed load needs no
-    // guard: the put carries only what the page has, and replaces nothing.
-    const { state, chats, restoration } = setup();
-    await restoration.loadAIChatMessages("chat-1");
-    const message = {
-      id: "m-new",
-      chatId: "chat-1",
-      role: "user" as const,
-      content: "hello",
-      timestamp: new Date("2026-01-01T00:00:00.000Z"),
-    };
-    state.aiMessagesByChat = { "chat-1": [message] };
-
-    await chats.persistMessages("chat-1");
-
-    expect(puts.map((p) => p.map((m) => m.id))).toEqual([["m-new"]]);
-    expect(replacingWrites()).toEqual([]);
-  });
-
   it("projects: no default project is stored and the active project isn't overwritten", async () => {
     const { state, windowState, restoration } = setup();
     const projects = new ProjectManager(state, windowState, restoration);

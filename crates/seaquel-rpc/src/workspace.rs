@@ -158,6 +158,7 @@ pub enum Request {
     Git(crate::git::GitRequest),
     Ssh(crate::ssh::SshRequest),
     Db(crate::db::DbRequest),
+    Ai(crate::ai::AiRequest),
 }
 
 /// A call's result: `{"method": <group>, "result": <the group's response>}`,
@@ -183,11 +184,12 @@ pub enum Response {
     Git(crate::git::GitResponse),
     Ssh(crate::ssh::SshResponse),
     Db(crate::db::DbResponse),
+    Ai(crate::ai::AiResponse),
 }
 
 impl Request {
     /// The group's wire name: `storage`, `library`, `settings`, `ui`,
-    /// `shared`, `imports`, `secret`, `license`, `git`, `ssh` or `db`.
+    /// `shared`, `imports`, `secret`, `license`, `git`, `ssh`, `db` or `ai`.
     pub fn group(&self) -> &'static str {
         match self {
             Request::Storage(_) => "storage",
@@ -201,6 +203,7 @@ impl Request {
             Request::Git(_) => "git",
             Request::Ssh(_) => "ssh",
             Request::Db(_) => "db",
+            Request::Ai(_) => "ai",
         }
     }
 
@@ -220,6 +223,24 @@ impl Request {
             Request::Git(r) => r.method(),
             Request::Ssh(r) => r.method(),
             Request::Db(r) => r.method(),
+            Request::Ai(r) => r.method(),
+        }
+    }
+
+    /// Which stream this request is ([`crate::StreamKind`]), or `None` for
+    /// a unary call: the one list every transport serves streams by
+    /// (`db.queryStream`, `db.run`, `db.page`, `db.tablePage`, `ai.chat`).
+    pub fn stream_kind(&self) -> Option<crate::StreamKind> {
+        crate::StreamKind::of(self.group(), self.method())
+    }
+
+    /// A stream request's `streamId`: what its events carry and
+    /// `db.cancel` takes. `None` for a unary call.
+    pub fn stream_id(&self) -> Option<&str> {
+        match self {
+            Request::Db(r) => r.stream_id(),
+            Request::Ai(r) => r.stream_id(),
+            _ => None,
         }
     }
 }
@@ -303,8 +324,10 @@ storage_methods! {
     VaultStateReset = "vaultStateReset" [] -> [()],
 }
 
-/// A secret call. Keys must be `db:<id>`, `ssh:<id>`, `ssh-key:<id>`,
-/// `license-key` or `ai-api-key:<id>`; anything else is `INVALID_ARGUMENT`.
+/// A secret call. Keys must be `db:<id>`, `ssh:<id>`, `ssh-key:<id>` or
+/// `license-key`; anything else is `INVALID_ARGUMENT`. So is
+/// `ai-api-key:<id>` (phase 6, Decision 7): Core reads AI keys itself, and
+/// the settings group writes them.
 /// `Debug` never shows a value.
 #[derive(Serialize, Deserialize)]
 #[serde(
@@ -530,7 +553,15 @@ pub async fn dispatch_workspace(
             // whatever features the build unified: a web workspace must not
             // open tunnels from the server.
             Request::Ssh(_) => Err(RpcError::not_supported("SSH tunnels")),
-            Request::Db(r) => crate::db::db(core, ws, r, &origin).await.map(Response::Db),
+            // Boxed like the library (phase 6 probe-fix review I2): a
+            // connect's future (plan, tunnel, open, replace) sat inline in
+            // every call's and overflowed a 2 MiB stack.
+            Request::Db(r) => Box::pin(crate::db::db(core, ws, r, &origin))
+                .await
+                .map(Response::Db),
+            Request::Ai(r) => Box::pin(crate::ai::ai(core, ws, r, &origin))
+                .await
+                .map(Response::Ai),
         }
     })
     .await
@@ -703,6 +734,16 @@ async fn secret(
     Err(RpcError::not_supported("Secret storage"))
 }
 
+/// The keychain prefix of an AI provider's key.
+#[cfg(feature = "secrets")]
+const AI_KEY_PREFIX: &str = "ai-api-key:";
+
+/// The keys the `secret` group takes: `<prefix><id>`, or [`LICENSE_KEY`].
+#[cfg(feature = "secrets")]
+const GROUP_KEY_PREFIXES: [&str; 3] = ["db:", "ssh:", "ssh-key:"];
+#[cfg(feature = "secrets")]
+const LICENSE_KEY: &str = "license-key";
+
 #[cfg(feature = "secrets")]
 async fn secret(
     store: Option<&dyn seaquel_core::secrets::SecretStore>,
@@ -716,6 +757,24 @@ async fn secret(
         | SecretRequest::Delete { key } => key,
     };
     // A bad key is refused the same way with or without a store.
+    //
+    // Phase 6, Decision 7: Core reads a provider's key itself and writes it
+    // with the settings call that carries it, so no page reads, sets or
+    // deletes one here (on the desktop the key never reaches the webview).
+    if key.starts_with(AI_KEY_PREFIX) {
+        return Err(RpcError::invalid_argument(
+            "AI provider keys are managed by Core: the secret group can't read, set or \
+             delete them",
+        ));
+    }
+    // The store's own check also takes AI keys, so this group names its
+    // own forms first (review M3), then lets the store check the id.
+    let ours = GROUP_KEY_PREFIXES.iter().any(|p| key.starts_with(p)) || key == LICENSE_KEY;
+    if !ours {
+        return Err(RpcError::invalid_argument(
+            "invalid secret key: expected db:<id>, ssh:<id>, ssh-key:<id> or license-key",
+        ));
+    }
     validate_key(key).map_err(rpc_error)?;
     let store = store.ok_or_else(|| RpcError::not_supported("Secret storage on this workspace"))?;
     Ok(match req {

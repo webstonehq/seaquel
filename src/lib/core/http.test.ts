@@ -20,7 +20,8 @@ const { windowIdReady } = await import("./window-id");
 beforeAll(async () => {
   await windowIdReady();
 });
-import type { QueryStreamRequest, RunRequest, StreamEvent } from "./client";
+import type { AiChatRequest, QueryStreamRequest, RunRequest, StreamEvent } from "./client";
+import type { AiEvent } from "$lib/types/generated/AiEvent";
 import type { RunEvent } from "$lib/types/generated/RunEvent";
 
 class FakeSocket {
@@ -509,5 +510,62 @@ describe("HttpCoreClient.stream of a run (phase 5b)", () => {
     socket().open();
     const start = socket().sent[0] as { request: RunRequest };
     expect(start.request.params.params.text).toBe("SELECT '�'");
+  });
+});
+
+describe("HttpCoreClient.stream of an assistant turn (phase 6 Task 7)", () => {
+  function turnRequest(streamId: string): AiChatRequest {
+    return {
+      method: "ai",
+      params: {
+        method: "chat",
+        params: {
+          streamId,
+          chatId: "chat-1",
+          connectionId: "c-1",
+          userMessage: { id: "u-1", content: "How many?" },
+          assistantMessageId: "a-1",
+          apiKey: "test-key-not-real",
+        },
+      },
+    };
+  }
+
+  it("routes ai frames by stream id and ends at the turn's done", async () => {
+    const c = client();
+    const events: AiEvent[] = [];
+    const done = (async () => {
+      for await (const e of c.stream(turnRequest("t"))) events.push(e);
+    })();
+    socket().open();
+    expect(socket().starts()).toEqual(["t"]);
+    socket().receive({ type: "ai", streamId: "t", event: { type: "text", delta: "Hi" } });
+    socket().receive({
+      type: "ai",
+      streamId: "other",
+      event: { type: "error", code: "X", message: "not this one" },
+    });
+    const end: AiEvent = { type: "done", messages: [], seq: { epoch: "e", n: 1 }, stop: "end" };
+    socket().receive({ type: "ai", streamId: "t", event: end });
+    await done;
+    expect(events).toEqual([{ type: "text", delta: "Hi" }, end]);
+  });
+
+  it("sends a cancel frame for a turn when its signal aborts", async () => {
+    const c = client();
+    const controller = new AbortController();
+    const out = collect(c.stream(turnRequest("t"), { signal: controller.signal }) as never);
+    socket().open();
+    controller.abort();
+    expect(socket().sent.at(-1)).toEqual({ op: "cancel", streamId: "t" });
+    expect(await out).toEqual([expect.objectContaining({ code: "CANCELLED" })]);
+  });
+
+  it("ends a started turn with WS_CLOSED when the socket drops", async () => {
+    const c = client();
+    const out = collect(c.stream(turnRequest("t")) as never);
+    socket().open();
+    socket().drop();
+    expect(await out).toEqual([expect.objectContaining({ code: "WS_CLOSED" })]);
   });
 });

@@ -6071,6 +6071,7 @@ dependencies = [
  "log",
  "opener",
  "reqwest 0.12.28",
+ "seaquel-ai",
  "seaquel-core",
  "seaquel-rpc",
  "seaquel-runtime",
@@ -6092,6 +6093,25 @@ dependencies = [
  "time",
  "tokio",
  "whoami",
+]
+
+[[package]]
+name = "seaquel-ai"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "log",
+ "ryu-js",
+ "schemars 1.2.2",
+ "seaquel-ai",
+ "seaquel-runtime",
+ "seaquel-sql",
+ "seaquel-types",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2 0.10.9",
+ "tokio",
 ]
 
 [[package]]
@@ -6139,6 +6159,7 @@ dependencies = [
  "git2",
  "log",
  "plist",
+ "seaquel-ai",
  "seaquel-core",
  "seaquel-engine",
  "seaquel-engine-duckdb",
@@ -6147,6 +6168,7 @@ dependencies = [
  "seaquel-engine-postgres",
  "seaquel-engine-sqlite",
  "seaquel-git",
+ "seaquel-http",
  "seaquel-license",
  "seaquel-runtime",
  "seaquel-secrets",
@@ -6302,6 +6324,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "seaquel-http"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "log",
+ "reqwest 0.12.28",
+ "seaquel-ai",
+ "seaquel-runtime",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "seaquel-license"
 version = "0.1.0"
 dependencies = [
@@ -6311,6 +6348,7 @@ dependencies = [
  "log",
  "reqwest 0.12.28",
  "ryu-js",
+ "seaquel-http",
  "seaquel-license",
  "seaquel-types",
  "serde",
@@ -6335,11 +6373,8 @@ dependencies = [
 name = "seaquel-mcp"
 version = "0.1.0"
 dependencies = [
- "futures",
  "log",
  "rmcp",
- "ryu-js",
- "schemars 1.2.2",
  "seaquel-core",
  "seaquel-runtime",
  "seaquel-types",
@@ -6356,6 +6391,7 @@ dependencies = [
  "futures",
  "git2",
  "log",
+ "seaquel-ai",
  "seaquel-core",
  "seaquel-engine",
  "seaquel-rpc",
@@ -6405,6 +6441,7 @@ dependencies = [
  "log",
  "mime_guess",
  "rust-embed",
+ "seaquel-ai",
  "seaquel-core",
  "seaquel-engine",
  "seaquel-engine-postgres",

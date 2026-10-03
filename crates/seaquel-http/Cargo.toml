@@ -1,0 +1,26 @@
+[package]
+name = "seaquel-http"
+version = "0.1.0"
+edition = "2021"
+description = "Seaquel's outbound HTTP (native only): the reqwest client that never panics on a broken certificate store (licensing and model calls), the streaming client behind seaquel-ai's HttpClient, and the web server's egress guard."
+
+[features]
+# The OS proxy settings (macOS/Windows system config). The desktop turns it
+# on, as seaquel-license's `desktop` feature does for its own client.
+system-proxy = ["reqwest/system-proxy"]
+
+[dependencies]
+seaquel-ai = { path = "../seaquel-ai" }
+seaquel-runtime = { path = "../seaquel-runtime" }
+futures = { workspace = true }
+log = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+# Already in the tree through reqwest; named for `Host` (the parsed host).
+url = "2"
+
+[dev-dependencies]
+seaquel-ai = { path = "../seaquel-ai", features = ["testing"] }
+serde_json = { workspace = true }
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "time"] }

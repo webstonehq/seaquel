@@ -5,9 +5,10 @@
  *   `CoreResponse`. Desktop: the `core_call` command; web: `POST /api/rpc`.
  *   A failure rejects with a `CoreCallError` (`"CODE: message"`).
  * - `stream` starts a stream call and yields its events, ending with exactly
- *   one `done` or `error`: a `db.queryStream` yields `StreamEvent`s, and the
+ *   one `done` or `error`: a `db.queryStream` yields `StreamEvent`s, the
  *   editor's `db.run` and `db.page` (phase 5b) and the data tab's
- *   `db.tablePage` (phase 5c) yield `RunEvent`s. A run's or
+ *   `db.tablePage` (phase 5c) yield `RunEvent`s, and an assistant turn
+ *   (`ai.chat`, phase 6) yields `AiEvent`s. A run's or
  *   page's text goes out well-formed (`wellFormedRequest`). Desktop: `core_stream` over a Tauri
  *   channel; web: the page's one `/api/rpc/stream` WebSocket. Aborting the
  *   signal, or leaving the `for await` early, cancels the stream; the
@@ -16,7 +17,8 @@
  *   same way, so a consumer always sees one terminal event.
  * - `events` delivers the workspace's events: `connectionClosed` (a
  *   connection Core closed without the GUI asking: `WORKSPACE_EVICTED`,
- *   `CONNECTION_CLOSED`, …) and `storageChanged` (a stored write committed,
+ *   `WINDOW_CLOSED` and `CONNECTION_REPLACED` (web, a closed tab's or a
+ *   tab's replaced connection), `CONNECTION_CLOSED`, …) and `storageChanged` (a stored write committed,
  *   from any of the user's windows or tabs, this one's included: its
  *   `origin` is `pageOrigin()` then; phase 5d, Decisions 16–18). Events
  *   sent while the page wasn't subscribed are lost: `onResubscribed` says
@@ -27,6 +29,8 @@
  * types its storage calls.
  */
 
+import type { AiEvent } from "$lib/types/generated/AiEvent";
+import type { ChatParams } from "$lib/types/generated/ChatParams";
 import type { CoreEvent } from "$lib/types/generated/CoreEvent";
 import type { CoreRequest } from "$lib/types/generated/CoreRequest";
 import type { CoreResponse } from "$lib/types/generated/CoreResponse";
@@ -44,7 +48,7 @@ import { wellFormed } from "./well-formed";
 
 export { wellFormed, wellFormedJson } from "./well-formed";
 
-export type { CoreEvent, RunEvent, StreamEvent };
+export type { AiEvent, CoreEvent, RunEvent, StreamEvent };
 
 /** `db.queryStream`: yields `StreamEvent`s. */
 export type QueryStreamRequest = {
@@ -70,16 +74,40 @@ export type TablePageRequest = {
   params: { method: "tablePage"; params: TablePageParams };
 };
 
-/** Every request `stream` takes. */
-export type StreamRequest = QueryStreamRequest | RunRequest | PageRequest | TablePageRequest;
+/**
+ * `ai.chat`, one assistant turn (phase 6): yields `AiEvent`s, as
+ * `{type: "ai"}` frames. A turn Core cancelled ends with neither `done`
+ * nor `error`, so it ends here as `CANCELLED`, as any stream does.
+ */
+export type AiChatRequest = {
+  method: "ai";
+  params: { method: "chat"; params: ChatParams };
+};
 
-/** Any stream's event. Both kinds end with one `done` or `error`. */
-export type AnyStreamEvent = StreamEvent | RunEvent;
+/** Every request `stream` takes. */
+export type StreamRequest =
+  | QueryStreamRequest
+  | RunRequest
+  | PageRequest
+  | TablePageRequest
+  | AiChatRequest;
+
+/** Any stream's event. Every kind ends with one `done` or `error`. */
+export type AnyStreamEvent = StreamEvent | RunEvent | AiEvent;
 
 /** The events `request` yields. */
 export type EventOf<R extends StreamRequest> = R extends QueryStreamRequest
   ? StreamEvent
-  : RunEvent;
+  : R extends AiChatRequest
+    ? AiEvent
+    : RunEvent;
+
+/** Whether a stream transport's frame is a stream's own event (not a workspace event). */
+export function isStreamFrame(
+  event: CoreEvent,
+): event is Extract<CoreEvent, { type: "stream" | "run" | "ai" }> {
+  return event.type === "stream" || event.type === "run" || event.type === "ai";
+}
 
 /** A connection Core closed without the GUI asking. */
 export type ConnectionClosedEvent = Extract<CoreEvent, { type: "connectionClosed" }>;
@@ -220,10 +248,18 @@ function isTerminal(event: AnyStreamEvent): boolean {
 // -------- Well-formed text --------
 
 /**
- * `request` with a run's text, a page's SQL or a table page's filter values
- * made well-formed; anything else as it is.
+ * `request` with a run's text, a page's SQL, a table page's filter values or
+ * a turn's message made well-formed; anything else as it is.
  */
 export function wellFormedRequest<R extends StreamRequest>(request: R): R {
+  if (request.method === "ai") {
+    const turn = request.params.params;
+    const userMessage = { ...turn.userMessage, content: wellFormed(turn.userMessage.content) };
+    return {
+      ...request,
+      params: { ...request.params, params: { ...turn, userMessage } },
+    };
+  }
   const inner = request.params;
   if (inner.method === "run") {
     const params = { ...inner.params, text: wellFormed(inner.params.text) };

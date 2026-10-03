@@ -41,6 +41,18 @@ export class VaultCancelledError extends Error {
 interface Waiter {
   resolve: (key: CryptoKey) => void;
   reject: (err: Error) => void;
+  /** The unlock this waits for isn't announced (see `ensureUnlocked`). */
+  quiet: boolean;
+}
+
+/** How a caller waits for the vault. */
+export interface UnlockOptions {
+  /**
+   * Don't announce the unlock with a toast when this caller is the only
+   * reason for it: an assistant send, whose Stop button sits where the
+   * toast would (phase 6 probe F1). The dialog closing says enough.
+   */
+  quiet?: boolean;
 }
 
 export class Vault {
@@ -145,11 +157,11 @@ export class Vault {
    * first. Registers a waiter and returns a promise that resolves when
    * setup/unlock completes, or rejects when the user cancels.
    */
-  async ensureUnlocked(): Promise<CryptoKey> {
+  async ensureUnlocked(options: UnlockOptions = {}): Promise<CryptoKey> {
     if (this.status === "unknown") await this.refreshOrThrow();
     if (this.status === "unlocked" && this.key) return this.key;
     return new Promise<CryptoKey>((resolve, reject) => {
-      this.waiters.push({ resolve, reject });
+      this.waiters.push({ resolve, reject, quiet: options.quiet === true });
       this.waitersPending = true;
     });
   }
@@ -190,13 +202,16 @@ export class Vault {
    * Subsequent unlock with an existing passphrase. Verifies the passphrase
    * by decrypting the stored verifier blob before trusting any other
    * ciphertext.
+   *
+   * `announce`: whether the dialog should say "Vault unlocked", false only
+   * when every caller waiting for it asked to be quiet.
    */
-  async unlock(passphrase: string): Promise<void> {
+  async unlock(passphrase: string): Promise<{ announce: boolean }> {
     if (this.status === "unknown") await this.refreshOrThrow();
     if (this.status === "uninitialized") {
       throw new Error("vault not initialized — use setup() instead");
     }
-    if (this.status === "unlocked" && this.key) return;
+    if (this.status === "unlocked" && this.key) return { announce: true };
 
     // Enforce the cooldown imposed by prior failed attempts before doing
     // any expensive KDF work. This stops a caller from pipelining a
@@ -241,7 +256,9 @@ export class Vault {
     this.key = key;
     this.status = "unlocked";
     this.armIdleTimer();
+    const announce = this.waiters.length === 0 || this.waiters.some((w) => !w.quiet);
     this.resolveWaiters();
+    return { announce };
   }
 
   /** Forget the cached VK. Status flips back to `locked`. */

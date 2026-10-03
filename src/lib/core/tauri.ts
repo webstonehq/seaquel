@@ -28,6 +28,7 @@ import {
   errorEvent,
   StreamQueue,
   isWorkspaceEvent,
+  isStreamFrame,
   type EventsUnavailableReason,
   type ResubscribedInfo,
   type WorkspaceEvent,
@@ -100,8 +101,9 @@ export class TauriCoreClient implements CoreClient {
     const channel = new Channel<CoreEvent>();
     channel.onmessage = (message) => {
       received += 1;
-      // A query stream's events come as `stream`, a run's or page's as `run`.
-      if ((message.type === "stream" || message.type === "run") && message.streamId === streamId) {
+      // A query stream's events come as `stream`, a run's or page's as `run`,
+      // a turn's as `ai`.
+      if (isStreamFrame(message) && message.streamId === streamId) {
         queue.push(message.event as EventOf<R>);
       }
       finishIfAllIn();

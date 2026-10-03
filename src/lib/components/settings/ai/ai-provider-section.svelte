@@ -3,10 +3,10 @@
 	import { Button } from "$lib/components/ui/button";
 	import DeleteConfirmDialog from "$lib/components/delete-confirm-dialog.svelte";
 	import { aiSettingsStore, ProviderKeyNotSavedError } from "$lib/stores/ai-settings.svelte.js";
-	import { getKeyringService } from "$lib/services/keyring";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
 	import { libraryErrorMessage } from "$lib/hooks/database/library/messages";
+	import { isDemo } from "$lib/utils/environment";
 	import PlusIcon from "@lucide/svelte/icons/plus";
 	import PencilIcon from "@lucide/svelte/icons/pencil";
 	import TrashIcon from "@lucide/svelte/icons/trash-2";
@@ -44,6 +44,10 @@
 	let isSavingProvider = $state(false);
 	let providerTestStatus = $state<Record<string, "idle" | "success" | "failed">>({});
 	let isTestingProvider = $state<Record<string, boolean>>({});
+	// The demo keeps the key in page memory for the session (phase 6, Q2 B)
+	// and calls the provider from the browser, so CORS applies.
+	const demo = isDemo();
+	const demoOrigin = demo && typeof window !== "undefined" ? window.location.origin : "";
 
 	function startAddProvider() {
 		editingProviderId = null;
@@ -62,7 +66,9 @@
 		providerFormType = config.type;
 		providerFormBaseUrl = config.baseUrl ?? "";
 		providerFormApiKey = "";
-		providerFormHasExistingKey = !!(await getKeyringService().getAIApiKeyForProvider(config.id));
+		// Whether a key is saved, never the key: Core's `hasKey` on the
+		// desktop, the vault's row on web (phase 6, Decision 7).
+		providerFormHasExistingKey = await aiSettingsStore.hasKey(config.id);
 		providerFormClearKey = false;
 		editingProviderId = config.id;
 	}
@@ -210,7 +216,7 @@
 				<div class="space-y-1">
 					{#if providerFormHasExistingKey}
 						<div class="flex items-center gap-2">
-							<p class="text-xs text-green-600 dark:text-green-400">{m.settings_ai_key_saved()}</p>
+							<p class="text-xs text-green-600 dark:text-green-400">{demo ? m.settings_ai_demo_key_set() : m.settings_ai_key_saved()}</p>
 							<button
 								type="button"
 								class="text-xs text-muted-foreground hover:text-foreground underline"
@@ -224,6 +230,9 @@
 						placeholder={providerFormHasExistingKey ? "***" : m.settings_ai_api_key_placeholder()}
 						bind:value={providerFormApiKey}
 					/>
+					{#if demo}
+						<p class="text-xs text-muted-foreground" data-testid="ai-demo-key-note">{m.settings_ai_demo_key_note()}</p>
+					{/if}
 				</div>
 				{#if providerFormType === "openai-compatible"}
 					<input
@@ -232,6 +241,9 @@
 						placeholder={m.settings_ai_base_url_placeholder()}
 						bind:value={providerFormBaseUrl}
 					/>
+					{#if demo}
+						<p class="text-xs text-muted-foreground" data-testid="ai-demo-cors-note">{m.settings_ai_demo_cors_note({ origin: demoOrigin })}</p>
+					{/if}
 				{/if}
 				<div class="flex items-center gap-2">
 					<Button size="sm" onclick={saveProviderForm} disabled={isSavingProvider || !providerFormName.trim()}>

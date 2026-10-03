@@ -26,6 +26,7 @@ import {
   cancelledEvent,
   errorEvent,
   isWorkspaceEvent,
+  isStreamFrame,
   StreamQueue,
   wellFormedRequest,
   type CoreClient,
@@ -88,7 +89,7 @@ class BrowserCoreClient implements CoreClient {
     const body = encodeCoreRequest(wellFormedRequest(request) as unknown as CoreRequest);
     this.core
       .stream(body, (event: CoreEvent) => {
-        if ((event.type === "stream" || event.type === "run") && event.streamId === streamId) {
+        if (isStreamFrame(event) && event.streamId === streamId) {
           queue.push(event.event as EventOf<R>);
         }
       })

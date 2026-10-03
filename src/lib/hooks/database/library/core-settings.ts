@@ -63,6 +63,9 @@ export class CoreSettings implements SettingsService {
   removeAiProvider(id: string) {
     return this.call("aiProviderRemove", { id });
   }
+  aiProviderHasKey(id: string) {
+    return this.call("aiProviderHasKey", { id });
+  }
 
   getThemes() {
     return this.call("themesGet", undefined);

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use futures::future::{AbortHandle, Abortable};
 use futures::StreamExt;
+use seaquel_core::ai::AiEgress;
 use seaquel_core::{ConnectPolicy, Core, CoreError, Workspace, WorkspaceSpec};
 use seaquel_engine_duckdb::{browser_engine, DuckDbBridge};
 use seaquel_rpc::{
@@ -14,6 +15,8 @@ use seaquel_rpc::{
 };
 use seaquel_runtime::WasmExecutor;
 use wasm_bindgen::prelude::*;
+
+use crate::fetch::{BridgeHttp, FetchBridge};
 
 /// The demo's window id (`src/lib/core/window-id.ts`): every write this
 /// module makes carries it, so the page skips its own `storageChanged`
@@ -72,12 +75,29 @@ fn encode<T: serde::Serialize>(value: &T) -> Result<String, JsValue> {
 
 /// Builds Core over `bridge` and opens its workspace on `image` (none: an
 /// empty file). Shared by `open` and the test hooks' second instance.
-pub(crate) async fn build(bridge: DuckDbBridge, image: Option<Vec<u8>>) -> Result<Open, RpcError> {
-    let core = Core::builder()
+///
+/// With a `fetch` bridge Core runs the assistant (phase 6, Q2), calling
+/// models through the page's `fetch` wherever the visitor's provider is
+/// (`AiEgress::Any`: the browser's own rules, CORS, apply). Without one
+/// every `ai` call is `NOT_SUPPORTED`.
+pub(crate) async fn build(
+    bridge: DuckDbBridge,
+    image: Option<Vec<u8>>,
+    fetch: Option<FetchBridge>,
+) -> Result<Open, RpcError> {
+    let builder = Core::builder()
         .connect_policy(ConnectPolicy::Unrestricted)
         .executor(Arc::new(WasmExecutor))
         .engine(browser_engine(bridge))
-        .build();
+        .ai_egress(AiEgress::Any);
+    let core = match fetch {
+        // The bridge holds JavaScript values, so it isn't `Send`; wasm32 is
+        // single-threaded and Core takes its client as an `Arc`.
+        #[allow(clippy::arc_with_non_send_sync)]
+        Some(fetch) => builder.ai_http(Arc::new(BridgeHttp::new(fetch))),
+        None => builder,
+    }
+    .build();
     let ws = core
         .open_workspace(WorkspaceSpec::new(DATA_DIR).with_image(image))
         .await
@@ -108,6 +128,8 @@ fn install_panic_hook() {
 /// Opens Core in the page: the DuckDB engine over `bridge` and the metadata
 /// file from `image` (the stored snapshot) or a new one. `on_trap` runs if
 /// the module panics; it must not call back into the module synchronously.
+/// `fetch` is the page's fetch bridge for the assistant's model calls
+/// (`src/fetch.rs`); a visitor's key comes with each call, never stored.
 /// Resolves to the commit counter after the open (the snapshot baseline);
 /// rejects with an `RpcError`'s JSON (`STORAGE_CORRUPT` for an image that
 /// isn't a database). A second `open` closes the first Core's connections
@@ -117,6 +139,7 @@ pub async fn open(
     bridge: DuckDbBridge,
     image: Option<Vec<u8>>,
     on_trap: Option<js_sys::Function>,
+    fetch: Option<FetchBridge>,
 ) -> Result<f64, JsValue> {
     crate::log::install();
     install_panic_hook();
@@ -132,7 +155,7 @@ pub async fn open(
     if let Some(previous) = previous {
         previous.ws.close_all(&previous.core).await;
     }
-    let open = build(bridge, image).await.map_err(reject)?;
+    let open = build(bridge, image, fetch).await.map_err(reject)?;
     let commits = open.ws.storage().commits();
     OPEN.with(|o| *o.borrow_mut() = Some(Rc::new(open)));
     Ok(commits as f64)
@@ -154,10 +177,16 @@ pub(crate) async fn serve(open: &Open, body: &[u8]) -> Result<String, JsValue> {
     encode(&response)
 }
 
-/// A stream call (`db.queryStream`, `db.run`, `db.page`, `db.tablePage`):
-/// each `CoreEvent` goes to `on_event` as JSON text, in order. Resolves
-/// with the number of events sent once the stream ends (`db.cancel` ends it
-/// early). `on_event` must not call back into the module synchronously.
+/// A stream call (`db.queryStream`, `db.run`, `db.page`, `db.tablePage`,
+/// `ai.chat`): each `CoreEvent` goes to `on_event` as JSON text, in order.
+/// Resolves with the number of events sent once the stream ends
+/// (`db.cancel` ends it early). `on_event` must not call back into the
+/// module synchronously.
+///
+/// The stream is always polled to its end, never dropped: a cancelled turn
+/// (`db.cancel`, or a second `open`'s `close_all`) then stores its reply
+/// with what streamed (phase 6, Task 4's contract). An `on_event` that
+/// throws changes nothing.
 #[wasm_bindgen]
 pub async fn stream(body: Vec<u8>, on_event: js_sys::Function) -> Result<u32, JsValue> {
     let open = current_open()?;

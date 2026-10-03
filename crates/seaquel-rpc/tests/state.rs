@@ -597,6 +597,104 @@ async fn an_api_key_is_written_on_the_desktop_and_not_supported_without_a_store(
     assert_eq!(store.get(&key).await.unwrap(), None);
 }
 
+/// A `MemoryStore` that counts reads.
+struct CountingStore {
+    inner: MemoryStore,
+    reads: std::sync::atomic::AtomicUsize,
+}
+
+#[seaquel_runtime::async_trait]
+impl SecretStore for CountingStore {
+    async fn get(&self, key: &str) -> Result<Option<String>, seaquel_core::secrets::SecretError> {
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.inner.get(key).await
+    }
+    async fn set(&self, key: &str, value: &str) -> Result<(), seaquel_core::secrets::SecretError> {
+        self.inner.set(key, value).await
+    }
+    async fn delete(&self, key: &str) -> Result<(), seaquel_core::secrets::SecretError> {
+        self.inner.delete(key).await
+    }
+}
+
+/// Phase 6 Task 7 (review I2): the page can't read an AI key, so the
+/// settings form asks `aiProviderHasKey {id}` when it opens a provider:
+/// one keychain read, for that provider only. `aiSettingsGet` reads no
+/// secret. The web has no store: `NOT_SUPPORTED` (the page asks its vault).
+#[tokio::test]
+async fn ai_provider_has_key_reads_one_secret_and_ai_settings_get_none() {
+    let core = seaquel_core::with_plugins(|id| id == "postgres")
+        .executor(Arc::new(seaquel_runtime::TokioExecutor))
+        .build();
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(CountingStore {
+        inner: MemoryStore::new(),
+        reads: Default::default(),
+    });
+    let ws = core
+        .open_workspace(WorkspaceSpec::new(dir.path()).with_secrets(store.clone()))
+        .await
+        .unwrap();
+    let env = Env {
+        core,
+        ws,
+        store: None,
+        _dir: dir,
+    };
+    let keyed = env
+        .settings(
+            "aiProviderCreate",
+            json!({"provider": {"name": "Keyed", "type": "anthropic"}, "apiKey": "canary-key"}),
+        )
+        .await
+        .unwrap()["value"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let keyless = env
+        .settings(
+            "aiProviderCreate",
+            json!({"provider": {"name": "Keyless", "type": "openai-compatible"}}),
+        )
+        .await
+        .unwrap()["value"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let reads = || store.reads.load(std::sync::atomic::Ordering::SeqCst);
+
+    let before = reads();
+    let got = env.settings("aiSettingsGet", Json::Null).await.unwrap();
+    assert_eq!(reads(), before, "aiSettingsGet read a secret");
+    assert!(!got.to_string().contains("hasKey"), "{got}");
+
+    let before = reads();
+    let has = env
+        .settings("aiProviderHasKey", json!({"id": keyed}))
+        .await
+        .unwrap();
+    assert_eq!(has["value"], true, "{has}");
+    assert_eq!(reads(), before + 1);
+    let has = env
+        .settings("aiProviderHasKey", json!({"id": keyless}))
+        .await
+        .unwrap();
+    assert_eq!(has["value"], false, "{has}");
+    assert!(!has.to_string().contains("canary"));
+    let err = env
+        .settings("aiProviderHasKey", json!({"id": "nope"}))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "AI_PROVIDER_NOT_FOUND");
+
+    let web = self::env(false).await;
+    let err = web
+        .settings("aiProviderHasKey", json!({"id": keyed}))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "NOT_SUPPORTED");
+}
+
 // ── The ui group ──
 
 #[tokio::test]

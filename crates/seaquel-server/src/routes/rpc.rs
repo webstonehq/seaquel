@@ -8,8 +8,10 @@
 //! connections.
 //! Core refuses a connection or stream the workspace doesn't own with
 //! `CONNECTION_NOT_FOUND`, and connects under [`crate::web_connect_policy`].
-//! `db.queryStream`, `db.run`, `db.page` and `db.tablePage` are served by
-//! `/rpc/stream`.
+//! The `ai` group (phase 6): `respond`, `generate`, `models` and `test`;
+//! the key the page decrypted from the vault comes with each call
+//! (`apiKey`) and is never logged. `db.queryStream`, `db.run`, `db.page`,
+//! `db.tablePage` and `ai.chat` are served by `/rpc/stream`.
 //!
 //! Only Node's `/api/rpc` route calls this. It sets the header from the
 //! session and drops any copy the browser sent, so the header is trusted
@@ -40,7 +42,10 @@
 //! and `PROJECT_NOT_FOUND`, `SAVED_QUERY_NOT_FOUND`, `LABEL_NOT_FOUND`,
 //! `DASHBOARD_NOT_FOUND`, `DASHBOARD_VERSION_NOT_FOUND`,
 //! `WORKFLOW_NOT_FOUND`, `CHAT_NOT_FOUND`,
-//! `THEME_NOT_FOUND` and `AI_PROVIDER_NOT_FOUND` 404, `STORAGE_FULL` 507
+//! `THEME_NOT_FOUND` and `AI_PROVIDER_NOT_FOUND` 404, the assistant's codes
+//! (`AI_EGRESS_BLOCKED` 503, `PROVIDER_ERROR` 502, `RATE_LIMITED` and
+//! `TOO_MANY_REQUESTS` 429, `CHAT_FULL` and `TURN_IN_PROGRESS` 409,
+//! `NOT_FOUND` 404, Core's refusals 400), `STORAGE_FULL` 507
 //! (the user's file reached its cap), and the storage codes 500
 //! (`STORAGE_ERROR`, `STORAGE_CORRUPT`, `LEGACY_STORAGE`, `NO_DATA_DIR`).
 //!
@@ -90,10 +95,14 @@ pub const MAX_IN_FLIGHT_BYTES_PER_USER: usize = 40 * 1024 * 1024;
 /// their storage saves and history appends fail with 429.
 pub const SMALL_CALL_BYTES: usize = 64 * 1024;
 
-/// How many edit calls (`db.applyChanges`, `db.planEdits`,
-/// `db.duckdbExtension`) one user runs at once, whatever their size: each
-/// holds many times its body in memory, or a database connection, while it
-/// runs. The next is refused with [`TOO_MANY_REQUESTS`] (429).
+/// How many slow calls one user runs at once, whatever their size: the
+/// edit calls (`db.applyChanges`, `db.planEdits`, `db.duckdbExtension`),
+/// each holding many times its body in memory or a database connection,
+/// and (phase 6) the unary model calls (`ai.generate`, `ai.models`,
+/// `ai.test`), each holding a request to the provider for up to 10 minutes.
+/// One pool for both. The next is refused with [`TOO_MANY_REQUESTS`] (429)
+/// before it runs. A turn (`ai.chat`) is a stream, under Core's own cap
+/// (`WEB_AI_LIMITS`).
 pub const MAX_EDIT_CALLS_PER_USER: usize = 4;
 
 /// The code for a call refused by [`MAX_IN_FLIGHT_BYTES_PER_USER`] or
@@ -172,11 +181,11 @@ async fn call(
     // Parse before opening anything, so a bad body never creates a file.
     let request = parse_request(body)?;
     *method = Some((request.group(), request.method()));
-    if is_edit_call(&request) && !slot.begin_edit(MAX_EDIT_CALLS_PER_USER) {
+    if is_slow_call(&request) && !slot.begin_edit(MAX_EDIT_CALLS_PER_USER) {
         return Err(RpcError::new(
             TOO_MANY_REQUESTS,
             format!(
-                "At most {MAX_EDIT_CALLS_PER_USER} edit requests can run at once. \
+                "At most {MAX_EDIT_CALLS_PER_USER} edit or AI requests can run at once. \
                  Wait for one to finish and try again."
             ),
         ));
@@ -208,16 +217,18 @@ pub(crate) fn write_origin(headers: &HeaderMap) -> WriteOrigin {
     }
 }
 
-/// A call [`MAX_EDIT_CALLS_PER_USER`] counts. Library, settings and `ui`
-/// calls don't count (phase 5d, Decisions 15 and 27): they're single-row
-/// writes and reads, bounded by the web limits; like every call they count
-/// toward [`MAX_IN_FLIGHT_BYTES_PER_USER`] and the body limits.
-fn is_edit_call(request: &seaquel_rpc::Request) -> bool {
-    request.group() == "db"
-        && matches!(
-            request.method(),
-            "applyChanges" | "planEdits" | "duckdbExtension"
-        )
+/// A call [`MAX_EDIT_CALLS_PER_USER`] counts: the edit calls and the unary
+/// model calls. Library, settings and `ui` calls don't count (phase 5d,
+/// Decisions 15 and 27): they're single-row writes and reads, bounded by
+/// the web limits; nor does `ai.respond`, which only hands a turn its
+/// answer. Like every call they count toward
+/// [`MAX_IN_FLIGHT_BYTES_PER_USER`] and the body limits.
+fn is_slow_call(request: &seaquel_rpc::Request) -> bool {
+    matches!(
+        (request.group(), request.method()),
+        ("db", "applyChanges" | "planEdits" | "duckdbExtension")
+            | ("ai", "generate" | "models" | "test")
+    )
 }
 
 /// `user`'s workspace from the LRU, opening it if needed.

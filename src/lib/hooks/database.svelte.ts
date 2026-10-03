@@ -161,10 +161,7 @@ export class UseDatabase {
     this.ui = new UIStateManager(
       this.state,
       scheduleProjectPersistence,
-      (connectionId, sql, signal, connectionName, maxRows) =>
-        this.queries.executeReadOnly(connectionId, sql, signal, connectionName, maxRows),
       this.aiChats,
-      (chatId) => this.aiChats.persistMessages(chatId),
       this.dashboards,
       this.dashboardTabs,
     );
@@ -318,9 +315,9 @@ export class UseDatabase {
         this.queryTabs.add();
         this.ui.setActiveView("query");
       },
-      () => {
-        this.ui.resetAISessionState();
-      },
+      () => {},
+      // "Allow all" doesn't outlive its connection, or a change of where it points.
+      () => this.ui.forgetStaleAllowAll(),
     );
 
     // Set up cross-manager callbacks
@@ -344,6 +341,11 @@ export class UseDatabase {
       client: getCoreClient,
       origin: pageOrigin,
       seqs: this.state.librarySeqs,
+      // A stopped turn's reply, which Core stores after the stream ended.
+      acceptOwn: (event) =>
+        event.kind === "chatMessages" &&
+        event.scope !== null &&
+        this.aiChats.awaitsOwnStore(event.scope),
     });
     this.librarySync = new LibrarySync(this.state, feed, {
       connections: this.connections,
@@ -516,18 +518,13 @@ export class UseDatabase {
 
   /**
    * Save every pending write now: the window's view state (the projects
-   * with a pending save, the active one first), and the messages of a chat whose turn is still streaming (its turn's end, which
-   * saves it, never comes on a closing page). The desktop awaits it before
-   * its window closes.
+   * with a pending save, the active one first). The desktop awaits it
+   * before its window closes. A turn still streaming is Core's to store:
+   * closing the window or the socket cancels it, and Core stores what
+   * streamed (phase 6, Q8).
    */
   async flush(): Promise<void> {
     await this.windowState.flush();
-    await this.flushStreamingChat();
-  }
-
-  private async flushStreamingChat(): Promise<void> {
-    const streaming = this.state.aiStreamingChatId;
-    if (streaming) await this.aiChats.persistMessages(streaming);
   }
 
   /**
@@ -537,7 +534,6 @@ export class UseDatabase {
    */
   saveOnPageHide(): void {
     this.windowState.saveOnPageHide();
-    void this.flushStreamingChat();
   }
 
   /**

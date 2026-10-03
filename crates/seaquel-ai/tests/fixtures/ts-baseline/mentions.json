@@ -1,0 +1,268 @@
+[
+  {
+    "name": "resolve/table-qualified",
+    "note": "`schema.name`.",
+    "input": {
+      "content": "Describe @public.users",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Describe @public.users\n\nReferenced context:\nTable: public.users (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - email: text [NOT NULL]\n  - name: text"
+  },
+  {
+    "name": "resolve/table-name-only",
+    "note": "Name only: the first table with that name.",
+    "input": {
+      "content": "Describe @orders",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Describe @orders\n\nReferenced context:\nTable: public.orders (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - user_id: integer [FK, NOT NULL] -> users.id\n  - total: numeric(10,2)\n  - created_at: timestamp with time zone [NOT NULL]"
+  },
+  {
+    "name": "resolve/table-ambiguous",
+    "note": "`users` exists in two schemas; name only picks the first.",
+    "input": {
+      "content": "Describe @USERS",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Describe @USERS\n\nReferenced context:\nTable: public.users (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - email: text [NOT NULL]\n  - name: text"
+  },
+  {
+    "name": "resolve/table-case",
+    "note": "Case-insensitive.",
+    "input": {
+      "content": "Describe @Public.Orders",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Describe @Public.Orders\n\nReferenced context:\nTable: public.orders (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - user_id: integer [FK, NOT NULL] -> users.id\n  - total: numeric(10,2)\n  - created_at: timestamp with time zone [NOT NULL]"
+  },
+  {
+    "name": "resolve/view",
+    "note": "A view.",
+    "input": {
+      "content": "Describe @public.active_users",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Describe @public.active_users\n\nReferenced context:\nTable: public.active_users (view)\nColumns:\n  - id: integer\n  - email: text"
+  },
+  {
+    "name": "resolve/query-quoted",
+    "note": "A saved query with spaces, quoted.",
+    "input": {
+      "content": "Explain @\"Monthly revenue\"",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Explain @\"Monthly revenue\"\n\nReferenced context:\nSaved query: Monthly revenue\n```sql\nSELECT date_trunc('month', created_at) AS m, sum(total) FROM orders GROUP BY 1\n```"
+  },
+  {
+    "name": "resolve/query-unquoted-first-word",
+    "note": "Unquoted, a name with spaces stops at the space.",
+    "input": {
+      "content": "Explain @Monthly revenue",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Explain @Monthly revenue"
+  },
+  {
+    "name": "resolve/table-over-query",
+    "note": "A table wins over a saved query with the same name.",
+    "input": {
+      "content": "Explain @users",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Explain @users\n\nReferenced context:\nTable: public.users (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - email: text [NOT NULL]\n  - name: text"
+  },
+  {
+    "name": "resolve/dashboard",
+    "note": "A dashboard with widgets (one without a query).",
+    "input": {
+      "content": "Change @Sales",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Change @Sales\n\nReferenced context:\nDashboard: Sales (id: dash-1)\nWidgets:\n  - Revenue [id: w-1] (kpi)\n    Query: SELECT sum(total) FROM orders\n  - Notes [id: w-2] (text)"
+  },
+  {
+    "name": "resolve/dashboard-empty",
+    "note": "A dashboard without widgets, quoted.",
+    "input": {
+      "content": "Fill @\"Empty board\"",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Fill @\"Empty board\"\n\nReferenced context:\nDashboard: Empty board (id: dash-2)"
+  },
+  {
+    "name": "resolve/duplicates",
+    "note": "The same mention twice, in two cases: one block.",
+    "input": {
+      "content": "@orders and @ORDERS again",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "@orders and @ORDERS again\n\nReferenced context:\nTable: public.orders (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - user_id: integer [FK, NOT NULL] -> users.id\n  - total: numeric(10,2)\n  - created_at: timestamp with time zone [NOT NULL]"
+  },
+  {
+    "name": "resolve/unknown",
+    "note": "Nothing matches: the message is unchanged.",
+    "input": {
+      "content": "Ask @nobody about it",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Ask @nobody about it"
+  },
+  {
+    "name": "resolve/trailing-punctuation",
+    "note": "Punctuation is part of the token, so it doesn't match.",
+    "input": {
+      "content": "What about @orders?",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "What about @orders?"
+  },
+  {
+    "name": "resolve/email",
+    "note": "An e-mail address is a mention of `example.com`.",
+    "input": {
+      "content": "Mail ada@example.com",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Mail ada@example.com"
+  },
+  {
+    "name": "resolve/none",
+    "note": "No mention.",
+    "input": {
+      "content": "Plain question",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Plain question"
+  },
+  {
+    "name": "resolve/several",
+    "note": "A table, a query and a dashboard, in order.",
+    "input": {
+      "content": "Use @public.orders, @\"Top customers\" and @Sales",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": true
+      }
+    },
+    "enriched": "Use @public.orders, @\"Top customers\" and @Sales\n\nReferenced context:\nSaved query: Top customers\n```sql\nSELECT user_id, count(*) FROM orders GROUP BY 1 ORDER BY 2 DESC LIMIT 10\n```\n\nDashboard: Sales (id: dash-1)\nWidgets:\n  - Revenue [id: w-1] (kpi)\n    Query: SELECT sum(total) FROM orders\n  - Notes [id: w-2] (text)"
+  },
+  {
+    "name": "resolve/schema-off/table",
+    "note": "Schema sharing off: today the context is added anyway (bug 8).",
+    "input": {
+      "content": "Describe @public.users",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": false
+      }
+    },
+    "enriched": "Describe @public.users\n\nReferenced context:\nTable: public.users (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - email: text [NOT NULL]\n  - name: text"
+  },
+  {
+    "name": "resolve/schema-off/query",
+    "note": "Schema sharing off: today the context is added anyway (bug 8).",
+    "input": {
+      "content": "Explain @\"Monthly revenue\"",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": false
+      }
+    },
+    "enriched": "Explain @\"Monthly revenue\"\n\nReferenced context:\nSaved query: Monthly revenue\n```sql\nSELECT date_trunc('month', created_at) AS m, sum(total) FROM orders GROUP BY 1\n```"
+  },
+  {
+    "name": "resolve/schema-off/dashboard",
+    "note": "Schema sharing off: today the context is added anyway (bug 8).",
+    "input": {
+      "content": "Change @Sales",
+      "tables": "SCHEMA",
+      "savedQueries": "SAVED",
+      "dashboards": "DASHBOARDS",
+      "sharing": {
+        "schema": false
+      }
+    },
+    "enriched": "Change @Sales\n\nReferenced context:\nDashboard: Sales (id: dash-1)\nWidgets:\n  - Revenue [id: w-1] (kpi)\n    Query: SELECT sum(total) FROM orders\n  - Notes [id: w-2] (text)"
+  }
+]

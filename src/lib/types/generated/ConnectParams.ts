@@ -23,4 +23,12 @@ trustHostKey?: string,
 /**
  * SQLite: create the file if it doesn't exist.
  */
-createIfMissing?: boolean, };
+createIfMissing?: boolean, 
+/**
+ * The saved connection this connection is for (phase 6, Decision 6):
+ * an assistant turn runs its tools only on a connection opened for
+ * the chat's saved connection (`CONNECTION_MISMATCH`). A saved target
+ * records its own id without it; naming another is `INVALID_ARGUMENT`.
+ * A form connect (the edit tab's reconnect) names the row it edits.
+ */
+savedConnectionId?: string, };

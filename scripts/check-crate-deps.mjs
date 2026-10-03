@@ -71,7 +71,18 @@ const DOMAIN_AND_INFRA = new Set([
   "seaquel-ssh",
   "seaquel-git",
   "seaquel-license",
+  "seaquel-http",
+  "seaquel-ai",
 ]);
+
+/**
+ * Domain crates that build for wasm32 (phase 6's `seaquel-ai`, which the
+ * demo's module links): on top of the domain rules, they may depend only on
+ * pure crates and seaquel-workspace, never on a native infrastructure crate
+ * (seaquel-http, seaquel-secrets, ...).
+ */
+const WASM_DOMAIN = new Set(["seaquel-ai"]);
+const WASM_DOMAIN_MAY_USE = new Set([...PURE, "seaquel-workspace"]);
 
 const ENGINE_MAY_USE = new Set([
   "seaquel-engine",
@@ -190,6 +201,12 @@ export function checkCrateDeps(packages) {
       case "testkit":
       case "domain":
         forbid((d) => !isEngine(d), "reach engines through EngineRegistry, never by crate name");
+        if (WASM_DOMAIN.has(pkg.name)) {
+          forbid(
+            (d) => isEngine(d) || WASM_DOMAIN_MAY_USE.has(d),
+            `${pkg.name} builds for wasm32; it may only depend on pure crates and seaquel-workspace`,
+          );
+        }
         break;
     }
   }

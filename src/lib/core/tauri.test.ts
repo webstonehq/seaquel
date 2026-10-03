@@ -44,7 +44,14 @@ vi.mock("$lib/utils/logger", () => ({
 }));
 
 const { TauriCoreClient } = await import("./tauri");
-import type { PageRequest, QueryStreamRequest, RunRequest, StreamEvent } from "./client";
+import type {
+  AiChatRequest,
+  PageRequest,
+  QueryStreamRequest,
+  RunRequest,
+  StreamEvent,
+} from "./client";
+import type { AiEvent } from "$lib/types/generated/AiEvent";
 import type { RunEvent } from "$lib/types/generated/RunEvent";
 
 function request(streamId = "s-1"): QueryStreamRequest {
@@ -401,5 +408,71 @@ describe("TauriCoreClient.call with a lone surrogate (Task 7 probe, item 7)", ()
     const sent = new TextDecoder().decode(body);
     expect(sent).not.toMatch(/\\ud[89a-f]/i);
     expect(JSON.parse(sent).params.params.streamId).toBe("s\ufffd");
+  });
+});
+
+describe("TauriCoreClient.stream of an assistant turn (phase 6 Task 7)", () => {
+  function turnRequest(streamId = "t-1"): AiChatRequest {
+    return {
+      method: "ai",
+      params: {
+        method: "chat",
+        params: {
+          streamId,
+          chatId: "chat-1",
+          connectionId: "c-1",
+          userMessage: { id: "u-1", content: "How many?" },
+          assistantMessageId: "a-1",
+          approval: "ask",
+          clientTools: true,
+        },
+      },
+    };
+  }
+
+  it("yields the turn's ai events and ends at its done", async () => {
+    const client = new TauriCoreClient();
+    const events: AiEvent[] = [];
+    const done = (async () => {
+      for await (const e of client.stream(turnRequest())) events.push(e);
+    })();
+    const { channel } = streamCall();
+    channel.onmessage({ type: "ai", streamId: "t-1", event: { type: "text", delta: "Hi" } });
+    channel.onmessage({ type: "ai", streamId: "other", event: { type: "text", delta: "No" } });
+    const end: AiEvent = {
+      type: "done",
+      messages: [],
+      seq: { epoch: "e", n: 3 },
+      stop: "end",
+    };
+    channel.onmessage({ type: "ai", streamId: "t-1", event: end });
+    tauri.settle?.resolve(3);
+    await done;
+    expect(events).toEqual([{ type: "text", delta: "Hi" }, end]);
+  });
+
+  it("ends a cancelled turn (no done or error) as CANCELLED", async () => {
+    const client = new TauriCoreClient();
+    const events: AiEvent[] = [];
+    const done = (async () => {
+      for await (const e of client.stream(turnRequest())) events.push(e);
+    })();
+    streamCall().channel.onmessage({
+      type: "ai",
+      streamId: "t-1",
+      event: { type: "text", delta: "Part" },
+    });
+    tauri.settle?.resolve(1);
+    await done;
+    expect(events.at(-1)).toEqual(expect.objectContaining({ type: "error", code: "CANCELLED" }));
+  });
+
+  it("replaces a lone surrogate in the user's message", () => {
+    const client = new TauriCoreClient();
+    const req = turnRequest();
+    req.params.params.userMessage.content = "Hi \uD83D";
+    void client.stream(req);
+    const sent = JSON.parse(streamCall().request) as AiChatRequest;
+    expect(sent.params.params.userMessage.content).toBe("Hi �");
   });
 });

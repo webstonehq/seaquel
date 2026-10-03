@@ -14,6 +14,8 @@ server = []
 
 [dependencies]
 seaquel-types = { path = "../seaquel-types" }
+# The reqwest client that never panics (moved out of this crate in phase 6).
+seaquel-http = { path = "../seaquel-http" }
 base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
 log = { workspace = true }

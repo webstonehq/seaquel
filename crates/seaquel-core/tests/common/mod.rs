@@ -196,8 +196,10 @@ pub async fn dump(st: &Storage, table: &str, order: &str) -> Vec<Value> {
 }
 
 /// The link columns migrations `0004_shared_links.sql` and
-/// `0005_shared_connection_origin.sql` (phase 5e) added, by table. The 5d
-/// replays were recorded before them and never link a row.
+/// `0005_shared_connection_origin.sql` (phase 5e) added, by table, and
+/// `0007_ai_message_parts.sql`'s `ai_messages.parts` (phase 6). The 5d
+/// replays were recorded before them, never link a row and never store a
+/// tool call.
 pub const LINK_COLUMNS: &[(&str, &[&str])] = &[
     ("projects", &["shared_dir"]),
     (
@@ -212,10 +214,12 @@ pub const LINK_COLUMNS: &[(&str, &[&str])] = &[
         "connections",
         &["shared_base", "shared_file_id", "shared_origin"],
     ),
+    ("ai_messages", &["parts"]),
 ];
 
-/// Takes `0004`'s and `0005`'s link columns out of `table`'s dumped rows, after checking
-/// that each is there and NULL: a 5d call never links a row.
+/// Takes the columns of [`LINK_COLUMNS`] out of `table`'s dumped rows,
+/// after checking that each is there and NULL: a 5d call never links a row
+/// or stores a tool call.
 pub fn drop_link_columns(table: &str, rows: &mut [Value]) {
     let Some((_, columns)) = LINK_COLUMNS.iter().find(|(t, _)| *t == table) else {
         return;

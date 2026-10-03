@@ -8,6 +8,7 @@
 		text = $bindable(""),
 		loading,
 		error = $bindable<{ message: string; action?: { label: string; fn: () => void } } | null>(null),
+		notice = null,
 		onSubmit,
 		onClose,
 		focusOnMount,
@@ -15,6 +16,8 @@
 		text: string;
 		loading: boolean;
 		error: { message: string; action?: { label: string; fn: () => void } } | null;
+		/** After an insert: how to run it (the prompt never runs it). */
+		notice?: string | null;
 		onSubmit: () => void;
 		onClose: () => void;
 		focusOnMount: () => (el: HTMLInputElement) => void;
@@ -69,6 +72,9 @@
 			/>
 		{/if}
 	{:else}
+		{#if notice}
+			<span class="text-xs text-muted-foreground" role="status">{notice}</span>
+		{/if}
 		<AiModelSwitcher
 			providerId={db.state.activeConnection?.activeAIProviderId ?? null}
 			model={db.state.activeConnection?.activeAIModel ?? null}

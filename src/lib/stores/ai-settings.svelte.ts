@@ -1,7 +1,10 @@
 import { getSettings } from "$lib/hooks/database/library/index";
 import { RowSeqs } from "$lib/hooks/database/library/seqs";
 import type { ChangeSeq } from "$lib/hooks/database/library/types";
-import { getKeyringService } from "$lib/services/keyring";
+import { aiKeyVault, getKeyringService } from "$lib/services/keyring";
+import { sessionKeys } from "$lib/services/session-keys";
+import { getAi } from "$lib/hooks/database/ai/index";
+import { errorCode } from "$lib/core/client";
 import {
   DEFAULT_AI_SETTINGS,
   type AISettings,
@@ -13,8 +16,6 @@ import { isFeatureEnabled } from "$lib/features";
 import { log } from "$lib/utils/logger";
 import { onStoredChange } from "./settings-sync";
 import { m } from "$lib/paraglide/messages.js";
-
-const ANTHROPIC_API_VERSION = "2023-06-01";
 
 /** The record's key for the `seq` rule. */
 const RECORD = "aiSettings";
@@ -85,7 +86,12 @@ function baseUrlOf(url: string | undefined): string | undefined {
  * API keys (Decision 8, Q19): on the desktop the key goes with the Core
  * call, which writes the keychain; on the web the vault keeps it in the
  * browser, written here after Core answers (Core deletes a removed
- * provider's vault rows). The demo stores none.
+ * provider's vault rows). The demo keeps the visitor's key in this page's
+ * memory for the session (`sessionKeys`, Q2 B), never in storage, and
+ * forgets it on reload; Core stores the provider without it. The page never reads a
+ * key on the desktop (phase 6, Decision 7): whether one is saved is a
+ * targeted `aiProviderHasKey` call. The model list and the provider test are
+ * Core's (`ai.models`, `ai.test`).
  */
 export class AISettingsStore {
   settings = $state<AISettings>({ ...DEFAULT_AI_SETTINGS });
@@ -99,8 +105,8 @@ export class AISettingsStore {
   }
 
   /**
-   * Whether the assistant is offered: this build has it (`aiAssistant`,
-   * off in the demo, Q7 A) and the user hasn't turned it off. The header's
+   * Whether the assistant is offered: this build has it (`aiAssistant`;
+   * the demo has it too since phase 6, Q2 B) and the user hasn't turned it off. The header's
    * toggle, the command palette, the editor's inline prompt, the right
    * panel and Settings' AI group all read this.
    */
@@ -131,6 +137,24 @@ export class AISettingsStore {
   }
 
   /**
+   * Whether a key is saved for the provider, never the key: on the desktop
+   * one `aiProviderHasKey` (one keychain read, review I2), asked when the
+   * settings form opens a provider; on web whether the vault holds its row
+   * (nothing decrypted). A read that fails says none.
+   */
+  async hasKey(providerId: string): Promise<boolean> {
+    const vault = aiKeyVault();
+    if (vault) return vault.hasAIApiKeyForProvider(providerId);
+    if (!isTauri()) return false;
+    try {
+      return (await getSettings().aiProviderHasKey(providerId)).value;
+    } catch (err) {
+      void log.warn(`[AI] Reading whether a key is saved failed (${errorCode(err) ?? "unknown"})`);
+      return false;
+    }
+  }
+
+  /**
    * Before a change: a load still out is waited for, and one that never
    * ran is made, so the settings on screen are the stored ones. The change
    * itself is targeted, so it's sent whether or not the load worked.
@@ -154,7 +178,9 @@ export class AISettingsStore {
       desktop && apiKey ? apiKey : undefined,
     );
     this.apply(value.settings, seq);
-    if (!desktop && apiKey) {
+    if (import.meta.env.VITE_BUILD_TARGET === "demo") {
+      if (apiKey) sessionKeys().set(value.id, apiKey);
+    } else if (!desktop && apiKey) {
       try {
         await getKeyringService().setAIApiKeyForProvider(value.id, apiKey);
       } catch (error) {
@@ -184,7 +210,10 @@ export class AISettingsStore {
       desktop ? key : undefined,
     );
     this.apply(value, seq);
-    if (!desktop && key !== undefined) {
+    if (import.meta.env.VITE_BUILD_TARGET === "demo") {
+      if (key === null) sessionKeys().delete(config.id);
+      else if (key !== undefined) sessionKeys().set(config.id, key);
+    } else if (!desktop && key !== undefined) {
       const keyring = getKeyringService();
       if (key === null) await keyring.deleteAIApiKeyForProvider(config.id);
       else await keyring.setAIApiKeyForProvider(config.id, key);
@@ -196,6 +225,7 @@ export class AISettingsStore {
     await this.ready();
     const { value, seq } = await getSettings().removeAiProvider(id);
     this.apply(value, seq);
+    if (import.meta.env.VITE_BUILD_TARGET === "demo") sessionKeys().delete(id);
   }
 
   async setEnabled(enabled: boolean): Promise<void> {
@@ -212,52 +242,23 @@ export class AISettingsStore {
     this.apply(value, seq);
   }
 
-  /**
-   * Fetch the /models endpoint for a provider, handling auth headers for both
-   * Anthropic and OpenAI-compatible providers.
-   */
-  private async fetchProviderModels(config: AIProvider, apiKey: string): Promise<Response | null> {
-    if (config.type === "anthropic") {
-      return fetch("https://api.anthropic.com/v1/models", {
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": ANTHROPIC_API_VERSION,
-        },
-      });
-    }
-    const baseUrl = (config.baseUrl ?? "").replace(/\/$/, "");
-    if (!baseUrl) return null;
-    const headers: Record<string, string> = {};
-    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-    return fetch(`${baseUrl}/models`, { headers });
-  }
-
+  /** Whether the provider answers with its key (`ai.test`). Refusals are logged by code. */
   async testConnection(providerId: string): Promise<boolean> {
-    const config = this.settings.providers.find((p) => p.id === providerId);
-    if (!config) return false;
-    const apiKey = (await getKeyringService().getAIApiKeyForProvider(config.id)) ?? "";
-    if (config.type === "anthropic" && !apiKey) return false;
     try {
-      const res = await this.fetchProviderModels(config, apiKey);
-      return res?.ok ?? false;
+      await getAi().test(providerId);
+      return true;
     } catch (err) {
-      void log.error("[AI] testConnection error:", err);
+      void log.warn(`[AI] The provider test failed (${errorCode(err) ?? "unknown"})`);
       return false;
     }
   }
 
+  /** The provider's model ids (`ai.models`); none when Core refuses. */
   async fetchModels(providerId: string): Promise<string[]> {
-    const config = this.settings.providers.find((p) => p.id === providerId);
-    if (!config) return [];
-    const apiKey = (await getKeyringService().getAIApiKeyForProvider(config.id)) ?? "";
-    if (config.type === "anthropic" && !apiKey) return [];
     try {
-      const res = await this.fetchProviderModels(config, apiKey);
-      if (!res?.ok) return [];
-      const data = await res.json();
-      return (data.data as Array<{ id: string }>).map((e) => e.id);
+      return await getAi().models(providerId);
     } catch (err) {
-      void log.error("[AI] fetchModels error:", err);
+      void log.warn(`[AI] Listing models failed (${errorCode(err) ?? "unknown"})`);
       return [];
     }
   }

@@ -55,6 +55,7 @@ import {
   streamError,
   StreamQueue,
   isWorkspaceEvent,
+  isStreamFrame,
   type EventsUnavailableReason,
   type ResubscribedInfo,
   type WorkspaceEvent,
@@ -186,7 +187,7 @@ export class HttpCoreClient implements CoreClient {
     }
 
     const entry: Entry = {
-      queue: queue as StreamQueue<AnyStreamEvent>,
+      queue: queue as unknown as StreamQueue<AnyStreamEvent>,
       frame: JSON.stringify({ op: "start", streamId, request: wellFormedRequest(request) }),
       started: false,
       heard: false,
@@ -402,8 +403,9 @@ export class HttpCoreClient implements CoreClient {
       for (const handler of this.handlers) handler(event);
       return;
     }
-    // A query stream's events come as `stream`, a run's or page's as `run`.
-    if (event.type !== "stream" && event.type !== "run") {
+    // A query stream's events come as `stream`, a run's or page's as `run`,
+    // a turn's as `ai`.
+    if (!isStreamFrame(event)) {
       void log.warn(
         `Ignoring a Core stream frame of type ${String((event as { type?: unknown }).type)}`,
       );

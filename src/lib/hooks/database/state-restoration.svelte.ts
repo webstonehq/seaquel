@@ -11,12 +11,12 @@ import {
   chatFromWire,
   dashboardFromWire,
   dashboardVersionFromWire,
-  messageDraft,
   messageFromWire,
   queryVersionFromWire,
   savedQueryFromWire,
 } from "./library/convert.js";
 import type { DatabaseState } from "./state.svelte.js";
+import { withLiveView } from "./ai/events.js";
 import { fromPersisted, trimHistory } from "./query-history.svelte.js";
 import { getStorage } from "$lib/storage";
 
@@ -184,38 +184,49 @@ export class StateRestorationManager {
   /**
    * Show a chat's stored messages (Decision 24), and whether Core says the
    * chat is full (it opens with sending off; a flag a refusal set is never
-   * cleared here). Messages this page shows that aren't stored as they are
-   * (a turn whose put failed, a message waiting for a model) stay, merged
-   * by time, and the next put sends them.
+   * cleared here). Messages this page shows that Core hasn't stored (a
+   * turn in flight, a message waiting for a model, a turn Core refused)
+   * stay, merged by time. A row a turn's `done` applied at a newer `seq`
+   * than this list keeps that version (phase 6: Core stores the turn).
    */
   restoreAIChatMessages(chatId: string, data: ChatMessages, seq: ChangeSeq): void {
-    if (!this.state.librarySeqs.take(rowKey("chatMessages", chatId), seq)) return;
-    const sent = this.state.aiMessagesSent.get(chatId);
-    const unstored = (this.state.aiMessagesByChat[chatId] ?? []).filter(
-      (msg) =>
-        msg.pendingModelSelection !== undefined ||
-        sent?.get(msg.id) !== JSON.stringify(messageDraft(msg)),
-    );
-    const local = new Map(unstored.map((msg) => [msg.id, msg]));
-    const merged = data.messages.map((msg) => local.get(msg.id) ?? messageFromWire(msg));
-    for (const msg of unstored) if (!data.messages.some((s) => s.id === msg.id)) merged.push(msg);
-    // Stable: stored order (timestamp, then insertion) for equal times.
+    const seqs = this.state.librarySeqs;
+    if (!seqs.take(rowKey("chatMessages", chatId), seq)) return;
+    const stored = this.state.aiMessagesStored.get(chatId);
+    const shown = this.state.aiMessagesByChat[chatId] ?? [];
+    const local = new Map(shown.map((msg) => [msg.id, msg]));
+    const listed = new Set(data.messages.map((msg) => msg.id));
+    /** Applied from a turn's ending at a `seq` this list predates. */
+    const newer = (id: string) => (seqs.last(rowKey("aiMessage", id)) ?? -1) > seq.n;
+    // The stored rows in their stored order (time, then insertion).
+    const merged = data.messages.map((wire) => {
+      const shownNow = local.get(wire.id);
+      if (shownNow && newer(wire.id)) return shownNow;
+      return withLiveView(messageFromWire(wire), shownNow);
+    });
     const order = new Map(merged.map((msg, i) => [msg.id, i]));
     merged.sort(
       (a, b) =>
         a.timestamp.getTime() - b.timestamp.getTime() || order.get(a.id)! - order.get(b.id)!,
     );
+    // Rows only this page shows keep their place: right after the row
+    // shown before them (Core's clock and the page's needn't agree, so a
+    // turn half stored doesn't put its reply above its question).
+    const nowStored = new Set(listed);
+    let after: string | null = null;
+    for (const msg of shown) {
+      if (listed.has(msg.id)) {
+        after = msg.id;
+        continue;
+      }
+      if (stored?.has(msg.id) && !newer(msg.id)) continue; // Deleted since.
+      const at: number = after === null ? 0 : merged.findIndex((m) => m.id === after) + 1;
+      merged.splice(at === 0 && after !== null ? merged.length : at, 0, msg);
+      after = msg.id;
+      if (stored?.has(msg.id)) nowStored.add(msg.id);
+    }
     this.state.aiMessagesByChat = { ...this.state.aiMessagesByChat, [chatId]: merged };
-    // What's stored now: a later put sends only what differs from it.
-    this.state.aiMessagesSent.set(
-      chatId,
-      new Map(
-        data.messages.map((msg) => [
-          msg.id,
-          JSON.stringify(messageDraft(messageFromWire(msg), msg.timestamp)),
-        ]),
-      ),
-    );
+    this.state.aiMessagesStored.set(chatId, nowStored);
     if (data.full && !this.state.aiChatFull[chatId]) {
       this.state.aiChatFull = { ...this.state.aiChatFull, [chatId]: true };
     }

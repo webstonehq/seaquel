@@ -243,6 +243,28 @@ impl Engine for FakePostgres {
     }
 }
 
+/// The core [`Env::new`] builds, plus the assistant: `WEB_AI_LIMITS`,
+/// `egress`, and a loopback-only native client (never a real provider).
+pub fn ai_core(calls: &Arc<Calls>, egress: seaquel_core::ai::AiEgress) -> seaquel_core::Core {
+    use seaquel_ai::testing::LoopbackOnly;
+    use seaquel_core::ai::native::{Egress, NativeHttp, NativeHttpOptions};
+    seaquel_core::Core::builder()
+        .engine(Arc::new(FakePostgres(calls.clone())))
+        .connect_policy(web_connect_policy())
+        .connection_limits(WEB_CONNECTION_LIMITS)
+        .run_limits(seaquel_server::WEB_RUN_LIMITS)
+        .edit_limits(seaquel_server::WEB_EDIT_LIMITS)
+        .library_limits(seaquel_server::WEB_LIBRARY_LIMITS)
+        .state_limits(seaquel_server::WEB_STATE_LIMITS)
+        .executor(Arc::new(seaquel_runtime::TokioExecutor))
+        .ai_http(Arc::new(LoopbackOnly(NativeHttp::new(
+            NativeHttpOptions::new(Egress::Any),
+        ))))
+        .ai_egress(egress)
+        .ai_limits(seaquel_server::WEB_AI_LIMITS)
+        .build()
+}
+
 // ── A test server ──
 
 /// A router over the fake engine under the web connect policy and
@@ -270,6 +292,22 @@ impl Env {
         Self::with_core(Arc::new(core), capacity, calls)
     }
 
+    /// [`Env::new`] whose Core runs the assistant as the server's does
+    /// (`WEB_AI_LIMITS`) under `egress`, calling models through a client
+    /// that refuses any host but loopback (the mock provider).
+    pub fn with_ai(capacity: usize, egress: seaquel_core::ai::AiEgress) -> Self {
+        let calls = Arc::new(Calls::default());
+        Self::with_core(Arc::new(ai_core(&calls, egress)), capacity, calls)
+    }
+
+    /// [`Env::with_ai`] (egress `Any`) whose sockets hold at most `bound`
+    /// waiting events.
+    pub fn with_ai_and_event_bound(capacity: usize, bound: usize) -> Self {
+        let calls = Arc::new(Calls::default());
+        let core = Arc::new(ai_core(&calls, seaquel_core::ai::AiEgress::Any));
+        Self::with_core_and_bound(core, capacity, calls, bound)
+    }
+
     pub fn with_core(core: Arc<seaquel_core::Core>, capacity: usize, calls: Arc<Calls>) -> Self {
         Self::with_core_and_bound(core, capacity, calls, seaquel_server::LISTENER_EVENT_BOUND)
     }
@@ -290,6 +328,32 @@ impl Env {
             seaquel_server::LISTENER_EVENT_BOUND,
             bytes,
         )
+    }
+
+    /// [`Env::new`] whose windows' connections outlive their last socket
+    /// by `grace` (instead of `WINDOW_GRACE`).
+    pub fn with_window_grace(capacity: usize, grace: Duration) -> Self {
+        let env = Self::new(capacity);
+        Self::with_core_and_grace(env.state.core.clone(), capacity, grace).with_calls(env.calls)
+    }
+
+    /// [`Env::with_core`] with another window grace.
+    pub fn with_core_and_grace(
+        core: Arc<seaquel_core::Core>,
+        capacity: usize,
+        grace: Duration,
+    ) -> Self {
+        let mut env = Self::with_core(core, capacity, Arc::default());
+        let workspaces =
+            Workspaces::with_capacity(env.dir.path(), capacity).with_window_grace(grace);
+        env.state.workspaces = Arc::new(workspaces);
+        env.app = build_router(env.state.clone());
+        env
+    }
+
+    fn with_calls(mut self, calls: Arc<Calls>) -> Self {
+        self.calls = calls;
+        self
     }
 
     fn with_core_and_bound(

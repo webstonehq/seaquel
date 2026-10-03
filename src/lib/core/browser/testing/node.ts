@@ -27,6 +27,7 @@ const SOURCES = [
   "scripts/build-wasm.mjs",
   ...[
     "seaquel-browser",
+    "seaquel-ai",
     "seaquel-core",
     "seaquel-rpc",
     "seaquel-storage",

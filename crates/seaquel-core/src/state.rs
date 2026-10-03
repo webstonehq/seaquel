@@ -908,8 +908,10 @@ impl Workspace {
     /// Upsert messages into a chat by their (GUI-made) ids
     /// (`chatMessagesPut`, Decision 24): a stored message keeps its place
     /// and gets the new fields, new ones are added in list order, and
-    /// messages not listed stay. An id of another chat is refused. On the
-    /// web the chat's content, less the messages replaced, plus the put's,
+    /// messages not listed stay. A message put without `parts` keeps the
+    /// stored ones (phase 6; the answer shows the put as sent). An id of
+    /// another chat is refused. On the web the chat's content and parts,
+    /// less the messages replaced, plus the put's (and the parts it keeps),
     /// must stay within `max_chat_bytes`; past it nothing is stored.
     ///
     /// Answers the messages stored (not the chat's whole list) and the
@@ -930,7 +932,17 @@ impl Workspace {
             .map(|m| st::message_row(chat_id, m))
             .collect();
         let ids: Vec<String> = rows.iter().map(|m| m.id.clone()).collect();
-        let added: u64 = rows.iter().map(|m| m.content.len() as u64).sum();
+        // A message's tool calls count with its text (phase 6); a message
+        // put without them keeps the stored ones (`put_messages`).
+        let added: u64 = rows
+            .iter()
+            .map(|m| (m.content.len() + m.parts.as_ref().map_or(0, |p| p.to_string().len())) as u64)
+            .sum();
+        let without_parts: Vec<String> = rows
+            .iter()
+            .filter(|m| m.parts.is_none())
+            .map(|m| m.id.clone())
+            .collect();
         let mut tx = self.storage().write().await?;
         let ticket = self.take_seq();
         if ai_chats::get(&mut tx, chat_id).await?.is_none() {
@@ -953,7 +965,8 @@ impl Workspace {
         if stl.max_chat_bytes.is_some() {
             let stored = ai_chats::content_bytes(&mut tx, chat_id).await?;
             let replaced = ai_chats::content_bytes_of(&mut tx, chat_id, &ids).await?;
-            st::check_chat_budget(stored, replaced, added, &stl)?;
+            let kept = ai_chats::parts_bytes_of(&mut tx, chat_id, &without_parts).await?;
+            st::check_chat_budget(stored, replaced, added.saturating_add(kept), &stl)?;
         }
         match ai_chats::put_messages(&mut tx, chat_id, &rows).await? {
             ai_chats::PutMessages::Done => {}
@@ -1095,6 +1108,42 @@ impl Workspace {
             seq,
             projection: None,
         })
+    }
+
+    /// Whether the secret store holds provider `id`'s API key
+    /// (`aiProviderHasKey`, phase 6 Task 7): one read, for that provider
+    /// only, since the page may not read the key (Decision 7) and the
+    /// settings form asks only when it opens a provider. A provider that
+    /// isn't in the record is `AI_PROVIDER_NOT_FOUND`; a workspace without a
+    /// store (the web) is `NOT_SUPPORTED`: the page asks its vault.
+    pub async fn ai_provider_has_key(&self, core: &Core, id: &str) -> Result<Seqd<bool>> {
+        check_id(id, "AI provider id", &core.library_limits())?;
+        // The web has no store: say so whatever the id (the page asks its vault).
+        #[cfg(feature = "secrets")]
+        if let Some(store) = self.secrets() {
+            let seq = self.change_seq();
+            let settings = self.read_ai_settings(self.storage()).await?;
+            if settings.provider(id).is_none() {
+                return Err(CoreError::new(
+                    st::AI_PROVIDER_NOT_FOUND,
+                    "AI provider not found.",
+                ));
+            }
+            let name = format!("{}{id}", st::AI_API_KEY_PREFIX);
+            let has = store.get(&name).await.map_err(|e| {
+                warn!(activity = "settings.aiProviderHasKey", code = e.code(); "Reading an AI API key failed");
+                CoreError::from(e)
+            })?;
+            return Ok(Seqd {
+                value: has.is_some_and(|k| !k.is_empty()),
+                seq,
+                projection: None,
+            });
+        }
+        Err(CoreError::new(
+            "NOT_SUPPORTED",
+            "API keys aren't kept here: the page's vault holds them.",
+        ))
     }
 
     /// Rewrite the stored record inside `tx` with `change` applied: read

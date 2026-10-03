@@ -44,6 +44,12 @@ impl From<CoreError> for ToolError {
     }
 }
 
+impl From<seaquel_core::ai::tools::ToolError> for ToolError {
+    fn from(e: seaquel_core::ai::tools::ToolError) -> Self {
+        Self::new(e.code, e.message)
+    }
+}
+
 impl From<DbError> for ToolError {
     fn from(e: DbError) -> Self {
         Self::new(e.code, e.message)
@@ -56,11 +62,8 @@ impl From<seaquel_core::storage::StorageError> for ToolError {
     }
 }
 
-/// An argument the host sent that no tool call can use.
-pub const INVALID_ARGUMENT: &str = "INVALID_ARGUMENT";
-/// The connection's schema sharing is off (after the global default).
-pub const SCHEMA_SHARING_OFF: &str = "SCHEMA_SHARING_OFF";
-/// The connection's data sharing is off (after the global default).
-pub const DATA_SHARING_OFF: &str = "DATA_SHARING_OFF";
+/// The registry's codes: an argument no tool call can use, and the
+/// connection's schema or data sharing off (after the global default).
+pub use seaquel_core::ai::tools::{DATA_SHARING_OFF, INVALID_ARGUMENT, SCHEMA_SHARING_OFF};
 /// A tool call ran past the per-call timeout; its query was cancelled.
 pub const TIMEOUT: &str = "TIMEOUT";

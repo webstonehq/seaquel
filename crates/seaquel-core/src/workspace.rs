@@ -151,6 +151,18 @@ pub const TUNNEL_CLOSED: &str = "TUNNEL_CLOSED";
 /// (the web server evicted the workspace).
 pub const WORKSPACE_EVICTED: &str = "WORKSPACE_EVICTED";
 
+/// [`WorkspaceEvent::ConnectionClosed`]: [`Workspace::close_owned_by`]
+/// closed it, because the window that opened it is gone (the web server
+/// reaps a window whose last `/rpc/stream` socket stayed closed past its
+/// grace period; phase 6 probe F4).
+pub const WINDOW_CLOSED: &str = "WINDOW_CLOSED";
+
+/// [`WorkspaceEvent::ConnectionClosed`]: the window that opened it
+/// connected the same saved connection again, and [`Workspace::connect`]
+/// (or [`Workspace::bind_saved_connection`]) closed this older one once
+/// the new one had opened (phase 6 probe F4).
+pub const CONNECTION_REPLACED: &str = "CONNECTION_REPLACED";
+
 /// Something that happened to a workspace without the calling GUI asking,
 /// delivered through [`Workspace::events`]. `seaquel-rpc` sends it to the
 /// GUIs as `CoreEvent::ConnectionClosed` and `CoreEvent::StorageChanged`.
@@ -186,7 +198,7 @@ pub struct Workspace {
     /// Connects and tests in flight ([`ConnectSlot`]), which count toward
     /// [`crate::ConnectionLimits::per_workspace`] with the open connections.
     #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
-    connecting: Mutex<usize>,
+    connecting: Mutex<Connecting>,
     /// The change sequence (phase 5d, Decision 17).
     changes: ChangeCounter,
     data_dir: PathBuf,
@@ -198,6 +210,9 @@ pub struct Workspace {
     /// is named at most once.
     #[cfg(all(feature = "git", feature = "storage"))]
     pub(crate) notices: Mutex<seaquel_workspace::shared::NoticeMemory>,
+    /// The assistant's turns in flight and their waiters (phase 6).
+    #[cfg(feature = "ai")]
+    pub(crate) ai: crate::ai::WorkspaceAi,
 }
 
 impl Workspace {
@@ -228,7 +243,7 @@ impl Workspace {
             closed: AtomicBool::new(false),
             closing: CancellationToken::new(),
             subscribers: Mutex::default(),
-            connecting: Mutex::new(0),
+            connecting: Mutex::default(),
             data_dir: spec.data_dir,
             #[cfg(feature = "storage")]
             storage,
@@ -236,6 +251,8 @@ impl Workspace {
             secrets: spec.secrets,
             #[cfg(all(feature = "git", feature = "storage"))]
             notices: Mutex::default(),
+            #[cfg(feature = "ai")]
+            ai: crate::ai::WorkspaceAi::default(),
         })
     }
 
@@ -372,6 +389,88 @@ impl Workspace {
             .map_err(|e| CoreError::new(e.code, e.message))
     }
 
+    /// Record that this workspace's connection `connection_id` was opened
+    /// for saved connection `saved_id`, when it was connected before the
+    /// row existed (the page's `add` connects a form, then
+    /// `connectionCreate` answers the id). Once: see
+    /// `Core::bind_saved_as`. An assistant turn then runs on it.
+    pub async fn bind_saved_connection(
+        &self,
+        core: &Core,
+        connection_id: &str,
+        saved_id: &str,
+    ) -> Result<(), CoreError> {
+        if saved_id.is_empty() {
+            return Err(CoreError::new(
+                "INVALID_ARGUMENT",
+                "A saved connection id is required.",
+            ));
+        }
+        core.bind_saved_as(connection_id, self.id, saved_id)
+            .map_err(|e| CoreError::new(e.code, e.message))?;
+        // Now it is the window's connection for that saved connection: an
+        // older one the window still holds for it goes (phase 6 probe F4).
+        if let Some(window) = core.window_of(connection_id, self.id) {
+            self.replace_older(core, connection_id, &window, saved_id)
+                .await;
+        }
+        Ok(())
+    }
+
+    /// Close the connections window `window` holds for saved connection
+    /// `saved_id` that opened before `keep` (its new one), cancelling their streams
+    /// as [`Workspace::disconnect`] does, and announce each as
+    /// [`CONNECTION_REPLACED`] (phase 6 probe F4: a reload reconnects
+    /// everything, and the page's old connections would otherwise stay open
+    /// until eviction).
+    async fn replace_older(&self, core: &Core, keep: &str, window: &str, saved_id: &str) {
+        // Only older ones: of two overlapping connects, the later one's
+        // replace must not close the newer connection, or both would go.
+        let older = core.window_connections_older_than(self.id, window, saved_id, keep);
+        if older.is_empty() {
+            return;
+        }
+        log::info!(activity = "workspace.connect", replaced = older.len(); "Closing a window's older connections");
+        self.close_announced(
+            core,
+            older,
+            CONNECTION_REPLACED,
+            "This tab connected again, so its older connection was closed.",
+        )
+        .await;
+    }
+
+    /// Close `ids` (this workspace's) and announce each one that was still
+    /// open as [`WorkspaceEvent::ConnectionClosed`] with `code`, also when
+    /// closing its driver failed (it is out of Core either way). One a
+    /// concurrent [`Workspace::disconnect`] closed first isn't announced.
+    /// Returns how many it announced.
+    async fn close_announced(
+        &self,
+        core: &Core,
+        ids: Vec<String>,
+        code: &str,
+        message: &str,
+    ) -> usize {
+        let mut closed = 0;
+        for id in ids {
+            match core.disconnect_as(&id, Some(self.id)).await {
+                Ok(()) => {}
+                Err(e) if e.code == "CONNECTION_NOT_FOUND" => continue,
+                Err(e) => {
+                    log::warn!(activity = "workspace.close", connection_id = id.as_str(), code = e.code.as_str(); "Closing a connection failed");
+                }
+            }
+            closed += 1;
+            self.emit(WorkspaceEvent::ConnectionClosed {
+                connection_id: id,
+                code: code.to_string(),
+                message: message.to_string(),
+            });
+        }
+        closed
+    }
+
     /// Close everything this workspace owns: cancel its streams, stop its
     /// applies in flight (an atomic one rolls back instead of committing, an
     /// in-order one stops at the statement it runs), and close its
@@ -392,25 +491,34 @@ impl Workspace {
         core.cancel_streams_owned_by(self.id);
         let ids = core.connections_of(self.id);
         log::info!(activity = "workspace.close_all", connections = ids.len(); "Closing a workspace's connections");
-        for id in ids {
-            match core.disconnect_as(&id, Some(self.id)).await {
-                Ok(()) => {}
-                // A concurrent `disconnect` closed it first: the GUI asked.
-                Err(e) if e.code == "CONNECTION_NOT_FOUND" => continue,
-                // Out of Core's map before the driver's close failed, so it
-                // is gone all the same: announce it.
-                Err(e) => {
-                    log::warn!(activity = "workspace.close_all", connection_id = id.as_str(), code = e.code.as_str(); "Closing a connection failed");
-                }
-            }
-            self.emit(WorkspaceEvent::ConnectionClosed {
-                connection_id: id,
-                code: WORKSPACE_EVICTED.to_string(),
-                message: "The server closed this connection to free resources; \
-                          reconnect to use it again."
-                    .to_string(),
-            });
+        self.close_announced(
+            core,
+            ids,
+            WORKSPACE_EVICTED,
+            "The server closed this connection to free resources; \
+             reconnect to use it again.",
+        )
+        .await;
+    }
+
+    /// Close every connection the window `origin` opened (cancelling their
+    /// streams, as [`Workspace::disconnect`] does), announce each as
+    /// [`WorkspaceEvent::ConnectionClosed`] with [`WINDOW_CLOSED`], and
+    /// return how many it closed. Other windows' connections and those
+    /// opened with no origin stay.
+    pub async fn close_owned_by(&self, core: &Core, origin: &str) -> usize {
+        let ids = core.connections_of_window(self.id, origin, None);
+        if ids.is_empty() {
+            return 0;
         }
+        log::info!(activity = "workspace.close_window", connections = ids.len(); "Closing a closed window's connections");
+        self.close_announced(
+            core,
+            ids,
+            WINDOW_CLOSED,
+            "The tab that opened this connection was closed.",
+        )
+        .await
     }
 
     /// A new receiver for this workspace's [`WorkspaceEvent`]s from now on.
@@ -507,6 +615,17 @@ impl Workspace {
         &self.closing
     }
 
+    /// Which of `ids` are this workspace's open connections, in the order
+    /// given (`db.alive`). Another workspace's ids count as closed.
+    pub fn alive(&self, core: &Core, ids: &[String]) -> Vec<String> {
+        let open: std::collections::HashSet<String> =
+            core.connections_of(self.id).into_iter().collect();
+        ids.iter()
+            .filter(|id| open.contains(*id))
+            .cloned()
+            .collect()
+    }
+
     /// The ids of this workspace's open connections.
     pub fn connection_ids(&self, core: &Core) -> Vec<String> {
         core.connections_of(self.id)
@@ -537,9 +656,10 @@ pub const SAVED_CONNECTION_NOT_FOUND: &str = "CONNECTION_NOT_FOUND";
 #[cfg(feature = "workspace")]
 pub const SECRET_UNREADABLE: &str = "SECRET_UNREADABLE";
 
-/// `Workspace::connect` on a workspace without a secret store (the web
-/// server's) for a saved connection that needs a secret the caller didn't
-/// supply.
+/// The code a workspace without a secret store (the web server's) gives a
+/// secret read. `Workspace::connect` no longer fails with it (phase 6 probe
+/// F5): a saved row then connects with only what was supplied, as a form
+/// does. Kept for the builder's SSH wording and the other reads.
 #[cfg(feature = "workspace")]
 pub const NO_SECRET_STORE: &str = "NO_SECRET_STORE";
 
@@ -595,17 +715,30 @@ pub struct ConnectRequest {
     /// undone on a running instance and would break the editor's file
     /// functions.
     pub restricted: bool,
+    /// The saved connection a form connect opens (phase 6, Decision 6):
+    /// Core records it on the connection, and an assistant turn refuses a
+    /// connection whose recorded id isn't its chat's (`CONNECTION_MISMATCH`).
+    /// A saved target records its own id when this is `None`.
+    pub saved_connection_id: Option<String>,
+    /// The window (write origin) that asks (phase 6 probe F4). Core records
+    /// it on the connection; [`Workspace::close_owned_by`] closes a
+    /// window's connections, and a window's new connection for a saved
+    /// connection replaces its older ones. None: the connection belongs to
+    /// no window (the CLI, MCP, tests).
+    pub origin: crate::WriteOrigin,
 }
 
 #[cfg(feature = "workspace")]
 impl ConnectRequest {
     fn new(target: ConnectTarget) -> Self {
         Self {
+            origin: crate::WriteOrigin::none(),
             target,
             secrets: seaquel_types::connect::SuppliedSecrets::none(),
             host_key: HostKeyPolicy::KnownOnly,
             create_if_missing: false,
             restricted: false,
+            saved_connection_id: None,
         }
     }
 
@@ -645,6 +778,43 @@ impl ConnectRequest {
         self.restricted = restricted;
         self
     }
+
+    /// See [`ConnectRequest::origin`].
+    #[must_use]
+    pub fn with_origin(mut self, origin: crate::WriteOrigin) -> Self {
+        self.origin = origin;
+        self
+    }
+
+    /// See [`ConnectRequest::saved_connection_id`].
+    #[must_use]
+    pub fn with_saved_connection_id(mut self, id: Option<String>) -> Self {
+        self.saved_connection_id = id;
+        self
+    }
+
+    /// A saved target may only be recorded as itself (review M6); a form
+    /// connect's `savedConnectionId` is trusted (the page connects before
+    /// the row exists).
+    fn check_saved_id(&self) -> Result<(), CoreError> {
+        match (&self.saved_connection_id, &self.target) {
+            (Some(named), ConnectTarget::Saved { id }) if named != id => Err(CoreError::new(
+                "INVALID_ARGUMENT",
+                "A saved connection can only be recorded as itself.",
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    /// The saved connection Core records on the connection: the one the
+    /// request names, else a saved target's own id.
+    fn recorded_saved_id(&self) -> Option<String> {
+        match (&self.saved_connection_id, &self.target) {
+            (Some(id), _) => Some(id.clone()),
+            (None, ConnectTarget::Saved { id }) => Some(id.clone()),
+            (None, ConnectTarget::Form { .. }) => None,
+        }
+    }
 }
 
 #[cfg(feature = "workspace")]
@@ -665,8 +835,7 @@ impl Workspace {
     ///
     /// Errors: `CONNECTION_NOT_FOUND` (no such saved connection),
     /// `SECRET_UNREADABLE` (the store refused a read the row needs; checked
-    /// before anything is opened), `NO_SECRET_STORE` (a saved row needs a
-    /// stored secret and this workspace has no store), `CREDENTIALS_REQUIRED`,
+    /// before anything is opened), `CREDENTIALS_REQUIRED`,
     /// `INVALID_CONNECTION`, `WORKSPACE_CLOSED`, `NOT_SUPPORTED` (a tunnel in
     /// a build without SSH, a saved row without storage), the storage codes,
     /// the SSH codes (`UNKNOWN_HOST_KEY` carries the fingerprint), and Core's
@@ -674,15 +843,31 @@ impl Workspace {
     /// or SSH layer echoes is replaced by `<redacted>`.
     pub async fn connect(&self, core: &Core, req: ConnectRequest) -> Result<String, CoreError> {
         self.check_open()?;
+        req.check_saved_id()?;
+        let window = req.origin.as_deref().map(str::to_string);
+        let saved_id = req.recorded_saved_id();
+        // The window's older connections for this saved connection, which
+        // this one replaces once it has opened (phase 6 probe F4): they
+        // don't count against the cap, so a reload at the cap still works.
+        let replaced = match (&window, &saved_id) {
+            (Some(window), Some(saved)) => core.connections_of_window(self.id, window, Some(saved)),
+            _ => Vec::new(),
+        };
         // Held until the connection is in Core's map (or the connect
         // failed), so the count never misses it.
-        let _slot = self.reserve_slot(core)?;
+        let _slot = self.reserve_slot(core, replaced)?;
         log::info!(activity = "workspace.connect", target = target_kind(&req.target); "Connecting");
         let plan = self.checked_plan(core, &req).await?;
         let tunnel = open_tunnel(core, &plan, &req).await?;
         let connected = match config(&plan, &req, tunnel.as_ref()) {
             Ok(config) => core
-                .connect_as(&config, Some(self.id), Some(plan.sql_engine()))
+                .connect_as(
+                    &config,
+                    Some(self.id),
+                    Some(plan.sql_engine()),
+                    saved_id.clone(),
+                    window.clone(),
+                )
                 .await
                 .map_err(|e| redact(CoreError::new(e.code, e.message), &plan.secret_values())),
             Err(e) => Err(e),
@@ -699,6 +884,10 @@ impl Workspace {
                     // the connection (an unknown id is fine here).
                     let _ = core.disconnect(&result.connection_id).await;
                     return Err(closed_error());
+                }
+                if let (Some(window), Some(saved)) = (&window, &saved_id) {
+                    self.replace_older(core, &result.connection_id, window, saved)
+                        .await;
                 }
                 Ok(result.connection_id)
             }
@@ -717,7 +906,7 @@ impl Workspace {
     /// [`Workspace::connect`].
     pub async fn test(&self, core: &Core, req: ConnectRequest) -> Result<(), CoreError> {
         self.check_open()?;
-        let _slot = self.reserve_slot(core)?;
+        let _slot = self.reserve_slot(core, Vec::new())?;
         log::info!(activity = "workspace.test", target = target_kind(&req.target); "Testing a connection");
         let plan = self.checked_plan(core, &req).await?;
         let tunnel = open_tunnel(core, &plan, &req).await?;
@@ -780,14 +969,28 @@ impl Workspace {
     /// already reach it. The count and the reservation happen under one
     /// lock, and a connect releases its slot only after its connection is
     /// in Core's map, so concurrent calls can't pass the cap.
-    fn reserve_slot(&self, core: &Core) -> Result<ConnectSlot<'_>, CoreError> {
+    ///
+    /// `replaced` are the open connections this connect will replace (phase
+    /// 6 probe F4): they don't count, so a tab at the cap can reload. The
+    /// discount is netted across the connects in flight (review M2): every
+    /// slot's ids are kept under the same lock, and an open connection that
+    /// any of them will replace is discounted once, however many claim it.
+    fn reserve_slot(
+        &self,
+        core: &Core,
+        replaced: Vec<String>,
+    ) -> Result<ConnectSlot<'_>, CoreError> {
         let mut connecting = self
             .connecting
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         if let Some(cap) = core.connection_limits().per_workspace {
-            let open = core.connections_of(self.id).len();
-            if open + *connecting >= cap {
+            let open_ids = core.connections_of(self.id);
+            let open = open_ids
+                .iter()
+                .filter(|id| !connecting.replacing.contains_key(*id) && !replaced.contains(*id))
+                .count();
+            if open + connecting.count >= cap {
                 log::warn!(activity = "workspace.connect", cap = cap; "Refused a connection past the workspace's cap");
                 return Err(CoreError::new(
                     crate::TOO_MANY_CONNECTIONS,
@@ -798,9 +1001,13 @@ impl Workspace {
                 ));
             }
         }
-        *connecting += 1;
+        connecting.count += 1;
+        for id in &replaced {
+            *connecting.replacing.entry(id.clone()).or_insert(0) += 1;
+        }
         Ok(ConnectSlot {
             connecting: &self.connecting,
+            replaced,
         })
     }
 
@@ -836,8 +1043,18 @@ impl Workspace {
         let plan = result.map_err(|e| CoreError::new(e.code, e.message))?;
         // The builder goes on without an unreadable secret (and says so when
         // it has to give up); here a denied keychain prompt must not turn
-        // into a password-less attempt or a misleading auth error.
-        if let Some(first) = plan.secrets().unreadable.first() {
+        // into a password-less attempt or a misleading auth error. A
+        // workspace with no store at all (the web) is different: nothing
+        // was refused, there is just nowhere a secret could be, so a saved
+        // row connects with what was supplied, as a form does (phase 6
+        // probe F5: a trust-auth database saved with `savePassword` on).
+        // The builder still words a missing SSH password itself.
+        if let Some(first) = plan
+            .secrets()
+            .unreadable
+            .iter()
+            .find(|u| u.code != NO_SECRET_STORE)
+        {
             let name = match &target {
                 Target::Saved(row) => row.name.as_str(),
                 Target::Form(form) => form.name.as_str(),
@@ -887,11 +1104,22 @@ impl Workspace {
     }
 }
 
+/// The connects and tests in flight ([`Workspace::reserve_slot`]): how
+/// many, and the open connections they will replace, each with how many of
+/// them claim it.
+#[derive(Default)]
+#[cfg_attr(not(feature = "workspace"), allow(dead_code))]
+struct Connecting {
+    count: usize,
+    replacing: std::collections::HashMap<String, usize>,
+}
+
 /// A connect or test in flight (see [`Workspace::reserve_slot`]); dropping
-/// it frees the slot.
+/// it frees the slot and its claims.
 #[cfg(feature = "workspace")]
 struct ConnectSlot<'a> {
-    connecting: &'a Mutex<usize>,
+    connecting: &'a Mutex<Connecting>,
+    replaced: Vec<String>,
 }
 
 #[cfg(feature = "workspace")]
@@ -901,7 +1129,15 @@ impl Drop for ConnectSlot<'_> {
             .connecting
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        *connecting = connecting.saturating_sub(1);
+        connecting.count = connecting.count.saturating_sub(1);
+        for id in &self.replaced {
+            if let Some(n) = connecting.replacing.get_mut(id) {
+                *n -= 1;
+                if *n == 0 {
+                    connecting.replacing.remove(id);
+                }
+            }
+        }
     }
 }
 
@@ -1013,7 +1249,15 @@ async fn open_tunnel<'a>(
     let Some(config) = plan.tunnel(trust) else {
         return Ok(None);
     };
-    let info = core.ssh_open(&config).await.map_err(|e| {
+    let opened = core
+        .within_connect_timeout(core.ssh_open(&config), |limit| {
+            CoreError::new(
+                seaquel_engine::TIMEOUT,
+                format!("The SSH server didn't answer within {limit}."),
+            )
+        })
+        .await;
+    let info = opened.map_err(|e| {
         let e = redact(e, &plan.secret_values());
         let saved = matches!(req.target, ConnectTarget::Saved { .. });
         if e.code == "UNKNOWN_HOST_KEY" && req.host_key == HostKeyPolicy::KnownOnly && saved {
@@ -1094,15 +1338,6 @@ fn unreadable_error(name: &str, failed: &UnreadableSecret) -> CoreError {
     } else {
         "password"
     };
-    if failed.code == NO_SECRET_STORE {
-        return CoreError::new(
-            NO_SECRET_STORE,
-            format!(
-                "Connection {name:?} needs its saved {what}, but this workspace has no secret \
-                 store to read it from."
-            ),
-        );
-    }
     CoreError::new(
         SECRET_UNREADABLE,
         format!(

@@ -1,5 +1,5 @@
 //! The web `ConnectPolicy` on `/rpc` (`db.connect` and `db.test`), with the
-//! server's real Core (`web_core()`): no SQLite or DuckDB, no server files
+//! server's real Core (`web_core`): no SQLite or DuckDB, no server files
 //! or sockets in the config Core builds, and no SSH tunnels, refused before
 //! one opens. This must hold in a unified build too (`cargo test
 //! --workspace`), where Cargo turns on Core's `ssh` feature and compiles the
@@ -16,7 +16,11 @@ mod common;
 use common::Env;
 
 fn web_env() -> Env {
-    Env::with_core(Arc::new(web_core()), 4, Arc::default())
+    Env::with_core(
+        Arc::new(web_core(seaquel_core::ai::AiEgress::Public, None)),
+        4,
+        Arc::default(),
+    )
 }
 
 fn form(fields: Value) -> Value {
@@ -244,5 +248,32 @@ async fn an_allowed_form_reaches_the_driver() {
             );
             assert_eq!(status, StatusCode::BAD_GATEWAY, "{method} {target}: {body}");
         }
+    }
+}
+
+/// Auto-reconnect of a saved row with `savePassword` on and no password in
+/// the vault (a trust-auth database, probe F5): the web workspace has no
+/// secret store, so Core connects with no password, as a form would, and
+/// the driver answers. It used to be `NO_SECRET_STORE`, a 500.
+#[tokio::test]
+async fn a_saved_row_with_no_stored_password_connects_without_one() {
+    let env = web_env();
+    let p = save_project(&env).await;
+    let id = save(
+        &env,
+        json!({"projectId": p, "name": "Trust", "type": "mssql",
+               "host": "127.0.0.1", "port": 1, "databaseName": "app",
+               "username": "u", "labelIds": [], "savePassword": true}),
+    )
+    .await;
+    for method in ["connect", "test"] {
+        let (status, body) = tokio::time::timeout(
+            Duration::from_secs(10),
+            env.db("u1", method, json!({"target": {"type": "saved", "id": id}})),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("{method} took too long"));
+        assert_eq!(body["code"], "CONNECTION_ERROR", "{method}: {body}");
+        assert_eq!(status, StatusCode::BAD_GATEWAY, "{method}: {body}");
     }
 }

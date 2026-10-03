@@ -5,19 +5,18 @@ edition = "2021"
 description = "Seaquel's MCP server: the rmcp ServerHandler and tool set behind `seaquel-cli mcp`."
 
 [dependencies]
-seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace"] }
+# `ai`: the tool registry (arguments, schemas, renderers and the runner,
+# `ai::tools::call`) and the sharing rule (phase 6). Not `ai-native`: the
+# server makes no model calls.
+seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace", "ai"] }
 # `#[seaquel_runtime::async_trait]`, for the `SecretStore` wrapper that times
 # keychain reads (secret_wait.rs).
 seaquel-runtime = { path = "../seaquel-runtime" }
 seaquel-types = { path = "../seaquel-types" }
 rmcp = { workspace = true }
-schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-futures = { workspace = true }
 log = { workspace = true }
-# JavaScript's `Number.prototype.toString`, for the `cellText` port (format.rs).
-ryu-js = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "macros", "io-util", "io-std"] }
 
 [dev-dependencies]

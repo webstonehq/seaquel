@@ -1,5 +1,5 @@
 //! Live checks of `/rpc` and `/rpc/stream` on the server's real Core
-//! (`web_core()`, the web connect policy) against the e2e Docker databases.
+//! (`web_core`, the web connect policy) against the e2e Docker databases.
 //! Each runs only when its variable is set to a ConnectConfig JSON with a
 //! `connection_string`, as for the engine smoke tests:
 //!
@@ -88,7 +88,11 @@ fn running_sql(ty: &str, marker: &str) -> String {
 
 async fn run(ty: &str, conn_str: String, sleep_sql: &str) {
     capture_logs();
-    let env = Env::with_core(Arc::new(web_core()), 4, Arc::default());
+    let env = Env::with_core(
+        Arc::new(web_core(seaquel_core::ai::AiEgress::Public, None)),
+        4,
+        Arc::default(),
+    );
     let addr = env.serve().await;
     let form = json!({"type": ty, "name": "live", "connectionString": conn_str});
 
@@ -503,7 +507,11 @@ async fn postgres_notices_are_not_logged() {
         return;
     };
     capture_logs();
-    let env = Env::with_core(Arc::new(web_core()), 4, Arc::default());
+    let env = Env::with_core(
+        Arc::new(web_core(seaquel_core::ai::AiEgress::Public, None)),
+        4,
+        Arc::default(),
+    );
     let form = json!({"type": "postgres", "name": "live", "connectionString": conn_str});
     let c = env.connect("alice", form).await;
     let canary = format!("noticecanary{}", std::process::id());

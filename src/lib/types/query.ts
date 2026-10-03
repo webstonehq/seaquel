@@ -321,6 +321,24 @@ export interface AIChat {
 /**
  * A message in the AI assistant conversation.
  */
+/** One tool call of a reply, as its line shows it (phase 6, Q7). */
+export interface AiToolLine {
+  callId: string;
+  name: string;
+  /** The SQL the call runs, when it runs one. */
+  sql?: string;
+  /** `waiting`: for the approval card; `running`: in flight. */
+  state: "running" | "waiting" | "ok" | "error";
+  /** Rows the call returned, when known. */
+  rows?: number;
+  truncated?: boolean;
+  /** Why it failed: Core's code (`DENIED`, `READ_ONLY`, …). */
+  code?: string;
+}
+
+/** A reply in order: its text and its tool calls' lines (phase 6, Q7). */
+export type AiSegment = { type: "text"; text: string } | ({ type: "tool" } & AiToolLine);
+
 export interface AIMessage {
   /** Unique identifier */
   id: string;
@@ -345,9 +363,26 @@ export interface AIMessage {
     connectionName: string;
     /** Its engine, for the approval card's hint on engines with read-only gaps. */
     connectionType: DatabaseType;
+    /** Allow it: with `allowAllTicked`, this and every later query on the connection. */
     approve: () => void;
     deny: () => void;
+    /** Allow this one and every later query on this connection for the session. */
+    allowAll: () => void;
+    /** The card's own "Allow all" box: each card starts unticked. */
+    allowAllTicked: boolean;
+    setAllowAllTicked: (ticked: boolean) => void;
   } | null;
+  /** The reply's text and tool calls in order (Q7); none for a plain reply. */
+  segments?: AiSegment[];
+  /** Why the turn failed, worded for the user. Shown, never stored. */
+  error?: string;
+  /** The model's token limit cut the reply (`stop: maxTokens`). */
+  truncated?: boolean;
+  /**
+   * Core cut the reply for its size (`stop: tooLong`, probe F2). Stored:
+   * the row ends with Core's note, which `messageFromWire` takes off.
+   */
+  cut?: boolean;
   /** Set when no AI model is selected — stores the user prompt to retry once a model is chosen. */
   pendingModelSelection?: string;
 }

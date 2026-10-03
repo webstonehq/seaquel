@@ -44,8 +44,9 @@ mod tests {
             .map(|m| (m.version, m.description.to_string(), m.checksum()))
             .collect();
         assert_eq!(ours, theirs);
-        assert_eq!(ours.len(), 6);
+        assert_eq!(ours.len(), 7);
         assert_eq!(ours[5].1, "history params");
+        assert_eq!(ours[6].1, "ai message parts");
         assert_eq!(ours[0].1, "name keys");
     }
 }

@@ -8,10 +8,12 @@
 //! (phase 5b), and [`edits`] the grid's edits and the data tab's query
 //! (phase 5c), and [`library`] the saved connections, projects, labels and
 //! saved queries Core writes (phase 5d), and [`shared`] the `.seaquel`
-//! files of shared projects and their sync (phase 5e). Interfaces reach it only through
+//! files of shared projects and their sync (phase 5e), and [`ai`] the
+//! assistant's wire types (phase 6). Interfaces reach it only through
 //! Core's `workspace` feature (`seaquel_core::domain`), and it may not name
 //! an engine crate (`scripts/check-crate-deps.mjs`).
 
+pub mod ai;
 pub mod connection_string;
 pub mod connections;
 pub mod edits;

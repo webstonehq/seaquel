@@ -1,0 +1,50 @@
+[
+  {
+    "name": "assistant/no-provider",
+    "note": "No provider.",
+    "input": "no_provider",
+    "shown": "No AI provider configured. Please add one in **Settings → AI**."
+  },
+  {
+    "name": "assistant/no-api-key",
+    "note": "No key.",
+    "input": "no_api_key",
+    "shown": "No API key configured. Please add your key in **Settings → AI**."
+  },
+  {
+    "name": "assistant/rate-limit",
+    "note": "A 429.",
+    "input": "rate_limit",
+    "shown": "Rate limit reached. Please wait a moment and try again."
+  },
+  {
+    "name": "assistant/tool-limit",
+    "note": "The 21st tool call.",
+    "input": "Tool call limit exceeded (max 20 per message)",
+    "shown": "Error: Tool call limit exceeded (max 20 per message)"
+  },
+  {
+    "name": "assistant/provider-body",
+    "note": "A provider's error body (bug 12).",
+    "input": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}",
+    "shown": "Error: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}"
+  },
+  {
+    "name": "assistant/fetch-failed",
+    "note": "`fetch` threw.",
+    "input": "fetch failed",
+    "shown": "Error: fetch failed"
+  },
+  {
+    "name": "assistant/no-stream",
+    "note": "A response without a body.",
+    "input": "no_stream",
+    "shown": "Error: no_stream"
+  },
+  {
+    "name": "assistant/connection-removed",
+    "note": "The page's own check before sending; stays in the page.",
+    "input": "This chat's connection was removed",
+    "shown": "Error: This chat's connection was removed"
+  }
+]

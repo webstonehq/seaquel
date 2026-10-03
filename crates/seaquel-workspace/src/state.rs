@@ -764,10 +764,53 @@ impl AiSettings {
         Ok(())
     }
 
+    /// `enabled` as the GUI reads it: the stored value's JavaScript
+    /// truthiness, `true` when absent (phase 6, Decision 5).
+    pub fn enabled(&self) -> bool {
+        obj_get(&self.fields, "enabled")
+            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
+            .is_none_or(|v| match v {
+                serde_json::Value::Null => false,
+                serde_json::Value::Bool(b) => b,
+                serde_json::Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+                serde_json::Value::String(s) => !s.is_empty(),
+                serde_json::Value::Array(_) | serde_json::Value::Object(_) => true,
+            })
+    }
+
+    /// A provider's type and base URL, as a turn reads them (phase 6).
+    pub fn provider(&self, id: &str) -> Option<ProviderInfo> {
+        let p = &self.providers[self.provider_index(id)?];
+        Some(ProviderInfo {
+            ty: obj_get(p, "type")
+                .and_then(string_of)
+                .unwrap_or_else(|| "anthropic".to_string()),
+            base_url: obj_get(p, "baseUrl").and_then(string_of),
+        })
+    }
+
     pub fn remove_provider(&mut self, id: &str) -> Checked {
         let i = self.provider_index(id).ok_or_else(provider_not_found)?;
         self.providers.remove(i);
         Ok(())
+    }
+}
+
+/// A provider as a model call needs it (phase 6): `anthropic` or
+/// `openai-compatible` (anything else is read as Anthropic's wire), and
+/// its base URL. Its `Debug` leaves out the URL, which may carry a key.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ProviderInfo {
+    pub ty: String,
+    pub base_url: Option<String>,
+}
+
+impl fmt::Debug for ProviderInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderInfo")
+            .field("ty", &self.ty)
+            .field("base_url", &self.base_url.is_some())
+            .finish()
     }
 }
 
@@ -1488,6 +1531,12 @@ pub struct ChatMessageDraft {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub dashboard_id: Option<String>,
+    /// A reply's tool calls (phase 6, Decision 23): a JSON list, stored as
+    /// given when present. Absent keeps what the message had (none for a
+    /// new one), as an older release's put does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "Array<unknown>"))]
+    pub parts: Option<serde_json::Value>,
 }
 
 impl fmt::Debug for ChatMessageDraft {
@@ -1501,8 +1550,14 @@ impl fmt::Debug for ChatMessageDraft {
             .field("content_bytes", &self.content.len())
             .field("query", &self.query.is_some())
             .field("dashboard_id", &self.dashboard_id.is_some())
+            .field("parts", &self.parts.as_ref().map(parts_len))
             .finish()
     }
+}
+
+/// How many items a `parts` value holds, for `Debug`.
+fn parts_len(parts: &serde_json::Value) -> usize {
+    parts.as_array().map_or(0, Vec::len)
 }
 
 /// A chat's messages (`chatMessagesList`, in `timestamp, rowid` order) or
@@ -1606,8 +1661,26 @@ pub fn check_messages(
             "max_query_bytes",
         )?;
         opt_field(m.dashboard_id.as_deref(), "dashboard id", lib)?;
+        check_parts(m.parts.as_ref(), limits)?;
     }
     Ok(())
+}
+
+/// A message's `parts` (phase 6): a JSON list, within `max_message_bytes`
+/// as JSON text, like its content.
+pub fn check_parts(parts: Option<&serde_json::Value>, limits: &StateLimits) -> Checked {
+    let Some(parts) = parts else {
+        return Ok(());
+    };
+    if !parts.is_array() {
+        return Err(LibraryError::invalid("A message's parts must be a list."));
+    }
+    within(
+        &parts.to_string(),
+        "message's parts",
+        limits.max_message_bytes,
+        "max_message_bytes",
+    )
 }
 
 /// A message id list (`chatMessagesRemove`): bounded like a put.
@@ -1636,6 +1709,7 @@ pub fn message_row(chat_id: &str, m: &ChatMessageDraft) -> PersistedAIMessage {
         timestamp: m.timestamp.clone(),
         query: m.query.clone(),
         dashboard_id: m.dashboard_id.clone(),
+        parts: m.parts.clone(),
     }
 }
 

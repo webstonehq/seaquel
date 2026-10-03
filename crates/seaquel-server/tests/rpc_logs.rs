@@ -320,7 +320,10 @@ async fn sql_server_error_text_is_not_logged() {
     let config: serde_json::Value = serde_json::from_str(&raw).expect("a ConnectConfig JSON");
     capture_logs();
     let env = Env::with_core(
-        std::sync::Arc::new(seaquel_server::web_core()),
+        std::sync::Arc::new(seaquel_server::web_core(
+            seaquel_core::ai::AiEgress::Public,
+            None,
+        )),
         4,
         std::sync::Arc::default(),
     );

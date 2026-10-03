@@ -46,6 +46,8 @@ export type {
   ResolvedQueryVersion,
   AIChat,
   AIMessage,
+  AiSegment,
+  AiToolLine,
   QueryExecutor,
 } from "./query";
 

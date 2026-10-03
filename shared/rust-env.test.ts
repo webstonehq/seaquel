@@ -64,7 +64,11 @@ function rustFiles(dir: string): string[] {
 describe("the allow-list covers what the Rust service reads", () => {
   it("names every env var seaquel-server and seaquel-license read", () => {
     const names = new Set<string>();
-    for (const dir of ["crates/seaquel-server/src", "crates/seaquel-license/src"]) {
+    for (const dir of [
+      "crates/seaquel-server/src",
+      "crates/seaquel-license/src",
+      "crates/seaquel-http/src",
+    ]) {
       for (const file of rustFiles(dir)) {
         const src = readFileSync(file, "utf8");
         for (const m of src.matchAll(/_ENV: &str = "([A-Z0-9_]+)"/g)) names.add(m[1]);
@@ -72,6 +76,8 @@ describe("the allow-list covers what the Rust service reads", () => {
       }
     }
     expect(names.size).toBeGreaterThan(5);
+    // Phase 6: where the assistant's model calls may go.
+    expect(names.has("SEAQUEL_AI_EGRESS")).toBe(true);
     for (const name of names) {
       expect(RUST_ENV_NAMES.has(name), name).toBe(true);
     }

@@ -18,6 +18,8 @@ import type {
 } from "$lib/types";
 import type { SavedWorkflowSummary } from "$lib/types/workflow";
 import { DEFAULT_PROJECT_ID } from "$lib/types";
+import { segmentsFromParts } from "../ai/events.js";
+import { REPLY_CUT_NOTE, splitCutNote } from "../ai/reply.js";
 import type {
   ConnectionPatch,
   SavedQueryPatch,
@@ -333,15 +335,24 @@ export function chatFromWire(wire: WireChat): AIChat {
 }
 
 export function messageFromWire(wire: ChatMessages["messages"][number]): AIMessage {
-  return {
+  // A reply Core cut for its size (probe F2) ends with its note: shown as
+  // the page's own wording instead.
+  const { content, cut } =
+    wire.role === "assistant" ? splitCutNote(wire.content) : { content: wire.content, cut: false };
+  const message: AIMessage = {
     id: wire.id,
     chatId: wire.chatId,
     role: wire.role,
-    content: wire.content,
+    content,
     timestamp: new Date(wire.timestamp),
     query: wire.query,
     dashboardId: wire.dashboardId,
   };
+  // Q7: a reply's stored tool calls (`parts`, Decision 23) as its lines.
+  const segments = segmentsFromParts(wire.parts);
+  if (segments) message.segments = segments;
+  if (cut) message.cut = true;
+  return message;
 }
 
 /**
@@ -353,7 +364,7 @@ export function messageDraft(message: AIMessage, stored?: string): ChatMessageDr
   const draft: ChatMessageDraft = {
     id: message.id,
     role: message.role,
-    content: message.content,
+    content: message.cut ? message.content + REPLY_CUT_NOTE : message.content,
     timestamp: Number.isNaN(time.getTime()) ? (stored ?? "") : time.toISOString(),
   };
   if (message.query !== undefined) draft.query = message.query;

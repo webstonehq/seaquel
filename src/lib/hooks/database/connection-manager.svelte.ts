@@ -11,7 +11,9 @@ import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { getEngineClient, type EngineClient } from "$lib/engine";
 import { errorCode } from "$lib/core/client";
 import {
+  callDb,
   getCoreClient,
+  onConnectionNotFound,
   withHostKeyPrompt,
   type ConnectionClosedEvent,
   type SshServer,
@@ -65,6 +67,9 @@ import {
  * named here rather than imported so desktop and web don't bundle that module.
  */
 const CORE_RESTARTED = "CORE_RESTARTED";
+
+/** `connectionClosed` codes shown without a toast (phase 6 probe F4). */
+const QUIET_CLOSE_CODES = new Set(["WINDOW_CLOSED", "CONNECTION_REPLACED"]);
 
 export type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "labelIds"> & {
   projectId?: string;
@@ -242,7 +247,10 @@ export function formConnectRequest(connection: ConnectionInput): ConnectRequest 
 
 /** The SSH server the host-key prompt names. */
 function sshServerOf(connection: Pick<DatabaseConnection, "sshTunnel">): SshServer {
-  return { host: connection.sshTunnel?.host ?? "", port: connection.sshTunnel?.port ?? 22 };
+  return {
+    host: connection.sshTunnel?.host ?? "",
+    port: connection.sshTunnel?.port ?? 22,
+  };
 }
 
 /** What a `connectionClosed` event's toast says. */
@@ -267,6 +275,17 @@ function connectionClosedMessage(name: string, event: ConnectionClosedEvent): st
 export class ConnectionManager {
   // Track which connections are currently being connected (for UI loading indicators)
   readonly connectingIds = new SvelteSet<string>();
+  /** The auto-reconnect and reconnect running for each connection id. */
+  private readonly autoReconnects = new Map<string, Promise<boolean>>();
+  private readonly reconnects = new Map<string, Promise<string>>();
+  /** Connections the user disconnected while a background reconnect ran. */
+  private readonly userDisconnected = new Set<string>();
+  /** Connections whose running auto-reconnect is a background one. */
+  private readonly backgroundIds = new Set<string>();
+  /** Background attempts a caller that isn't background joined (N2). */
+  private readonly upgraded = new Set<string>();
+  /** Attempts that ended because the user disconnected meanwhile. */
+  private readonly cancelledAttempts = new WeakSet<Promise<boolean>>();
   private pendingCount = 0;
   /** Whether the saved connections were read at startup. */
   loaded = false;
@@ -284,6 +303,8 @@ export class ConnectionManager {
     ) => Promise<void>,
     private onCreateInitialTab: () => void,
     private onActiveConnectionChanged: () => void = () => {},
+    /** The page's connections were applied or one was removed (fields may have changed). */
+    private onConnectionsChanged: () => void = () => {},
   ) {}
 
   /**
@@ -370,6 +391,7 @@ export class ConnectionManager {
     }
     bumpRevisions(this.state, revisions);
     for (const connection of removed) this.forgetRemoved(connection, remote);
+    this.onConnectionsChanged();
   }
 
   /**
@@ -410,6 +432,7 @@ export class ConnectionManager {
    */
   private forget(connection: DatabaseConnection): void {
     this.state.connections = this.state.connections.filter((c) => c.id !== connection.id);
+    this.onConnectionsChanged();
     this.stateRestoration.cleanupConnectionMaps(connection.id);
     this.removeFromOrder(connection.projectId, connection.id);
     const panes = this.tabOrdering?.paneManager;
@@ -455,9 +478,86 @@ export class ConnectionManager {
    * per page; returns the unsubscribe.
    */
   listenForCoreEvents(): () => void {
-    return getCoreClient().events((event) => {
+    const client = getCoreClient();
+    // Before `events`, so the first start isn't missed. Events sent while
+    // the channel was down are lost (on web a sleep past the server's
+    // window grace closes this tab's connections, probe F4 review I1), so
+    // after every restart ask Core which connections it still holds.
+    const stopResubscribed = client.onResubscribed(({ initial }) => {
+      if (!initial) void this.checkAlive();
+    });
+    // Any call that finds its connection gone says so (`watchClient`).
+    const stopNotFound = onConnectionNotFound((id) => this.handleConnectionLost(id));
+    const stopEvents = client.events((event) => {
       // `storageChanged` is for the change feed (phase 5d-1, Task 6).
       if (event.type === "connectionClosed") this.handleConnectionClosed(event);
+    });
+    return () => {
+      stopEvents();
+      stopNotFound();
+      stopResubscribed();
+    };
+  }
+
+  /**
+   * Ask Core (`db.alive`) which of the connections this page shows it still
+   * holds; reconnect, quietly, each one it doesn't. Nothing is asked when
+   * the page holds none.
+   */
+  async checkAlive(): Promise<void> {
+    const held = this.state.connections.filter((c) => !!c.providerConnectionId);
+    if (held.length === 0) return;
+    let alive: string[];
+    try {
+      alive = await callDb(getCoreClient(), "alive", {
+        connectionIds: held.map((c) => c.providerConnectionId!),
+      });
+    } catch (error) {
+      void log.warn("Checking which connections Core holds failed:", error);
+      return;
+    }
+    const open = new Set(alive);
+    for (const connection of held) {
+      if (!open.has(connection.providerConnectionId!)) {
+        this.handleConnectionLost(connection.providerConnectionId!);
+      }
+    }
+  }
+
+  /**
+   * Core no longer holds `providerConnectionId` (a call answered
+   * `CONNECTION_NOT_FOUND`, or `db.alive` left it out): if this page still
+   * shows it, mark it disconnected and reconnect it once, quietly; only a
+   * failed reconnect is shown. The call that failed isn't retried.
+   */
+  handleConnectionLost(providerConnectionId: string): void {
+    const connection = this.state.connections.find(
+      (c) => c.providerConnectionId === providerConnectionId,
+    );
+    if (!connection) return;
+    void log.warn(`Core no longer holds connection ${connection.id}; reconnecting`);
+    this.reconnectQuietly(connection, () => m.connection_closed_lost({ name: connection.name }));
+  }
+
+  /**
+   * The background path (F4 re-review R1, M-b, M-c): show `connection` as
+   * disconnected without moving the project's active connection or closing
+   * its schema tabs, and reconnect it once. The active connection stays the
+   * active one, shown disconnected until it's back; landing doesn't make it
+   * active either. Only a failed reconnect is shown (`failure()`), and then
+   * its schema tabs close. A disconnect by the user meanwhile wins: the
+   * connection that lands is closed again, and nothing is said.
+   */
+  private reconnectQuietly(connection: DatabaseConnection, failure: () => string): void {
+    this.markDisconnected(connection, { background: true });
+    const attempt = this.autoReconnect(connection.id, { background: true });
+    void attempt.then((ok) => {
+      const userDisconnected = this.cancelledAttempts.has(attempt);
+      if (ok) return;
+      // Disconnected for good now: its schema tabs close, as a disconnect's
+      // do. Only a failure the user didn't ask for is said.
+      this.closeSchemaTabs(connection);
+      if (!userDisconnected) errorToast(failure());
     });
   }
 
@@ -474,13 +574,16 @@ export class ConnectionManager {
     );
     if (!connection) return;
     void log.warn(`Connection closed by Core (${event.code}): ${connection.id}`);
-    this.markDisconnected(connection);
     if (event.code === CORE_RESTARTED) {
-      void this.autoReconnect(connection.id).then((ok) => {
-        if (!ok) errorToast(connectionClosedMessage(connection.name, event));
-      });
+      this.reconnectQuietly(connection, () => connectionClosedMessage(connection.name, event));
       return;
     }
+    this.markDisconnected(connection);
+    // The web server closed a closed tab's connections, or this tab's older
+    // connection after it connected again (phase 6 probe F4). Only a page
+    // that no longer holds the connection should hear these; one that does
+    // just shows it disconnected.
+    if (QUIET_CLOSE_CODES.has(event.code)) return;
     errorToast(connectionClosedMessage(connection.name, event));
   }
 
@@ -547,10 +650,14 @@ export class ConnectionManager {
         throw this.failed(err);
       }
       if (isWeb()) await this.saveVaultSecrets(saved.id, connection, {});
+      await this.bindSaved(connection.type, providerConnectionId, saved.id);
 
       this.appendToOrder(projectId, saved.id);
       this.stateRestoration.initializeConnectionMaps(saved.id);
-      this.state.schemas = { ...this.state.schemas, [saved.id]: schemasWithTables };
+      this.state.schemas = {
+        ...this.state.schemas,
+        [saved.id]: schemasWithTables,
+      };
       void log.info(`Schema loaded for ${saved.id}: ${schemasWithTables.length} tables`);
 
       // Only set active connection once the schema loaded and the row is saved
@@ -567,6 +674,25 @@ export class ConnectionManager {
       return saved.id;
     } finally {
       this.connectingIds.delete(pendingId);
+    }
+  }
+
+  /**
+   * Tell Core the connection `add` opened is the row it just saved, so
+   * the assistant runs on it (Decision 6: a turn needs a connection opened
+   * for its chat's row). A failure is logged: only the assistant needs it,
+   * and a reconnect records it again.
+   */
+  private async bindSaved(
+    type: DatabaseConnection["type"],
+    providerConnectionId: string,
+    savedId: string,
+  ): Promise<void> {
+    try {
+      const provider = await this.providers.getForType(type);
+      await provider.bindSaved?.(providerConnectionId, savedId);
+    } catch (error) {
+      void log.warn(`Recording the saved connection failed (${errorCode(error) ?? "unknown"})`);
     }
   }
 
@@ -661,7 +787,22 @@ export class ConnectionManager {
   /**
    * Reconnect to an existing connection from the reconnect tab's form.
    */
-  async reconnect(
+  reconnect(
+    connectionId: string,
+    connection: ConnectionInput,
+    baseline?: ConnectionFields,
+  ): Promise<string> {
+    // One at a time per connection (review M1), as `autoReconnect`.
+    const running = this.reconnects.get(connectionId);
+    if (running) return running;
+    const attempt = this.reconnectOnce(connectionId, connection, baseline).finally(() => {
+      this.reconnects.delete(connectionId);
+    });
+    this.reconnects.set(connectionId, attempt);
+    return attempt;
+  }
+
+  private async reconnectOnce(
     connectionId: string,
     connection: ConnectionInput,
     baseline?: ConnectionFields,
@@ -680,7 +821,8 @@ export class ConnectionManager {
     try {
       await this.connectExisting(
         existingConnection,
-        formConnectRequest(connection),
+        // The row it edits: Core records it, so the assistant runs here.
+        { ...formConnectRequest(connection), savedConnectionId: connectionId },
         sshServerOf(connection),
         // What was connected is what the row stores: the fields the form
         // changed since `baseline` (what it opened with), so another
@@ -705,6 +847,7 @@ export class ConnectionManager {
     request: ConnectRequest,
     ssh: SshServer,
     form?: { input: ConnectionInput; baseline?: ConnectionFields },
+    background = false,
   ): Promise<void> {
     const connectionId = existingConnection.id;
     // Disconnect the existing connection first and mark it disconnected (Core
@@ -719,6 +862,11 @@ export class ConnectionManager {
     }
 
     const providerConnectionId = await this.connectCore(existingConnection.type, request, ssh);
+    // The user disconnected it while a background reconnect ran: theirs wins.
+    if (background && this.userDisconnected.has(connectionId)) {
+      await this.disconnectCore(existingConnection.type, providerConnectionId);
+      throw new Error("Disconnected while reconnecting");
+    }
 
     // The fields the form changed are shown at once (and stored below).
     const current = this.state.connections.find((c) => c.id === connectionId) ?? existingConnection;
@@ -754,6 +902,14 @@ export class ConnectionManager {
       throw new Error(`Failed to load database schema: ${String(error)}`);
     }
 
+    if (background && this.userDisconnected.has(connectionId)) {
+      this.state.connections = this.state.connections.map((c) =>
+        c.id === connectionId ? { ...c, providerConnectionId: undefined } : c,
+      );
+      await this.disconnectCore(existingConnection.type, providerConnectionId);
+      throw new Error("Disconnected while reconnecting");
+    }
+
     // Store tables immediately (without column metadata) so UI is responsive
     this.state.schemas = {
       ...this.state.schemas,
@@ -763,14 +919,18 @@ export class ConnectionManager {
     // Load column metadata asynchronously in the background
     void this.onSchemaLoaded(connectionId, schemasWithTables, client);
 
-    // Set this as the active connection (only after schema loading succeeds)
-    this.setActiveForProject(connectionId, existingConnection.projectId);
+    // Set this as the active connection (only after schema loading
+    // succeeds), unless it reconnected in the background (F4 re-review R1):
+    // then the user's choice of active connection stands.
+    if (!background || this.upgraded.has(connectionId)) {
+      this.setActiveForProject(connectionId, existingConnection.projectId);
 
-    // Create initial query tab if no tabs exist for the project
-    const projectId = existingConnection.projectId;
-    const tabs = this.state.queryTabsByProject[projectId] ?? [];
-    if (tabs.length === 0) {
-      this.onCreateInitialTab();
+      // Create initial query tab if no tabs exist for the project
+      const projectId = existingConnection.projectId;
+      const tabs = this.state.queryTabsByProject[projectId] ?? [];
+      if (tabs.length === 0) {
+        this.onCreateInitialTab();
+      }
     }
 
     // Store it. The connection is open and usable either way: a failed save
@@ -827,7 +987,10 @@ export class ConnectionManager {
     const secrets = isTauri() ? newSecrets(connection) : undefined;
 
     if (isEmptyPatch(patch) && !secrets) {
-      const updatedConnection = { ...existingConnection, password: connection.password };
+      const updatedConnection = {
+        ...existingConnection,
+        password: connection.password,
+      };
       this.state.connections = this.state.connections.map((c) =>
         c.id === connectionId ? updatedConnection : c,
       );
@@ -997,7 +1160,33 @@ export class ConnectionManager {
    * give-up rules did) or the connect fails; callers then open the
    * connection's tab.
    */
-  async autoReconnect(connectionId: string): Promise<boolean> {
+  autoReconnect(connectionId: string, options: { background?: boolean } = {}): Promise<boolean> {
+    const background = options.background ?? false;
+    // One at a time per connection (review M1): a second call while one
+    // runs (an event and a failed call at once) gets the same promise. A
+    // caller that isn't background joining a background attempt (the user
+    // picks the connection) upgrades it: it activates when it lands (N2).
+    const running = this.autoReconnects.get(connectionId);
+    if (running) {
+      if (!background && this.backgroundIds.has(connectionId)) this.upgraded.add(connectionId);
+      return running;
+    }
+    if (background) this.backgroundIds.add(connectionId);
+    const attempt: Promise<boolean> = this.autoReconnectOnce(connectionId, background).finally(
+      () => {
+        this.autoReconnects.delete(connectionId);
+        this.backgroundIds.delete(connectionId);
+        this.upgraded.delete(connectionId);
+        // The flag lives only as long as its attempt (N1); whether it was
+        // set stays on the attempt, for `reconnectQuietly`.
+        if (this.userDisconnected.delete(connectionId)) this.cancelledAttempts.add(attempt);
+      },
+    );
+    this.autoReconnects.set(connectionId, attempt);
+    return attempt;
+  }
+
+  private async autoReconnectOnce(connectionId: string, background: boolean): Promise<boolean> {
     const connection = this.state.connections.find((c) => c.id === connectionId);
     if (!connection) {
       return false;
@@ -1017,8 +1206,13 @@ export class ConnectionManager {
       const secrets = await this.heldSecrets(connection);
       await this.connectExisting(
         connection,
-        { target: { type: "saved", id: connectionId }, ...(secrets ? { secrets } : {}) },
+        {
+          target: { type: "saved", id: connectionId },
+          ...(secrets ? { secrets } : {}),
+        },
         sshServerOf(connection),
+        undefined,
+        background,
       );
       void log.info(`Auto-reconnect successful: ${connectionId}`);
       return true;
@@ -1036,7 +1230,9 @@ export class ConnectionManager {
    * keychain or vault at startup) is always sent: a supplied secret wins
    * over the store. Otherwise:
    * - Web has no secret store in Core, so the vault's password when the row
-   *   saves it (unlocking the vault if needed). Web has no SSH.
+   *   saves it (unlocking the vault if needed). Web has no SSH. When that
+   *   read fails or the unlock is cancelled this throws, and
+   *   `autoReconnect` answers false without connecting.
    * - Desktop sends nothing more: Core reads the keychain under the row's
    *   flags.
    */
@@ -1046,10 +1242,21 @@ export class ConnectionManager {
       const keyring = getKeyringService();
       if (keyring.isAvailable()) {
         try {
-          db = (await keyring.getDbPassword(connection.id)) || undefined;
+          // Strict (F4 re-review M-a): null only when no password is
+          // stored; a stored one that can't be decrypted throws.
+          const stored = keyring.getDbPasswordStrict
+            ? await keyring.getDbPasswordStrict(connection.id)
+            : await keyring.getDbPassword(connection.id);
+          db = stored || undefined;
         } catch (error) {
-          // A cancelled unlock, say: Core then tries without it.
+          // A failed or cancelled unlock, or a stored password that can't be
+          // decrypted: the row saves a password this page couldn't read, so
+          // don't dial without it (F1/F2/F5 review P2: a
+          // failed login can count toward a lockout, as on SQL Server). The
+          // user connects from the connection's tab. A vault that holds no
+          // password for the row (trust auth, probe F5) still connects.
           void log.warn("Reading the saved password from the vault failed:", error);
+          throw new Error("The saved password couldn't be read from the vault");
         }
       }
     }
@@ -1105,7 +1312,9 @@ export class ConnectionManager {
     const connection = this.state.connections.find((c) => c.id === connectionId);
     if (!connection) return;
     // Store the change, then show it (a refusal throws, worded for the user)
-    await this.patch(connectionId, { isLocalOnly: !!connection.sharedConnectionId });
+    await this.patch(connectionId, {
+      isLocalOnly: !!connection.sharedConnectionId,
+    });
   }
 
   /**
@@ -1113,6 +1322,9 @@ export class ConnectionManager {
    */
   async toggle(id: string): Promise<void> {
     const connection = this.state.connections.find((c) => c.id === id);
+    // A background reconnect running for it (F4 re-review M-c): the user's
+    // disconnect wins when it lands.
+    if (connection && this.backgroundIds.has(id)) this.userDisconnected.add(id);
     if (!connection?.providerConnectionId) return;
 
     // Disconnect the Core connection (Core closes its SSH tunnel with it).
@@ -1127,14 +1339,34 @@ export class ConnectionManager {
    * tabs, and make another connected one active for its project if it was
    * the active one. For a toggle and for a connection Core closed itself.
    */
-  private markDisconnected(connection: DatabaseConnection): void {
+  private markDisconnected(
+    connection: DatabaseConnection,
+    options: { background?: boolean } = {},
+  ): void {
     const id = connection.id;
     this.state.connections = this.state.connections.map((c) =>
       c.id === id ? { ...c, providerConnectionId: undefined } : c,
     );
     void log.info(`Connection disconnected: ${id}`);
+    // A background reconnect (F4 re-review R1, M-b) keeps the schema tabs
+    // and the project's active connection while it runs.
+    if (options.background) return;
 
-    // Remove schema tabs belonging to the disconnected connection
+    this.closeSchemaTabs(connection);
+    const projectId = connection.projectId;
+
+    // If it was the project's active connection, switch to another connected one
+    if (this.state.activeConnectionIdByProject[projectId] === id) {
+      const nextConnection = this.state.connections.find(
+        (c) => c.projectId === projectId && !!c.providerConnectionId && c.id !== id,
+      );
+      this.setActiveForProject(nextConnection?.id ?? null, projectId);
+    }
+  }
+
+  /** Close `connection`'s schema tabs (and drop them from the tab order). */
+  private closeSchemaTabs(connection: DatabaseConnection): void {
+    const id = connection.id;
     const projectId = connection.projectId;
     const schemaTabs = this.state.schemaTabsByProject[projectId] ?? [];
     const removedTabIds = new Set(schemaTabs.filter((t) => t.connectionId === id).map((t) => t.id));
@@ -1158,14 +1390,6 @@ export class ConnectionManager {
       };
     }
     this.windowState.scheduleProject(projectId);
-
-    // If it was the project's active connection, switch to another connected one
-    if (this.state.activeConnectionIdByProject[projectId] === id) {
-      const nextConnection = this.state.connections.find(
-        (c) => c.projectId === projectId && !!c.providerConnectionId && c.id !== id,
-      );
-      this.setActiveForProject(nextConnection?.id ?? null, projectId);
-    }
   }
 
   /**

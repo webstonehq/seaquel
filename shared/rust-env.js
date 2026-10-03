@@ -31,8 +31,10 @@ export const RUST_ENV_NAMES = new Set([
   "SEAQUEL_WORKSPACE_CAP",
   // Each web user's metadata file size cap (phase 5d-2).
   "SEAQUEL_USER_DB_MAX_BYTES",
-  // TLS roots: the control-plane client adds NODE_EXTRA_CA_CERTS; rustls'
-  // native store honours SSL_CERT_FILE / SSL_CERT_DIR.
+  // Where the assistant's model calls may go: public, any or off (phase 6).
+  "SEAQUEL_AI_EGRESS",
+  // TLS roots: the control-plane and model clients add NODE_EXTRA_CA_CERTS;
+  // rustls' native store honours SSL_CERT_FILE / SSL_CERT_DIR.
   "NODE_EXTRA_CA_CERTS",
   "SSL_CERT_FILE",
   "SSL_CERT_DIR",

@@ -1,0 +1,39 @@
+[package]
+name = "seaquel-ai"
+version = "0.1.0"
+edition = "2021"
+description = "Seaquel's AI domain: the provider wire (Anthropic Messages, OpenAI-compatible Chat Completions), SSE framing, the HttpClient seam, the tool registry and its renderers, the prompt, mentions and history. No I/O of its own; builds for wasm32."
+
+[features]
+# The mock provider (a local HTTP server) and the loopback-only client, for
+# tests in this crate and in Core, RPC and the interfaces. Native only, and
+# only ever a dev-dependency feature: it pulls tokio in.
+testing = ["dep:tokio"]
+
+[dependencies]
+seaquel-runtime = { path = "../seaquel-runtime" }
+# Cells, schema rows and EXPLAIN plans (the renderers), and the stored rows
+# the sharing rule reads.
+seaquel-types = { path = "../seaquel-types" }
+# The engines' names (the prompt), `{{param}}` handling (saved queries).
+seaquel-sql = { path = "../seaquel-sql" }
+futures = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# The tools' JSON schemas (Decision 3), generated as rmcp generates MCP's.
+schemars = { workspace = true }
+# The assistant's argument errors name the field (Decision 24).
+serde_path_to_error = "0.1.20"
+# JavaScript's `Number.prototype.toString`, for the `cellText` port
+# (tools/render.rs, moved from seaquel-mcp's format.rs).
+ryu-js = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["rt", "net", "io-util", "time", "sync", "macros"], optional = true }
+
+[dev-dependencies]
+seaquel-ai = { path = ".", features = ["testing"] }
+# The large schema context is recorded as its SHA-256 (tests/ts_baseline.rs).
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }

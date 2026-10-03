@@ -1,0 +1,10 @@
+{
+  // Node-side helpers shared by server.js and the Vite dev server. They sit outside
+  // SvelteKit's tsconfig includes, so linting one of them on its own (the pre-commit
+  // hook passes staged files) needs Node's types from here.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["./**/*.js", "./**/*.ts"]
+}

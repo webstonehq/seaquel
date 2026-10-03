@@ -1705,8 +1705,11 @@ async fn an_unreadable_secret_is_a_tool_error() {
     h.stop().await;
 }
 
+/// A workspace without a secret store (never the CLI's, which always has
+/// the keychain) connects a saved row with no password, as a form would
+/// (phase 6 probe F5), so the call reaches the driver, which refuses it.
 #[tokio::test]
-async fn a_workspace_without_a_secret_store_is_a_tool_error() {
+async fn a_workspace_without_a_secret_store_connects_with_no_password() {
     let seeded = seed(None).await;
     let core = Arc::new(
         seaquel_core::with_default_plugins()
@@ -1745,7 +1748,7 @@ async fn a_workspace_without_a_secret_store_is_a_tool_error() {
         .await
         .unwrap();
     assert_eq!(result.is_error, Some(true));
-    assert_code(&text(&result), "NO_SECRET_STORE");
+    assert_code(&text(&result), "CONNECTION_ERROR");
     client.cancel().await.unwrap();
     serving.await.unwrap();
     server.close().await;

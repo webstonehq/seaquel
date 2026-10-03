@@ -50,6 +50,10 @@ export class CoreProvider implements DatabaseProvider {
     await callDb(this.getClient(), "disconnect", { connectionId });
   }
 
+  async bindSaved(connectionId: string, savedConnectionId: string): Promise<void> {
+    await callDb(this.getClient(), "bindSaved", { connectionId, savedConnectionId });
+  }
+
   async select<T = Record<string, unknown>>(
     connectionId: string,
     sql: string,

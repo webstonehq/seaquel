@@ -1,0 +1,638 @@
+{
+  "assistant": [
+    {
+      "description": "Run one read-only SQL query (SELECT and the like) on the connected database and return its rows as JSON: the columns once, then each row as an array. Writes are refused, and the user may be asked to approve the query first. At most `max_rows` rows come back (default 100, at most 1000); `truncated` says the query had more.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "max_rows": {
+            "default": null,
+            "description": "The most rows to return: 1 to 1000, default 100.",
+            "format": "uint32",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": ["integer", "null"]
+          },
+          "sql": {
+            "description": "One read-only SQL statement in the connection's dialect.",
+            "type": "string"
+          }
+        },
+        "required": ["sql"],
+        "type": "object"
+      },
+      "name": "run_query"
+    },
+    {
+      "description": "Show the database's query plan for a read-only query, without running it.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "sql": {
+            "description": "One read-only SQL statement to explain.",
+            "type": "string"
+          }
+        },
+        "required": ["sql"],
+        "type": "object"
+      },
+      "name": "explain_query"
+    },
+    {
+      "description": "List the schemas of the connected database.",
+      "input_schema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "list_schemas"
+    },
+    {
+      "description": "List the tables and views of the connected database, optionally of one schema.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "schema": {
+            "default": null,
+            "description": "Only the tables of this schema (as list_schemas shows it). All\nschemas when omitted.",
+            "type": ["string", "null"]
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_tables"
+    },
+    {
+      "description": "Describe a table: its columns (name, type, nullable, default, primary key), indexes and foreign keys.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "schema": {
+            "default": null,
+            "description": "The table's schema, as list_tables shows it. When omitted, the table\nname must be unique across schemas.",
+            "type": ["string", "null"]
+          },
+          "table": {
+            "description": "The table or view name, as list_tables shows it.",
+            "type": "string"
+          }
+        },
+        "required": ["table"],
+        "type": "object"
+      },
+      "name": "describe_table"
+    },
+    {
+      "description": "List the saved queries of the connection's project, with their `{{parameters}}`.",
+      "input_schema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "list_saved_queries"
+    },
+    {
+      "description": "Run a saved query of the connection's project, with values for its `{{parameters}}`, and return its rows like run_query. Read-only, like run_query.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "max_rows": {
+            "default": null,
+            "description": "The most rows to return: 1 to 1000, default 100.",
+            "format": "uint32",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": ["integer", "null"]
+          },
+          "params": {
+            "additionalProperties": true,
+            "default": null,
+            "description": "A value for each of the query's parameters, by name: a string, number,\nboolean or null. A parameter with a default may be left out; every\nother one is required, and names the query doesn't take are refused.",
+            "type": ["object", "null"]
+          },
+          "saved_query": {
+            "description": "The saved query's id or name, as list_saved_queries shows it.",
+            "type": "string"
+          }
+        },
+        "required": ["saved_query"],
+        "type": "object"
+      },
+      "name": "run_saved_query"
+    },
+    {
+      "description": "Create a new empty dashboard. Returns the dashboard ID to use when adding widgets.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Name for the new dashboard",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "type": "object"
+      },
+      "name": "create_dashboard"
+    },
+    {
+      "description": "Add a widget to a dashboard. Provide position (x, y), size (width, height), widget type, and the relevant config for that type.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "chart_config": {
+            "additionalProperties": false,
+            "description": "Configuration for chart widgets",
+            "properties": {
+              "colors": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "default": null,
+                "description": "Custom colors per Y-axis column (column name → hex color)",
+                "type": ["object", "null"]
+              },
+              "type": {
+                "description": "Chart type",
+                "enum": ["bar", "line", "pie", "scatter", "area", null],
+                "type": ["string", "null"]
+              },
+              "xAxis": {
+                "default": null,
+                "description": "Column name for the X axis",
+                "type": ["string", "null"]
+              },
+              "yAxis": {
+                "default": null,
+                "description": "Column names for the Y axis values",
+                "items": {
+                  "type": "string"
+                },
+                "type": ["array", "null"]
+              }
+            },
+            "type": ["object", "null"]
+          },
+          "dashboard_id": {
+            "description": "ID of the dashboard to add the widget to",
+            "type": "string"
+          },
+          "height": {
+            "description": "Height in pixels",
+            "format": "double",
+            "type": "number"
+          },
+          "kpi_config": {
+            "additionalProperties": false,
+            "description": "Configuration for KPI widgets",
+            "properties": {
+              "format": {
+                "description": "How to format the value",
+                "enum": ["number", "percentage", null],
+                "type": ["string", "null"]
+              },
+              "label": {
+                "description": "Label for the KPI value",
+                "type": "string"
+              },
+              "prefix": {
+                "default": null,
+                "description": "Prefix to display before the value (e.g. $)",
+                "type": ["string", "null"]
+              },
+              "suffix": {
+                "default": null,
+                "description": "Suffix to display after the value (e.g. %)",
+                "type": ["string", "null"]
+              },
+              "valueColumn": {
+                "description": "Column name containing the KPI value",
+                "type": "string"
+              }
+            },
+            "required": ["label", "valueColumn"],
+            "type": ["object", "null"]
+          },
+          "query": {
+            "default": null,
+            "description": "SQL SELECT query that powers this widget (not needed for text widgets)",
+            "type": ["string", "null"]
+          },
+          "text_config": {
+            "additionalProperties": false,
+            "description": "Configuration for text widgets",
+            "properties": {
+              "content": {
+                "description": "Text content to display",
+                "type": "string"
+              }
+            },
+            "required": ["content"],
+            "type": ["object", "null"]
+          },
+          "title": {
+            "description": "Display title for the widget",
+            "type": "string"
+          },
+          "widget_type": {
+            "description": "Type of widget",
+            "enum": ["chart", "kpi", "text"],
+            "type": "string"
+          },
+          "width": {
+            "description": "Width in pixels",
+            "format": "double",
+            "type": "number"
+          },
+          "x": {
+            "description": "X position in pixels on the canvas",
+            "format": "double",
+            "type": "number"
+          },
+          "y": {
+            "description": "Y position in pixels on the canvas",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": ["dashboard_id", "title", "x", "y", "width", "height", "widget_type"],
+        "type": "object"
+      },
+      "name": "add_widget"
+    },
+    {
+      "description": "Retrieve a dashboard and all its widgets. Use this to inspect the current state before making updates.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "dashboard_id": {
+            "description": "ID of the dashboard to retrieve",
+            "type": "string"
+          }
+        },
+        "required": ["dashboard_id"],
+        "type": "object"
+      },
+      "name": "get_dashboard"
+    },
+    {
+      "description": "Update an existing widget on a dashboard. Only the fields you provide will be changed.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "chart_config": {
+            "additionalProperties": false,
+            "description": "New chart configuration",
+            "properties": {
+              "colors": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "default": null,
+                "description": "Custom colors per Y-axis column (column name → hex color)",
+                "type": ["object", "null"]
+              },
+              "type": {
+                "description": "Chart type",
+                "enum": ["bar", "line", "pie", "scatter", "area", null],
+                "type": ["string", "null"]
+              },
+              "xAxis": {
+                "default": null,
+                "description": "Column name for the X axis",
+                "type": ["string", "null"]
+              },
+              "yAxis": {
+                "default": null,
+                "description": "Column names for the Y axis values",
+                "items": {
+                  "type": "string"
+                },
+                "type": ["array", "null"]
+              }
+            },
+            "type": ["object", "null"]
+          },
+          "dashboard_id": {
+            "description": "ID of the dashboard containing the widget",
+            "type": "string"
+          },
+          "height": {
+            "default": null,
+            "description": "New height in pixels",
+            "format": "double",
+            "type": ["number", "null"]
+          },
+          "kpi_config": {
+            "additionalProperties": false,
+            "description": "New KPI configuration",
+            "properties": {
+              "format": {
+                "description": "How to format the value",
+                "enum": ["number", "percentage", null],
+                "type": ["string", "null"]
+              },
+              "label": {
+                "description": "Label for the KPI value",
+                "type": "string"
+              },
+              "prefix": {
+                "default": null,
+                "description": "Prefix to display before the value (e.g. $)",
+                "type": ["string", "null"]
+              },
+              "suffix": {
+                "default": null,
+                "description": "Suffix to display after the value (e.g. %)",
+                "type": ["string", "null"]
+              },
+              "valueColumn": {
+                "description": "Column name containing the KPI value",
+                "type": "string"
+              }
+            },
+            "required": ["label", "valueColumn"],
+            "type": ["object", "null"]
+          },
+          "query": {
+            "default": null,
+            "description": "New SQL query",
+            "type": ["string", "null"]
+          },
+          "text_config": {
+            "additionalProperties": false,
+            "description": "New text configuration",
+            "properties": {
+              "content": {
+                "description": "Text content to display",
+                "type": "string"
+              }
+            },
+            "required": ["content"],
+            "type": ["object", "null"]
+          },
+          "title": {
+            "default": null,
+            "description": "New display title",
+            "type": ["string", "null"]
+          },
+          "widget_id": {
+            "description": "ID of the widget to update",
+            "type": "string"
+          },
+          "widget_type": {
+            "description": "New widget type",
+            "enum": ["chart", "kpi", "text", null],
+            "type": ["string", "null"]
+          },
+          "width": {
+            "default": null,
+            "description": "New width in pixels",
+            "format": "double",
+            "type": ["number", "null"]
+          },
+          "x": {
+            "default": null,
+            "description": "New X position in pixels",
+            "format": "double",
+            "type": ["number", "null"]
+          },
+          "y": {
+            "default": null,
+            "description": "New Y position in pixels",
+            "format": "double",
+            "type": ["number", "null"]
+          }
+        },
+        "required": ["dashboard_id", "widget_id"],
+        "type": "object"
+      },
+      "name": "update_widget"
+    },
+    {
+      "description": "Remove a dashboard widget.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "dashboard_id": {
+            "description": "ID of the dashboard containing the widget",
+            "type": "string"
+          },
+          "widget_id": {
+            "description": "ID of the widget to remove",
+            "type": "string"
+          }
+        },
+        "required": ["dashboard_id", "widget_id"],
+        "type": "object"
+      },
+      "name": "remove_widget"
+    }
+  ],
+  "mcp": [
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Describe table"
+      },
+      "description": "Describe a table: its columns (name, type, nullable, default, primary\nkey), indexes and foreign keys.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "connection": {
+            "description": "The connection's name or id, exactly as list_connections shows it.",
+            "type": "string"
+          },
+          "schema": {
+            "default": null,
+            "description": "The table's schema, as list_tables shows it. When omitted, the table\nname must be unique across schemas.",
+            "type": ["string", "null"]
+          },
+          "table": {
+            "description": "The table or view name, as list_tables shows it.",
+            "type": "string"
+          }
+        },
+        "required": ["connection", "table"],
+        "type": "object"
+      },
+      "name": "describe_table"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Explain query"
+      },
+      "description": "Show the database's query plan for a read-only query, without running\nit.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "connection": {
+            "description": "The connection's name or id, exactly as list_connections shows it.",
+            "type": "string"
+          },
+          "sql": {
+            "description": "One read-only SQL statement to explain.",
+            "type": "string"
+          }
+        },
+        "required": ["connection", "sql"],
+        "type": "object"
+      },
+      "name": "explain_query"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "List connections"
+      },
+      "description": "List the database connections this server exposes, with their\nengine, project and whether schema and data may be shared.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_connections"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "List saved queries"
+      },
+      "description": "List the saved queries of the exposed connections' projects, with\ntheir `{{parameters}}`.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "connection": {
+            "default": null,
+            "description": "Only the saved queries of this connection's project.",
+            "type": ["string", "null"]
+          },
+          "project": {
+            "default": null,
+            "description": "Only the saved queries of this project (name or id), which must hold\nan exposed connection.",
+            "type": ["string", "null"]
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_saved_queries"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "List schemas"
+      },
+      "description": "List the schemas of a connection.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "connection": {
+            "description": "The connection's name or id, exactly as list_connections shows it.",
+            "type": "string"
+          }
+        },
+        "required": ["connection"],
+        "type": "object"
+      },
+      "name": "list_schemas"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "List tables"
+      },
+      "description": "List the tables and views of a connection, optionally of one schema.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "connection": {
+            "description": "The connection's name or id, exactly as list_connections shows it.",
+            "type": "string"
+          },
+          "schema": {
+            "default": null,
+            "description": "Only the tables of this schema (as list_schemas shows it). All\nschemas when omitted.",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["connection"],
+        "type": "object"
+      },
+      "name": "list_tables"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Run read-only query"
+      },
+      "description": "Run one read-only SQL query (SELECT and the like) and return its rows.\nWrites are refused. At most `max_rows` rows come back (default 100, at\nmost 1000); `truncated` says the query had more.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "connection": {
+            "description": "The connection's name or id, exactly as list_connections shows it.",
+            "type": "string"
+          },
+          "max_rows": {
+            "default": null,
+            "description": "The most rows to return: 1 to 1000, default 100.",
+            "format": "uint32",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": ["integer", "null"]
+          },
+          "sql": {
+            "description": "One read-only SQL statement in the connection's dialect.",
+            "type": "string"
+          }
+        },
+        "required": ["connection", "sql"],
+        "type": "object"
+      },
+      "name": "run_query"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Run saved query"
+      },
+      "description": "Run a saved query on a connection of its project, with values for its\n`{{parameters}}`. Read-only, like run_query.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "connection": {
+            "description": "The connection to run it on (name or id); the saved query must belong\nto its project.",
+            "type": "string"
+          },
+          "max_rows": {
+            "default": null,
+            "description": "The most rows to return: 1 to 1000, default 100.",
+            "format": "uint32",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": ["integer", "null"]
+          },
+          "params": {
+            "additionalProperties": true,
+            "default": null,
+            "description": "A value for each of the query's parameters, by name: a string, number,\nboolean or null. A parameter with a default may be left out; every\nother one is required, and names the query doesn't take are refused.",
+            "type": ["object", "null"]
+          },
+          "saved_query": {
+            "description": "The saved query's id or name, as list_saved_queries shows it.",
+            "type": "string"
+          }
+        },
+        "required": ["connection", "saved_query"],
+        "type": "object"
+      },
+      "name": "run_saved_query"
+    }
+  ]
+}

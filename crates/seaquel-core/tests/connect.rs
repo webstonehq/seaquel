@@ -404,22 +404,37 @@ async fn an_unreadable_key_passphrase_fails_before_the_tunnel() {
     assert_eq!(f.core.connection_count(), 0);
 }
 
+/// A workspace with no secret store (the web, probe F5): a saved row whose
+/// save flag is on and that gets no supplied password connects with none,
+/// as a form does, instead of failing with `NO_SECRET_STORE`. The vault
+/// supplies what it has; a trust-auth database needs nothing.
 #[tokio::test]
-async fn no_secret_store_fails_only_for_rows_that_need_a_secret() {
+async fn no_secret_store_connects_a_saved_row_with_no_password() {
     let f = fixture_with(Store::None).await;
+    // MSSQL on a closed port: refused at once (sqlx would retry for 30 s).
     f.save(
         "c-no-store",
-        json!({ "connectionString": "postgresql://alice@127.0.0.1:1/app" }),
+        json!({ "type": "mssql", "host": "127.0.0.1", "port": 1, "username": "sa",
+                "savePassword": true }),
     )
     .await;
     let err = f
         .connect("c-no-store", HostKeyPolicy::KnownOnly)
         .await
         .unwrap_err();
-    assert_eq!(err.code, "NO_SECRET_STORE", "{err}");
-    assert!(err.message.contains("Saved c-no-store"), "{}", err.message);
+    assert_ne!(err.code, "NO_SECRET_STORE", "{err}");
+    assert_ne!(err.code, "SECRET_UNREADABLE", "{err}");
+    assert_ne!(err.code, "CREDENTIALS_REQUIRED", "{err}");
 
-    // SQLite reads no secret, so it still connects.
+    // The same fields as a form fail the same way: the driver was dialled.
+    let form_req = ConnectRequest::form(form(json!({
+        "type": "mssql", "host": "127.0.0.1", "port": 1, "username": "sa",
+    })));
+    let form_err = f.ws.connect(&f.core, form_req).await.unwrap_err();
+    assert_eq!(err.code, form_err.code, "{err} / {form_err}");
+    assert_eq!(f.core.connection_count(), 0);
+
+    // SQLite reads no secret, so it connects.
     let file = f.dir.path().join("app.db");
     std::fs::write(&file, b"").unwrap();
     f.save(

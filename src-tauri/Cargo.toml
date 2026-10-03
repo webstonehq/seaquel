@@ -24,11 +24,13 @@ tauri-build = { version = "2", features = [] }
 # decodes the plist; `read_tableplus_config` and `plist` left this crate).
 # `workspace`/`connect` (phase 5a): `db.connect` and `db.test` through the
 # workspace, saved rows and forms alike.
-seaquel-core = { path = "../crates/seaquel-core", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports"] }
+# `ai-native` (phase 6): Core runs the assistant and calls models with
+# seaquel-http's client; `ai-system-proxy` adds the OS proxy settings to it.
+seaquel-core = { path = "../crates/seaquel-core", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports", "ai-native", "ai-system-proxy"] }
 seaquel-types = { path = "../crates/seaquel-types" }
 # `TokioExecutor`, Core's clock for the editor's runs (phase 5b).
 seaquel-runtime = { path = "../crates/seaquel-runtime", features = ["tokio"] }
-seaquel-rpc = { path = "../crates/seaquel-rpc", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports"] }
+seaquel-rpc = { path = "../crates/seaquel-rpc", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports", "ai"] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { workspace = true }
@@ -37,7 +39,8 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 futures = "0.3"
 # OnceCell for the lazily opened workspace. SSH moved to seaquel-ssh.
-tokio = { version = "1", features = ["sync"] }
+# `time`: the bound on a stopped turn's last write (phase 6).
+tokio = { version = "1", features = ["sync", "time"] }
 tauri-plugin-os = "2"
 tauri-plugin-clipboard-manager = "2.3.2"
 arboard = "3.6.1"
@@ -53,6 +56,11 @@ sha2 = "0.10"
 tauri-plugin-deep-link = "2"
 tauri-plugin-log = "2"
 log = { version = "0.4", features = ["kv"] }
+
+[dev-dependencies]
+# The assistant's tests: the mock provider and the loopback-only client.
+seaquel-ai = { path = "../crates/seaquel-ai", features = ["testing"] }
+tokio = { version = "1", features = ["sync", "time", "macros"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

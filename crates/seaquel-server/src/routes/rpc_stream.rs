@@ -1,8 +1,8 @@
 //! `GET /rpc/stream`: one WebSocket per browser session, for the user in
 //! `X-Seaquel-User`. It carries that user's query streams, several at once,
-//! and their connection events, the editor's runs (`db.run`, `db.page`)
-//! and the data tab's pages (`db.tablePage`), each of which counts as one
-//! stream.
+//! and their connection events, the editor's runs (`db.run`, `db.page`),
+//! the data tab's pages (`db.tablePage`) and the assistant's turns
+//! (`ai.chat`, phase 6), each of which counts as one stream.
 //!
 //! Only Node's `/api/rpc/stream` upgrade reaches it. Node sets the header
 //! from the session and drops any copy the browser sent, and passes frames
@@ -18,14 +18,16 @@
 //! ```
 //!
 //! - `start` runs `request`, a `CoreRequest` that must be `db.queryStream`,
-//!   `db.run`, `db.page` or `db.tablePage` with the same `streamId`, on the
-//!   user's workspace (`dispatch_stream`).
+//!   `db.run`, `db.page`, `db.tablePage` or `ai.chat` with the same
+//!   `streamId` (`Request::stream_kind`), on the user's workspace
+//!   (`dispatch_stream`).
 //!   `request` is an inline JSON object. It goes to `parse_request` as the
 //!   exact bytes it has in the frame (a borrowed `RawValue`, never a
 //!   `serde_json::Value`), so the `method`-before-`params` rule holds.
-//! - `cancel` cancels a stream or run this socket started
+//! - `cancel` cancels a stream, run or turn this socket started
 //!   (`Workspace::cancel`). Nothing more arrives for it. An id this socket
-//!   isn't running is ignored.
+//!   isn't running is ignored. A turn's approvals and client tools are
+//!   answered over `/rpc` (`ai.respond`), not here.
 //!
 //! # Server frames (Text, `CoreEvent` JSON)
 //!
@@ -37,8 +39,25 @@
 //!   page's events (per statement a `statementStart`, `batch`es and
 //!   `statementDone` or `statementError`), then one `done` or `error`. The
 //!   `CANCELLED` rule is the same, as a run `error`.
+//! - `{"type":"ai","streamId":…,"event":…}` (phase 6): a turn's `started`,
+//!   `text`, tool calls, `approvalRequired` and `clientTool`, then one
+//!   `done` or `error`. The `CANCELLED` rule is the same, as an `ai`
+//!   `error`.
 //! - `{"type":"connectionClosed",…}`: one of the user's connections went
-//!   away (`WORKSPACE_EVICTED`), from any of the user's workspaces.
+//!   away, from any of the user's workspaces: `WORKSPACE_EVICTED`,
+//!   `WINDOW_CLOSED` (a tab whose sockets stayed closed past
+//!   [`crate::workspaces::WINDOW_GRACE`]; its connections were closed) or
+//!   `CONNECTION_REPLACED` (a tab connected the same saved connection
+//!   again). A page ignores one for a connection it doesn't hold.
+//!
+//! # Windows
+//!
+//! The socket's origin (`X-Seaquel-Origin`, the tab's window id) is the
+//! window its connections belong to. While any socket of a window is open
+//! the window is kept; when its last one closes and none returns within
+//! `WINDOW_GRACE` (2 minutes; a reload comes back well within it), the
+//! window's connections are closed (`Workspace::close_owned_by`). A socket
+//! without an origin keeps nothing.
 //! - `{"type":"storageChanged","kind",…,"seq"}` (phase 5d): a write to the
 //!   user's metadata committed, from any of their tabs (or Core itself).
 //!   Every socket of that user gets it, the writer's too, which skips it by
@@ -51,14 +70,15 @@
 //! mismatched `streamId`, one longer than [`MAX_STREAM_ID_LEN`] or outside
 //! `[A-Za-z0-9_.:-]`, a bad `request`, a stream id already running on this
 //! socket) or [`TOO_MANY_STREAMS`]. It is a `run` event when the frame's
-//! request names `db.run`, `db.page` or `db.tablePage`, else a `stream`
-//! event. Its
+//! request names `db.run`, `db.page` or `db.tablePage`, an `ai` event when
+//! it names `ai.chat`, else a `stream` event. Its
 //! `streamId` is the frame's when it has a valid string one, else `""`.
 //!
 //! # Limits
 //!
 //! - At most [`MAX_STREAMS`] streams run per socket, a run, page or table
-//!   page being one however many statements it has, and a user has at most
+//!   page being one however many statements it has and a turn one however
+//!   many rounds and tool calls it makes, and a user has at most
 //!   [`MAX_LISTENERS_PER_USER`] sockets; one more is closed at once with
 //!   code 1013 and a [`TOO_MANY_SOCKETS`] reason.
 //! - A batch (a stream's or a run's) whose frame would pass
@@ -76,6 +96,11 @@
 //!   sent; a client that sends refused frames without reading passes it
 //!   and is closed with 1008 and a [`TOO_MANY_PENDING`] reason.
 //! - Closing the socket, or losing it, cancels every stream it started.
+//!   **A turn is cancelled, never aborted** (phase 6, Task 4's contract):
+//!   its task keeps polling it, so it stores the reply with what streamed,
+//!   and is aborted only if it still runs after
+//!   [`seaquel_rpc::TURN_STOP_WAIT`] (45 s). An `ai.respond` for it then
+//!   answers `NOT_FOUND`.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -93,7 +118,7 @@ use futures::{SinkExt, StreamExt};
 use seaquel_core::domain::run::RunEvent;
 use seaquel_core::StreamEvent;
 use seaquel_rpc::{
-    dispatch_stream, parse_request, CoreEvent, DbRequest, Request, RpcError, WriteOrigin,
+    dispatch_stream, parse_request, CoreEvent, Request, RpcError, StreamKind, WriteOrigin,
     INVALID_ARGUMENT,
 };
 use seaquel_types::StreamBatch;
@@ -182,9 +207,19 @@ pub async fn stream(
             })
         }
     };
+    // While this socket is open its window counts as open; its last socket
+    // closing starts the window's grace period (phase 6 probe F4).
+    let window = origin
+        .as_deref()
+        .map(|o| state.workspaces.hold_window(&state.core, &user, o));
     ws.max_message_size(MAX_FRAME_BYTES)
         .max_frame_size(MAX_FRAME_BYTES)
-        .on_upgrade(move |socket| Session::new(state, user, origin).run(socket, listener))
+        .on_upgrade(move |socket| async move {
+            Session::new(state, user, origin)
+                .run(socket, listener)
+                .await;
+            drop(window);
+        })
 }
 
 #[derive(Deserialize)]
@@ -205,6 +240,8 @@ struct Running {
     task: JoinHandle<()>,
     /// Tells this run's end apart from a later one with the same id.
     generation: u64,
+    /// A turn (`ai.chat`) is never aborted: see [`stop`].
+    kind: StreamKind,
 }
 
 struct Session {
@@ -217,13 +254,14 @@ struct Session {
 
 /// A stream `error` event, for a frame that isn't a run's.
 fn error_event(stream_id: &str, code: &str, message: impl Into<String>) -> CoreEvent {
-    CoreEvent::error(stream_id, false, code, message)
+    CoreEvent::error(stream_id, StreamKind::Stream, code, message)
 }
 
-/// Whether a start frame's `request` names `db.run`, `db.page` or
-/// `db.tablePage`, read leniently (it may not parse as a request at all),
-/// so that even its refusal is a `run` event.
-fn names_a_run(request: &RawValue) -> bool {
+/// Which stream kind a start frame's `request` names, read leniently (it
+/// may not parse as a request at all), so that even its refusal is an
+/// event of that kind: a `run` event for `db.run`, `db.page` and
+/// `db.tablePage`, an `ai` event for `ai.chat`, else a `stream` event.
+fn named_kind(request: &RawValue) -> StreamKind {
     #[derive(Deserialize)]
     struct Outer {
         method: Option<String>,
@@ -233,12 +271,14 @@ fn names_a_run(request: &RawValue) -> bool {
     struct Inner {
         method: Option<String>,
     }
-    serde_json::from_str::<Outer>(request.get()).is_ok_and(|o| {
-        o.method.as_deref() == Some("db")
-            && o.params
-                .and_then(|p| p.method)
-                .is_some_and(|m| DbRequest::is_run_method(&m))
-    })
+    serde_json::from_str::<Outer>(request.get())
+        .ok()
+        .and_then(|o| {
+            let group = o.method?;
+            let method = o.params?.method?;
+            StreamKind::of(&group, &method)
+        })
+        .unwrap_or(StreamKind::Stream)
 }
 
 /// `event` as JSON text. A batch carries driver data, so this can fail;
@@ -350,15 +390,11 @@ impl Session {
         }
 
         // Cancel everything this socket started: through Core, and by
-        // dropping each stream. That includes a socket closing itself (lagging
-        // or too many refusals waiting): its running queries stop with it.
+        // dropping each stream, except a turn, which ends on its own (see
+        // `stop`). That includes a socket closing itself (lagging or too
+        // many refusals waiting): its running queries and turns stop with it.
         for (stream_id, running) in self.running.drain() {
-            running.cancelled.store(true, Ordering::SeqCst);
-            running
-                .open
-                .workspace()
-                .cancel(&self.state.core, &stream_id);
-            running.task.abort();
+            stop(&self.state.core, &stream_id, running);
         }
         drop(outbox);
         if let Some(frame) = close {
@@ -430,11 +466,11 @@ impl Session {
                         "a start frame needs a request",
                     ));
                 };
-                let run = names_a_run(request);
+                let kind = named_kind(request);
                 self.start(stream_id, request, outbox, ended)
                     .await
                     .err()
-                    .map(|(id, e)| CoreEvent::error(&id, run, &e.code, e.message))
+                    .map(|(id, e)| CoreEvent::error(&id, kind, &e.code, e.message))
             }
             "cancel" => {
                 if let Some(running) = self.running.get(&stream_id) {
@@ -474,18 +510,14 @@ impl Session {
             )));
         }
         let request = parse_request(request.get().as_bytes()).map_err(fail)?;
-        let run = match &request {
-            Request::Db(db) => match db.stream_id() {
-                Some(id) if id != stream_id => {
-                    return Err(fail(RpcError::invalid_argument(
-                        "the request's streamId must be the frame's",
-                    )));
-                }
-                Some(_) => db.is_run(),
-                None => return Err(fail(not_a_stream(&request))),
-            },
-            _ => return Err(fail(not_a_stream(&request))),
+        let Some(kind) = request.stream_kind() else {
+            return Err(fail(not_a_stream(&request)));
         };
+        if request.stream_id() != Some(stream_id.as_str()) {
+            return Err(fail(RpcError::invalid_argument(
+                "the request's streamId must be the frame's",
+            )));
+        }
         let open = open_workspace(&self.state, &self.user).await.map_err(|e| {
             log::warn!(activity = "rpc.stream.error", code = e.code.as_str(); "/rpc/stream failed");
             fail(redact(e, self.state.workspaces.root()))
@@ -500,7 +532,7 @@ impl Session {
             request,
             self.origin.clone(),
             stream_id.clone(),
-            run,
+            kind,
             Arc::clone(&cancelled),
             outbox.clone(),
             ended.clone(),
@@ -513,6 +545,7 @@ impl Session {
                 cancelled,
                 task,
                 generation,
+                kind,
             },
         );
         Ok(())
@@ -521,16 +554,45 @@ impl Session {
 
 fn not_a_stream(request: &Request) -> RpcError {
     RpcError::invalid_argument(format!(
-        "{}.{} isn't a stream; only db.queryStream, db.run, db.page and db.tablePage are",
+        "{}.{} isn't a stream; only db.queryStream, db.run, db.page, db.tablePage and \
+         ai.chat are",
         request.group(),
         request.method()
     ))
 }
 
-/// Run one stream (a query stream, a run, a page or a table page) to its end, sending
-/// its events to the client. `run`: its events are `run` events, and so is
-/// the error this sends when it can't be served or ends without a terminal
-/// event.
+/// Stops a stream this socket started, as the socket closes: cancels it
+/// through Core, and aborts its task, **except a turn's** (phase 6, Task
+/// 4's contract). A turn, once cancelled, stores its reply with what
+/// streamed and ends; aborting it would drop that write. So its task runs
+/// on (sending into an outbox nobody reads, see `run_stream`), and only one
+/// still running after [`seaquel_rpc::TURN_STOP_WAIT`] is aborted.
+fn stop(core: &seaquel_core::Core, stream_id: &str, running: Running) {
+    running.cancelled.store(true, Ordering::SeqCst);
+    running.open.workspace().cancel(core, stream_id);
+    if running.kind != StreamKind::Ai {
+        running.task.abort();
+        return;
+    }
+    let mut task = running.task;
+    tokio::spawn(async move {
+        if tokio::time::timeout(seaquel_rpc::TURN_STOP_WAIT, &mut task)
+            .await
+            .is_err()
+        {
+            task.abort();
+            log::warn!(activity = "ai.stop"; "A stopped turn didn't end in time; dropping it");
+        }
+    });
+}
+
+/// Run one stream (a query stream, a run, a page, a table page or a turn)
+/// to its end, sending its events to the client. `kind`: the shape of its
+/// events, and of the error this sends when it can't be served or ends
+/// without a terminal event.
+///
+/// A turn is polled to its end even once the client is gone (its events
+/// are dropped): stopping it is Core's cancel, never dropping the stream.
 #[allow(clippy::too_many_arguments)]
 async fn run_stream(
     core: Arc<seaquel_core::Core>,
@@ -538,39 +600,56 @@ async fn run_stream(
     request: Request,
     origin: WriteOrigin,
     stream_id: String,
-    run: bool,
+    kind: StreamKind,
     cancelled: Arc<AtomicBool>,
     outbox: mpsc::Sender<String>,
     ended: mpsc::UnboundedSender<(String, u64)>,
     generation: u64,
 ) {
-    let error = |code: &str, message: String| CoreEvent::error(&stream_id, run, code, message);
+    let error = |code: &str, message: String| CoreEvent::error(&stream_id, kind, code, message);
+    let turn = kind == StreamKind::Ai;
     match dispatch_stream(&core, open.workspace(), request, origin) {
         Err(e) => {
             let _ = send(&outbox, &error(&e.code, e.message)).await;
         }
         Ok(mut events) => {
             let mut finished = false;
+            // The client is gone (a turn only: anything else stops here).
+            let mut gone = false;
             while let Some(event) = events.next().await {
                 finished = event.is_terminal();
+                if gone {
+                    continue;
+                }
                 let mut frames = Vec::new();
                 if let Err(message) = encode_split(event, &mut frames) {
+                    if turn {
+                        // A turn's events hold no driver data; this can't
+                        // happen, and stopping the turn here would lose its
+                        // reply. Its terminal event still comes.
+                        continue;
+                    }
                     // Stop the query (or run) and report it.
                     let _ = send(&outbox, &error("QUERY_ERROR", message)).await;
                     finished = true;
                     break;
                 }
-                let mut gone = false;
                 for text in frames {
                     if outbox.send(text).await.is_err() {
                         gone = true;
                         break;
                     }
                 }
-                if gone {
+                if gone && !turn {
                     // The client is gone.
                     finished = true;
                     break;
+                }
+                if gone && !cancelled.load(Ordering::SeqCst) {
+                    // A turn whose socket went: stop it through Core, then
+                    // keep polling it so it stores its reply.
+                    cancelled.store(true, Ordering::SeqCst);
+                    open.workspace().cancel(&core, &stream_id);
                 }
             }
             drop(events);

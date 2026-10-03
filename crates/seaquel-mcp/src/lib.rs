@@ -13,7 +13,10 @@
 //!
 //! `list_connections`, `list_schemas`, `list_tables`, `describe_table`,
 //! `run_query`, `explain_query`, `list_saved_queries` and `run_saved_query`,
-//! all marked read-only. See `tools/mod.rs` for their arguments.
+//! all marked read-only. Their arguments, schemas, renderers and runner are
+//! Core's tool registry (`seaquel_core::ai::tools`, `Profile::Mcp`), shared
+//! with the in-app assistant; this crate keeps the exposed set, the sharing
+//! check, connecting on first use and the timeout (`tools/mod.rs`).
 //!
 //! - **The exposed set.** Only the connections named on the command line
 //!   (`--connection`, `--project`), resolved once at startup by id, else by
@@ -31,7 +34,8 @@
 //!   limit (default 100, at most 1000), and every call has a timeout (60 s,
 //!   not counting a pending keychain prompt: [`SecretWait`]), after which its
 //!   query is cancelled.
-//! - **Size.** A cell's text is cut at 64 KB ([`format::MAX_CELL_BYTES`],
+//! - **Size.** A cell's text is cut at 64 KB
+//!   (`seaquel_core::ai::tools::format::MAX_CELL_BYTES`,
 //!   marked as a `{"truncated": true, …}` object) and a result stops taking
 //!   rows before its JSON passes about 4 MB, with `truncated` and a message.
 //! - **Transport.** [`transport::stdio`] rather than rmcp's, so a line that
@@ -41,7 +45,6 @@
 
 pub mod error;
 pub mod exposed;
-pub mod format;
 pub mod secret_wait;
 mod server;
 mod tools;

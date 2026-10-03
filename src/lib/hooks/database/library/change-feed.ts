@@ -43,6 +43,12 @@ export interface ChangeFeedOptions {
   /** This page's origin (`pageOrigin()`); `null` when it has none. */
   origin: () => string | null;
   seqs: RowSeqs;
+  /**
+   * An event carrying this page's own origin that should still be heard:
+   * a write Core made for this page after its answer (a stopped turn's
+   * reply, stored after the stream ended). Others are skipped.
+   */
+  acceptOwn?: (event: StorageChangedEvent) => boolean;
   /** How long events of one kind and scope are grouped (Decision 18: 100 ms). */
   delayMs?: number;
 }
@@ -125,7 +131,7 @@ export class ChangeFeed {
     // whatever this event names; one from a replaced epoch is ignored.
     if (this.options.seqs.observe(event.seq) !== "current") return;
     const origin = this.options.origin();
-    if (origin !== null && event.origin === origin) return;
+    if (origin !== null && event.origin === origin && !this.options.acceptOwn?.(event)) return;
     if (!this.handlers.get(event.kind)?.size) return;
 
     const key = `${event.kind}\u0001${event.scope ?? ""}`;

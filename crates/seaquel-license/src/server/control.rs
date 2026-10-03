@@ -88,7 +88,7 @@ struct BindResult {
 
 pub(crate) struct ControlClient {
     base: String,
-    http: crate::http::LazyClient,
+    http: seaquel_http::client::LazyClient,
 }
 
 /// A control-plane answer: its status and body.
@@ -119,15 +119,16 @@ impl Reply {
 impl ControlClient {
     pub(crate) fn new(base: &str, extra_ca_file: Option<&std::path::Path>) -> Self {
         // Node's fetch (undici): a 10 s connect timeout, 300 s for headers
-        // and body. Never panics: see `crate::http`.
-        let http = crate::http::LazyClient::new(
+        // and body. Never panics: see `seaquel_http::client`.
+        let http = seaquel_http::client::LazyClient::new(
             "control-plane client",
-            crate::http::ClientOptions {
+            seaquel_http::client::ClientOptions {
                 connect_timeout: Some(Duration::from_secs(10)),
                 timeout: Some(Duration::from_secs(300)),
                 extra_roots: extra_ca_file
-                    .map(crate::http::load_extra_roots)
+                    .map(|p| seaquel_http::client::load_extra_roots(p, "license.http"))
                     .unwrap_or_default(),
+                ..Default::default()
             },
         );
         Self {

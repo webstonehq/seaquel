@@ -841,6 +841,14 @@ pub struct PersistedAIMessage {
     pub query: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dashboard_id: Option<String>,
+    /// A reply's tool calls (`ai_messages.parts`, migration `0007`; phase
+    /// 6, Decision 23): a list of `{round, type: "text", text}` and
+    /// `{round, type: "tool", callId, name, input, ok, result,
+    /// resultBytes?}`. Absent for a message without tool calls, for every
+    /// user message, and for rows an older release wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "Array<unknown>"))]
+    pub parts: Option<serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------

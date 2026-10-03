@@ -56,6 +56,17 @@ compile_error!(
      browser,storage,workspace"
 );
 
+// Phase 6: the browser's assistant calls the provider through the page's
+// fetch bridge, which `seaquel-browser` passes as Core's `HttpClient`; the
+// native reqwest client (`ai-native`) can't be built for the page.
+#[cfg(all(feature = "browser", feature = "ai-native"))]
+compile_error!(
+    "seaquel-core's `browser` feature can't be combined with `ai-native` (the native HTTP \
+     client); the browser build passes its own client with `CoreBuilder::ai_http`"
+);
+
+#[cfg(feature = "ai")]
+pub mod ai;
 mod changes;
 // The demo's connection (phase 8 Decision 19): the browser build only, and
 // this crate's own tests.
@@ -102,7 +113,7 @@ pub use workspace::{
 };
 pub use workspace::{
     CoreError, Workspace, WorkspaceEvent, WorkspaceId, WorkspaceSpec, CONNECTION_CLOSED,
-    DESKTOP_STORAGE_FILE, TUNNEL_CLOSED, WORKSPACE_EVICTED,
+    CONNECTION_REPLACED, DESKTOP_STORAGE_FILE, TUNNEL_CLOSED, WINDOW_CLOSED, WORKSPACE_EVICTED,
 };
 
 /// The metadata storage (`seaquel-storage`), for interfaces and
@@ -229,8 +240,10 @@ type EarlyCancelMap = Mutex<HashMap<WorkspaceId, EarlyCancels>>;
 struct StreamEntry {
     /// Tells apart two streams that were given the same query id.
     id: u64,
-    /// So `disconnect` can cancel the connection's streams.
-    connection_id: String,
+    /// So `disconnect` can cancel the connection's streams. `None` for an
+    /// assistant turn, which outlives a reconnect (its next tool call fails
+    /// instead).
+    connection_id: Option<String>,
     token: CancellationToken,
     /// Set by `disconnect` before it cancels `token`, so the stream reports
     /// the closed connection instead of ending silently like a client cancel.
@@ -252,6 +265,20 @@ struct Connection {
     /// The workspace that opened it ([`Workspace::connect`]), or `None` for
     /// [`Core::connect`]. A workspace reaches only its own connections.
     owner: Option<WorkspaceId>,
+    /// The saved connection it was opened for (phase 6, Decision 6): a
+    /// saved target's id, or the `savedConnectionId` a form connect named.
+    /// An assistant turn runs only on a connection of its chat's saved
+    /// connection.
+    #[cfg_attr(not(feature = "ai"), allow(dead_code))]
+    saved_connection_id: Option<String>,
+    /// The window (write origin) whose call opened it (phase 6 probe F4),
+    /// or `None`. [`Workspace::close_owned_by`] closes a window's
+    /// connections, and a window's new connection for a saved connection
+    /// replaces its older ones.
+    window: Option<String>,
+    /// Opening order (Core-wide): a window's replace closes only its
+    /// connections opened before the one it keeps.
+    opened: u64,
 }
 
 pub struct Core {
@@ -269,6 +296,8 @@ pub struct Core {
     /// either order). Locked only while `streams` is held.
     cancelled_early: EarlyCancelMap,
     next_stream: AtomicU64,
+    /// Numbers connections in the order they opened ([`Connection`]).
+    next_connection: AtomicU64,
     /// Open SSH tunnels; dropping Core closes them.
     #[cfg(feature = "ssh")]
     tunnels: ssh::TunnelManager,
@@ -291,6 +320,8 @@ pub struct Core {
     /// editor's runs (`Workspace::run`/`page`) are `NOT_SUPPORTED`.
     #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
     executor: Option<Arc<dyn Executor>>,
+    /// [`CONNECT_TIMEOUT`], or [`CoreBuilder::connect_timeout`]'s.
+    connect_timeout: Duration,
     /// [`CoreBuilder::local_files`]; `None` refuses the user's files.
     local_files: Option<LocalFiles>,
     /// One async mutex per repo (phase 5e, Decision 38), by its
@@ -308,6 +339,16 @@ pub struct Core {
     /// Where other tools' files are ([`CoreBuilder::import_paths`]).
     #[cfg(feature = "imports")]
     import_paths: Option<ImportPaths>,
+    /// The assistant's model calls ([`CoreBuilder::ai_http`]); `None`
+    /// answers `NOT_SUPPORTED`.
+    #[cfg(feature = "ai")]
+    ai_http: Option<Arc<dyn ai::http::HttpClient>>,
+    /// Where model calls may go ([`CoreBuilder::ai_egress`]); `None`
+    /// answers `NOT_SUPPORTED`.
+    #[cfg(feature = "ai")]
+    ai_egress: Option<ai::AiEgress>,
+    #[cfg(feature = "ai")]
+    ai_limits: ai::AiLimits,
 }
 
 /// How much one workspace may open ([`CoreBuilder::connection_limits`]).
@@ -330,6 +371,15 @@ pub struct ConnectionLimits {
 /// [`Workspace::connect`] or `test` when the workspace is at
 /// [`ConnectionLimits::per_workspace`].
 pub const TOO_MANY_CONNECTIONS: &str = "TOO_MANY_CONNECTIONS";
+
+/// How long opening a connection may take (phase 6 probe F4): an engine's
+/// connect, and an SSH tunnel's, that hasn't finished by then fails with
+/// `TIMEOUT` instead of hanging (a database out of connection slots, a
+/// host that accepts and never answers). Raced against the
+/// [`CoreBuilder::executor`]'s clock, so a Core without an executor has no
+/// limit; every interface has one. [`CoreBuilder::connect_timeout`]
+/// shortens it for tests.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A check on a finished connect config (see [`ConnectPolicy::Checked`]).
 pub type ConfigCheck = Arc<dyn Fn(&ConnectConfig) -> Result<(), DbError> + Send + Sync>;
@@ -392,6 +442,7 @@ pub struct CoreBuilder {
     library_limits: LibraryLimits,
     state_limits: StateLimits,
     executor: Option<Arc<dyn Executor>>,
+    connect_timeout: Option<Duration>,
     local_files: Option<LocalFiles>,
     #[cfg(feature = "git")]
     file_hook: Option<seaquel_git::tree::WriteHook>,
@@ -399,6 +450,12 @@ pub struct CoreBuilder {
     sync_plan_hook: Option<SyncPlanHook>,
     #[cfg(feature = "imports")]
     import_paths: Option<ImportPaths>,
+    #[cfg(feature = "ai")]
+    ai_http: Option<Arc<dyn ai::http::HttpClient>>,
+    #[cfg(feature = "ai")]
+    ai_egress: Option<ai::AiEgress>,
+    #[cfg(feature = "ai")]
+    ai_limits: ai::AiLimits,
 }
 
 /// Tests only ([`CoreBuilder::sync_plan_hook`]).
@@ -519,8 +576,54 @@ impl CoreBuilder {
         self
     }
 
+    /// The client the assistant's model calls go through (phase 6,
+    /// Decision 8): `seaquel_core::ai::native::NativeHttp` natively, the
+    /// page's fetch bridge in the browser. There is no default: without
+    /// one, `ai.chat`, `ai.generate`, `ai.models` and `ai.test` answer
+    /// `NOT_SUPPORTED`.
+    #[cfg(feature = "ai")]
+    #[must_use]
+    pub fn ai_http(mut self, client: Arc<dyn ai::http::HttpClient>) -> Self {
+        self.ai_http = Some(client);
+        self
+    }
+
+    /// Where model calls may go (phase 6, Decision 9). No default: without
+    /// one every model call answers `NOT_SUPPORTED`; with
+    /// [`ai::AiEgress::Off`] it answers `AI_EGRESS_BLOCKED`. The client
+    /// passed to [`CoreBuilder::ai_http`] must enforce the same rule (the
+    /// native client takes it as `Egress`).
+    #[cfg(feature = "ai")]
+    #[must_use]
+    pub fn ai_egress(mut self, egress: ai::AiEgress) -> Self {
+        self.ai_egress = Some(egress);
+        self
+    }
+
+    /// The web's limits on turns (Decision 14). Without it, none.
+    #[cfg(feature = "ai")]
+    #[must_use]
+    pub fn ai_limits(mut self, limits: ai::AiLimits) -> Self {
+        self.ai_limits = limits;
+        self
+    }
+
+    /// Another [`CONNECT_TIMEOUT`] (tests).
+    #[must_use]
+    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
+        self.connect_timeout = Some(timeout);
+        self
+    }
+
     pub fn build(self) -> Core {
         Core {
+            connect_timeout: self.connect_timeout.unwrap_or(CONNECT_TIMEOUT),
+            #[cfg(feature = "ai")]
+            ai_http: self.ai_http,
+            #[cfg(feature = "ai")]
+            ai_egress: self.ai_egress,
+            #[cfg(feature = "ai")]
+            ai_limits: self.ai_limits,
             executor: self.executor,
             connect_policy: self.connect_policy,
             limits: self.limits,
@@ -533,6 +636,7 @@ impl CoreBuilder {
             streams: Mutex::default(),
             cancelled_early: Mutex::default(),
             next_stream: AtomicU64::new(0),
+            next_connection: AtomicU64::new(0),
             #[cfg(feature = "ssh")]
             tunnels: ssh::TunnelManager::new(self.ssh),
             local_files: self.local_files,
@@ -729,6 +833,15 @@ fn connection_closed() -> StreamEvent {
     }
 }
 
+/// `d` as a person reads it: whole seconds as `30 s`, else milliseconds.
+fn duration_text(d: Duration) -> String {
+    if d.subsec_millis() == 0 && d.as_secs() > 0 {
+        format!("{} s", d.as_secs())
+    } else {
+        format!("{} ms", d.as_millis())
+    }
+}
+
 fn sql_keyword(sql: &str) -> String {
     sql.split_whitespace().next().unwrap_or("?").to_uppercase()
 }
@@ -866,16 +979,56 @@ impl Core {
     /// Open a connection that no workspace owns. Interfaces connect through
     /// [`Workspace::connect`]; this stays for the engine tests.
     pub async fn connect(&self, config: &ConnectConfig) -> Result<ConnectResult, DbError> {
-        self.connect_as(config, None, None).await
+        self.connect_as(config, None, None, None, None).await
+    }
+
+    /// `fut` (opening a connection or a tunnel), failing with `timed_out()`
+    /// once [`CONNECT_TIMEOUT`] has passed on the executor's clock; dropping
+    /// `fut` then abandons the attempt. Without an executor, `fut` alone.
+    pub(crate) async fn within_connect_timeout<T, E>(
+        &self,
+        fut: impl std::future::Future<Output = Result<T, E>>,
+        timed_out: impl FnOnce(&str) -> E,
+    ) -> Result<T, E> {
+        let Some(executor) = &self.executor else {
+            return fut.await;
+        };
+        let sleep = executor.sleep(self.connect_timeout);
+        let fut = std::pin::pin!(fut);
+        match futures::future::select(fut, sleep).await {
+            futures::future::Either::Left((result, _)) => result,
+            futures::future::Either::Right(((), _)) => {
+                Err(timed_out(&duration_text(self.connect_timeout)))
+            }
+        }
+    }
+
+    /// `engine.open_with` under [`Core::within_connect_timeout`].
+    async fn open_driver(
+        &self,
+        engine: &Arc<dyn Engine>,
+        config: &ConnectConfig,
+    ) -> Result<Arc<dyn Driver>, DbError> {
+        self.within_connect_timeout(engine.open_with(config, self.open_options()), |limit| {
+            log::warn!(activity = "db.connect", driver = config.driver.as_str(); "Connecting timed out");
+            seaquel_engine::timeout_error(format!(
+                "The database didn't answer within {limit}. Check the host and port, \
+                 and that the server accepts more connections."
+            ))
+        })
+        .await
     }
 
     /// Open a connection owned by `owner`, scanned with `sql_engine`
-    /// (`None`: the driver id's rules).
+    /// (`None`: the driver id's rules), recorded as opened for
+    /// `saved_connection_id` by window `window`.
     pub(crate) async fn connect_as(
         &self,
         config: &ConnectConfig,
         owner: Option<WorkspaceId>,
         sql_engine: Option<SqlEngine>,
+        saved_connection_id: Option<String>,
+        window: Option<String>,
     ) -> Result<ConnectResult, DbError> {
         let driver_name = config.driver.as_str();
         info!(activity = "db.connect", driver = driver_name; "Connecting");
@@ -886,7 +1039,7 @@ impl Core {
             .get(driver_name)
             .ok_or_else(|| DbError::engine_not_available(driver_name))?;
         self.check_config(config)?;
-        let driver = engine.open_with(config, self.open_options()).await?;
+        let driver = self.open_driver(&engine, config).await?;
         let connection_id = format!("{}-{}", driver_name, uuid::Uuid::new_v4());
         self.connections
             .write()
@@ -898,6 +1051,9 @@ impl Core {
                     engine,
                     driver,
                     owner,
+                    saved_connection_id,
+                    window,
+                    opened: self.next_connection.fetch_add(1, Ordering::SeqCst),
                 },
             );
 
@@ -914,7 +1070,7 @@ impl Core {
             .get(driver_name)
             .ok_or_else(|| DbError::engine_not_available(driver_name))?;
         self.check_config(config)?;
-        let driver = engine.open_with(config, self.open_options()).await?;
+        let driver = self.open_driver(&engine, config).await?;
         driver.close().await
     }
 
@@ -1011,6 +1167,96 @@ impl Core {
             .filter(|c| owner.is_none() || c.owner == owner)
             .cloned()
             .ok_or_else(|| DbError::connection_not_found(connection_id))
+    }
+
+    /// Record that `owner`'s connection `connection_id` was opened for saved
+    /// connection `saved_id` (phase 6 Task 7, `db.bindSaved`): once, for a
+    /// connection that has none yet; naming the one it has is a no-op, and
+    /// any other is `INVALID_ARGUMENT`. Trusted as a form connect's
+    /// `savedConnectionId` is.
+    pub(crate) fn bind_saved_as(
+        &self,
+        connection_id: &str,
+        owner: WorkspaceId,
+        saved_id: &str,
+    ) -> Result<(), DbError> {
+        let mut connections = self
+            .connections
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        let connection = connections
+            .get_mut(connection_id)
+            .filter(|c| c.owner == Some(owner))
+            .ok_or_else(|| DbError::connection_not_found(connection_id))?;
+        match &connection.saved_connection_id {
+            None => {
+                connection.saved_connection_id = Some(saved_id.to_string());
+                Ok(())
+            }
+            Some(recorded) if recorded == saved_id => Ok(()),
+            Some(_) => Err(DbError {
+                code: "INVALID_ARGUMENT".into(),
+                message: "This connection was opened for another saved connection.".into(),
+            }),
+        }
+    }
+
+    /// The ids of `owner`'s connections opened by window `window`, and only
+    /// those for saved connection `saved_id` when it is given.
+    pub(crate) fn connections_of_window(
+        &self,
+        owner: WorkspaceId,
+        window: &str,
+        saved_id: Option<&str>,
+    ) -> Vec<String> {
+        self.connections
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(_, c)| {
+                c.owner == Some(owner)
+                    && c.window.as_deref() == Some(window)
+                    && saved_id.is_none_or(|id| c.saved_connection_id.as_deref() == Some(id))
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// [`Core::connections_of_window`] for `saved_id`, keeping only those
+    /// opened before `keep` (none when `keep` isn't `owner`'s), under one
+    /// lock: what a replace for `keep` closes.
+    pub(crate) fn window_connections_older_than(
+        &self,
+        owner: WorkspaceId,
+        window: &str,
+        saved_id: &str,
+        keep: &str,
+    ) -> Vec<String> {
+        let connections = self
+            .connections
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
+        let Some(kept) = connections.get(keep).filter(|c| c.owner == Some(owner)) else {
+            return Vec::new();
+        };
+        connections
+            .iter()
+            .filter(|(id, c)| {
+                id.as_str() != keep
+                    && c.owner == Some(owner)
+                    && c.window.as_deref() == Some(window)
+                    && c.saved_connection_id.as_deref() == Some(saved_id)
+                    && c.opened < kept.opened
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// The window that opened `owner`'s connection `connection_id`, if any.
+    pub(crate) fn window_of(&self, connection_id: &str, owner: WorkspaceId) -> Option<String> {
+        self.connection_as(connection_id, Some(owner))
+            .ok()
+            .and_then(|c| c.window)
     }
 
     /// The ids of the connections `owner` owns.
@@ -1205,7 +1451,15 @@ impl Core {
         }
         // Registered now, not on first poll, so a cancel that arrives before
         // the stream starts still counts.
-        let (token, closed, guard) = self.register_stream((owner, query_id), connection_id.clone());
+        let (token, closed, guard) =
+            match self.register_stream((owner, query_id), Some(connection_id.clone())) {
+                Ok(registered) => registered,
+                Err(e) => {
+                    return Box::pin(futures::stream::once(std::future::ready(
+                        StreamEvent::from(e),
+                    )))
+                }
+            };
         Box::pin(async_stream::stream! {
             let _guard = guard;
             // Cancelled before the first poll, e.g. by `disconnect`.
@@ -1361,7 +1615,7 @@ impl Core {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .values()
-            .filter(|entry| entry.connection_id == connection_id)
+            .filter(|entry| entry.connection_id.as_deref() == Some(connection_id))
             .map(|entry| {
                 // Before the cancel, so the woken stream sees it.
                 entry.closed.store(true, Ordering::SeqCst);
@@ -1421,11 +1675,25 @@ impl Core {
             .len()
     }
 
+    /// Registers a stream under `key`. A key an assistant turn holds
+    /// (`connection_id: None`), and any taken key for a turn, is refused
+    /// with `INVALID_ARGUMENT` and the map isn't touched, so a turn can't
+    /// lose its cancel to a reused id (phase 6 review I1). A query stream
+    /// reusing a query stream's id still replaces it, as before.
     fn register_stream(
         &self,
         key: StreamKey,
-        connection_id: String,
-    ) -> (CancellationToken, Arc<AtomicBool>, StreamGuard<'_>) {
+        connection_id: Option<String>,
+    ) -> Result<(CancellationToken, Arc<AtomicBool>, StreamGuard<'_>), DbError> {
+        let mut streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(existing) = streams.get(&key) {
+            if existing.connection_id.is_none() || connection_id.is_none() {
+                return Err(DbError {
+                    code: "INVALID_ARGUMENT".to_string(),
+                    message: "This stream id is already in use.".to_string(),
+                });
+            }
+        }
         let token = CancellationToken::new();
         let closed = Arc::new(AtomicBool::new(false));
         let id = self.next_stream.fetch_add(1, Ordering::Relaxed);
@@ -1435,7 +1703,6 @@ impl Core {
             token: token.clone(),
             closed: closed.clone(),
         };
-        let mut streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(owner) = key.0 {
             let mut early = self
                 .cancelled_early
@@ -1457,7 +1724,7 @@ impl Core {
             key,
             id,
         };
-        (token, closed, guard)
+        Ok((token, closed, guard))
     }
 }
 

@@ -179,6 +179,34 @@ pub fn init_logging() {
     }
 }
 
+/// Where the assistant's model calls may go (phase 6, Decision 9):
+/// `public` (the default), `any` or `off`.
+pub const AI_EGRESS_ENV: &str = "SEAQUEL_AI_EGRESS";
+
+/// [`AI_EGRESS_ENV`]'s value as Core's `AiEgress`: unset or empty is
+/// `Public`; anything `Egress::parse` doesn't read is an error naming the
+/// variable, so `main` refuses to start on a typo rather than guess.
+pub fn ai_egress_from(value: Option<&str>) -> Result<seaquel_core::ai::AiEgress, String> {
+    use seaquel_core::ai::native::Egress;
+    let value = value.unwrap_or("");
+    if value.trim().is_empty() {
+        return Ok(seaquel_core::ai::AiEgress::Public);
+    }
+    Egress::parse(value).map(Into::into).ok_or_else(|| {
+        // The value isn't echoed: it's the operator's, but logs travel.
+        format!("{AI_EGRESS_ENV} must be public, any or off")
+    })
+}
+
+/// [`ai_egress_from`] over this process's environment.
+pub fn ai_egress_from_env() -> Result<seaquel_core::ai::AiEgress, String> {
+    ai_egress_from(std::env::var(AI_EGRESS_ENV).ok().as_deref())
+}
+
+/// The PEM bundle the model client trusts on top of the built-in roots
+/// (a TLS-inspecting proxy's CA), as the license client does.
+pub const EXTRA_CA_CERTS_ENV: &str = "NODE_EXTRA_CA_CERTS";
+
 /// Set to `1` to let [`check_bind_addr`] accept a non-loopback address.
 pub const ALLOW_NON_LOOPBACK_ENV: &str = "SEAQUEL_ALLOW_NON_LOOPBACK";
 
@@ -363,6 +391,19 @@ mod tests {
         for name in ["PATH", "DATA_DIR", "SEAQUEL_CONTROL_URL", "HOME", "TZ"] {
             assert!(!is_database_client_var(name), "{name}");
         }
+    }
+
+    #[test]
+    fn ai_egress_reads_public_any_and_off() {
+        use seaquel_core::ai::AiEgress;
+        assert_eq!(ai_egress_from(None), Ok(AiEgress::Public));
+        assert_eq!(ai_egress_from(Some("")), Ok(AiEgress::Public));
+        assert_eq!(ai_egress_from(Some("public")), Ok(AiEgress::Public));
+        assert_eq!(ai_egress_from(Some(" Any ")), Ok(AiEgress::Any));
+        assert_eq!(ai_egress_from(Some("OFF")), Ok(AiEgress::Off));
+        let err = ai_egress_from(Some("pubilc")).unwrap_err();
+        assert!(err.contains(AI_EGRESS_ENV), "{err}");
+        assert!(err.contains("public, any or off"), "{err}");
     }
 
     #[test]

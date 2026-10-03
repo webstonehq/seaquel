@@ -46,6 +46,7 @@
 //! `NOT_SUPPORTED` too.
 
 use futures::StreamExt;
+use seaquel_core::domain::ai::AiEvent;
 use seaquel_core::domain::edits::{
     ApplyChangesParams, ApplyOutcome, ExtensionAction, PlanEditsParams, PlannedChange,
     TablePageParams,
@@ -62,9 +63,15 @@ use serde::{Deserialize, Serialize};
 use crate::workspace::RpcError;
 use crate::{dispatch_on, EngineRequest, EngineResponse};
 
-pub use seaquel_core::{CONNECTION_CLOSED, TUNNEL_CLOSED, WORKSPACE_EVICTED};
+pub use seaquel_core::{
+    CONNECTION_CLOSED, CONNECTION_REPLACED, TUNNEL_CLOSED, WINDOW_CLOSED, WORKSPACE_EVICTED,
+};
 
 // ── Requests ──
+
+/// The most ids one `db.alive` takes. A web user holds at most 16
+/// connections; a page shows at most its saved ones.
+pub const MAX_ALIVE_IDS: usize = 1_000;
 
 /// A `db` call. `Debug` never shows a secret or a connection string
 /// (see [`ConnectParams`]).
@@ -84,6 +91,13 @@ pub enum DbRequest {
     Test(ConnectParams),
     Disconnect {
         connection_id: String,
+    },
+    /// Record that an open connection was opened for a saved connection
+    /// (phase 6 Task 7): the page's `add` connects a form before Core has
+    /// made the row. Once per connection; `null`.
+    BindSaved {
+        connection_id: String,
+        saved_connection_id: String,
     },
     Query {
         connection_id: String,
@@ -110,6 +124,15 @@ pub enum DbRequest {
     Engine {
         connection_id: String,
         request: EngineRequest,
+    },
+    /// Which of `connectionIds` this workspace still holds (phase 6 probe
+    /// F4 review I1): a page whose event channel was down (a sleeping
+    /// laptop past the web's window grace) checks the connections it shows
+    /// and reconnects the ones Core closed. Answers only ids of this
+    /// workspace's open connections, in the order asked; at most
+    /// [`MAX_ALIVE_IDS`] ids (`INVALID_ARGUMENT`).
+    Alive {
+        connection_ids: Vec<String>,
     },
     /// Cancel the workspace's stream `streamId`. Another workspace's stream
     /// with the same id isn't touched; an unknown or finished id is ignored.
@@ -149,10 +172,12 @@ impl DbRequest {
             DbRequest::Connect(_) => "connect",
             DbRequest::Test(_) => "test",
             DbRequest::Disconnect { .. } => "disconnect",
+            DbRequest::BindSaved { .. } => "bindSaved",
             DbRequest::Query { .. } => "query",
             DbRequest::Execute { .. } => "execute",
             DbRequest::Transaction { .. } => "transaction",
             DbRequest::Engine { .. } => "engine",
+            DbRequest::Alive { .. } => "alive",
             DbRequest::Cancel { .. } => "cancel",
             DbRequest::QueryStream(_) => "queryStream",
             DbRequest::Run(_) => "run",
@@ -215,6 +240,14 @@ pub struct ConnectParams {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub create_if_missing: bool,
+    /// The saved connection this connection is for (phase 6, Decision 6):
+    /// an assistant turn runs its tools only on a connection opened for
+    /// the chat's saved connection (`CONNECTION_MISMATCH`). A saved target
+    /// records its own id without it; naming another is `INVALID_ARGUMENT`.
+    /// A form connect (the edit tab's reconnect) names the row it edits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub saved_connection_id: Option<String>,
 }
 
 /// What to connect: `{"type":"saved","id":…}` (a stored connection, secrets
@@ -275,6 +308,34 @@ impl QueryStreamParams {
     }
 }
 
+// ── Stream kinds ──
+
+/// Which of the three stream kinds a request is (phase 6): its events are
+/// [`CoreEvent::Stream`]s (`db.queryStream`), [`CoreEvent::Run`]s
+/// (`db.run`, `db.page`, `db.tablePage`) or [`CoreEvent::Ai`]s
+/// (`ai.chat`). The transports' stream lists are this one function
+/// ([`crate::Request::stream_kind`]), so a new stream kind is one line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamKind {
+    Stream,
+    Run,
+    Ai,
+}
+
+impl StreamKind {
+    /// The kind of the request `group.method`, `None` for one that isn't a
+    /// stream. For a transport that has only the names (a frame it couldn't
+    /// parse still gets its refusal as an event of the right kind).
+    pub fn of(group: &str, method: &str) -> Option<Self> {
+        match (group, method) {
+            ("db", "queryStream") => Some(StreamKind::Stream),
+            ("db", m) if DbRequest::is_run_method(m) => Some(StreamKind::Run),
+            ("ai", "chat") => Some(StreamKind::Ai),
+            _ => None,
+        }
+    }
+}
+
 // ── Responses ──
 
 /// A `db` call's result, as `{"method": …, "result": …}`. Calls that return
@@ -287,10 +348,13 @@ pub enum DbResponse {
     Connect(Connected),
     Test(()),
     Disconnect(()),
+    BindSaved(()),
     Query(QueryResult),
     Execute(ExecuteResult),
     Transaction(()),
     Engine(EngineResponse),
+    /// The ids asked that are still open.
+    Alive(Vec<String>),
     Cancel(()),
     PlanEdits(Vec<PlannedChange>),
     ApplyChanges(ApplyOutcome),
@@ -331,8 +395,12 @@ pub enum CoreEvent {
         event: StreamEvent,
     },
     /// `code` is [`WORKSPACE_EVICTED`] (the web server closed the
-    /// workspace's connections). [`CONNECTION_CLOSED`] (lost) and
-    /// [`TUNNEL_CLOSED`] are reserved: Core doesn't detect those yet.
+    /// workspace's connections), [`WINDOW_CLOSED`] (the web server closed
+    /// the connections of a tab that stayed closed) or
+    /// [`CONNECTION_REPLACED`] (the tab that opened it connected the same
+    /// saved connection again). [`CONNECTION_CLOSED`] (lost) and
+    /// [`TUNNEL_CLOSED`] are reserved: Core doesn't detect those yet. A
+    /// page ignores one for a connection it doesn't hold.
     ConnectionClosed {
         connection_id: String,
         code: String,
@@ -343,6 +411,10 @@ pub enum CoreEvent {
     /// as in `stream`) and `statementDone`/`statementError`, then one `done`
     /// or `error` (nothing more after a cancel).
     Run { stream_id: String, event: RunEvent },
+    /// One event of assistant turn `streamId` (phase 6, Decision 11):
+    /// `started`, `text`, tool calls, `approvalRequired` and `clientTool`,
+    /// then one `done` or `error` (nothing more after a cancel).
+    Ai { stream_id: String, event: AiEvent },
     /// A stored write committed (phase 5d, Decision 16): what changed, never
     /// a value. `scope` is the project, connection or chat the `ids` belong
     /// to; `ids` `null` means reload the kind within the scope. `origin` is
@@ -381,6 +453,11 @@ impl std::fmt::Debug for CoreEvent {
                 .field("stream_id", stream_id)
                 .field("event", event)
                 .finish(),
+            CoreEvent::Ai { stream_id, event } => f
+                .debug_struct("Ai")
+                .field("stream_id", stream_id)
+                .field("event", event)
+                .finish(),
             CoreEvent::StorageChanged {
                 kind,
                 scope,
@@ -403,9 +480,9 @@ impl CoreEvent {
     /// The stream or run it belongs to; `None` for `connectionClosed`.
     pub fn stream_id(&self) -> Option<&str> {
         match self {
-            CoreEvent::Stream { stream_id, .. } | CoreEvent::Run { stream_id, .. } => {
-                Some(stream_id)
-            }
+            CoreEvent::Stream { stream_id, .. }
+            | CoreEvent::Run { stream_id, .. }
+            | CoreEvent::Ai { stream_id, .. } => Some(stream_id),
             CoreEvent::ConnectionClosed { .. } | CoreEvent::StorageChanged { .. } => None,
         }
     }
@@ -418,29 +495,38 @@ impl CoreEvent {
                 matches!(event, StreamEvent::Done | StreamEvent::Error { .. })
             }
             CoreEvent::Run { event, .. } => event.is_terminal(),
+            CoreEvent::Ai { event, .. } => event.is_terminal(),
             CoreEvent::ConnectionClosed { .. } | CoreEvent::StorageChanged { .. } => false,
         }
     }
 
     /// A terminal `error` for stream `stream_id`, shaped for the request it
-    /// answers: a `run` event when `run` (`db.run`/`db.page`/`db.tablePage`), else a
-    /// `stream` event. The transports use it for a request they can't
-    /// serve, and the web for a stream that ended without a terminal event.
-    pub fn error(stream_id: &str, run: bool, code: &str, message: impl Into<String>) -> Self {
+    /// answers ([`StreamKind`]): a `stream`, `run` or `ai` event. The
+    /// transports use it for a request they can't serve, and the web for a
+    /// stream that ended without a terminal event.
+    pub fn error(
+        stream_id: &str,
+        kind: StreamKind,
+        code: &str,
+        message: impl Into<String>,
+    ) -> Self {
         let stream_id = stream_id.to_string();
-        if run {
-            CoreEvent::Run {
+        match kind {
+            StreamKind::Run => CoreEvent::Run {
                 stream_id,
                 event: RunEvent::error(code, message),
-            }
-        } else {
-            CoreEvent::Stream {
+            },
+            StreamKind::Ai => CoreEvent::Ai {
+                stream_id,
+                event: AiEvent::error(code, message),
+            },
+            StreamKind::Stream => CoreEvent::Stream {
                 stream_id,
                 event: StreamEvent::Error {
                     message: message.into(),
                     code: code.to_string(),
                 },
-            }
+            },
         }
     }
 
@@ -480,12 +566,19 @@ pub(crate) async fn db(
 ) -> Result<DbResponse, RpcError> {
     Ok(match req {
         DbRequest::Connect(params) => DbResponse::Connect(Connected {
-            connection_id: connect(core, ws, params).await?,
+            connection_id: connect(core, ws, params, origin).await?,
         }),
         DbRequest::Test(params) => DbResponse::Test(test(core, ws, params).await?),
         DbRequest::Disconnect { connection_id } => {
             DbResponse::Disconnect(ws.disconnect(core, &connection_id).await?)
         }
+        DbRequest::BindSaved {
+            connection_id,
+            saved_connection_id,
+        } => DbResponse::BindSaved(
+            ws.bind_saved_connection(core, &connection_id, &saved_connection_id)
+                .await?,
+        ),
         DbRequest::Query {
             connection_id,
             sql,
@@ -518,6 +611,14 @@ pub(crate) async fn db(
         } => {
             let handle = ws.engine(core, &connection_id)?;
             DbResponse::Engine(dispatch_on(&handle, request).await?)
+        }
+        DbRequest::Alive { connection_ids } => {
+            if connection_ids.len() > MAX_ALIVE_IDS {
+                return Err(RpcError::invalid_argument(format!(
+                    "db.alive takes at most {MAX_ALIVE_IDS} connection ids"
+                )));
+            }
+            DbResponse::Alive(ws.alive(core, &connection_ids))
         }
         DbRequest::Cancel { stream_id } => {
             ws.cancel(core, &stream_id);
@@ -556,14 +657,26 @@ fn connect_request(params: ConnectParams) -> seaquel_core::ConnectRequest {
         Some(fingerprint) => HostKeyPolicy::Trust(fingerprint),
         None => HostKeyPolicy::KnownOnly,
     };
-    req.with_secrets(params.secrets)
+    let req = req
+        .with_secrets(params.secrets)
         .with_host_key(host_key)
-        .with_create_if_missing(params.create_if_missing)
+        .with_create_if_missing(params.create_if_missing);
+    req.with_saved_connection_id(params.saved_connection_id)
 }
 
+/// The window `origin` is recorded on the connection (phase 6 probe F4):
+/// its new connection for a saved connection replaces its older ones, and
+/// the web server closes a closed window's connections.
 #[cfg(feature = "workspace")]
-async fn connect(core: &Core, ws: &Workspace, params: ConnectParams) -> Result<String, RpcError> {
-    Ok(ws.connect(core, connect_request(params)).await?)
+async fn connect(
+    core: &Core,
+    ws: &Workspace,
+    params: ConnectParams,
+    origin: &WriteOrigin,
+) -> Result<String, RpcError> {
+    Ok(ws
+        .connect(core, connect_request(params).with_origin(origin.clone()))
+        .await?)
 }
 
 #[cfg(feature = "workspace")]
@@ -572,7 +685,12 @@ async fn test(core: &Core, ws: &Workspace, params: ConnectParams) -> Result<(), 
 }
 
 #[cfg(not(feature = "workspace"))]
-async fn connect(_: &Core, _: &Workspace, _: ConnectParams) -> Result<String, RpcError> {
+async fn connect(
+    _: &Core,
+    _: &Workspace,
+    _: ConnectParams,
+    _: &WriteOrigin,
+) -> Result<String, RpcError> {
     Err(RpcError::not_supported("Connecting"))
 }
 
@@ -644,7 +762,12 @@ async fn duckdb_extension(
 /// - `db.queryStream`: [`CoreEvent::Stream`]s, ending after `done` or
 ///   `error`;
 /// - `db.run`, `db.page` and `db.tablePage`: [`CoreEvent::Run`]s, ending
-///   after the run's `done` or `error`.
+///   after the run's `done` or `error`;
+/// - `ai.chat` (phase 6): [`CoreEvent::Ai`]s, ending after the turn's
+///   `done` or `error`. **Stop a turn with `db.cancel` and keep polling
+///   it to its end**: the turn then stores the reply with what streamed.
+///   Dropping the stream drops the turn where it is, without the reply's
+///   write.
 ///
 /// Each ends with nothing more after a cancel. A connection `ws` doesn't
 /// own gives one `CONNECTION_NOT_FOUND` error event. The stream borrows `ws`
@@ -654,7 +777,8 @@ async fn duckdb_extension(
 /// `StorageChanged` event carries it.
 ///
 /// Anything else is `INVALID_ARGUMENT`; `run`, `page` and `tablePage`
-/// without the `workspace` feature are `NOT_SUPPORTED`. The desktop's `core_stream` and
+/// without the `workspace` feature, and `ai.chat` without `ai`, are
+/// `NOT_SUPPORTED`. The desktop's `core_stream` and
 /// the web's `/rpc/stream` call it with a request parsed by
 /// [`crate::parse_request`]. Logs the method name only.
 pub fn dispatch_stream<'a>(
@@ -670,11 +794,14 @@ pub fn dispatch_stream<'a>(
         crate::Request::Db(DbRequest::Run(params)) => return run(core, ws, params, origin),
         crate::Request::Db(DbRequest::Page(params)) => return page(core, ws, params),
         crate::Request::Db(DbRequest::TablePage(params)) => return table_page(core, ws, params),
+        crate::Request::Ai(crate::AiRequest::Chat(params)) => {
+            return crate::ai::chat(core, ws, params, origin)
+        }
         _ => {
             log::debug!(activity = "rpc.stream", group = group, method = method, code = crate::INVALID_ARGUMENT; "Workspace stream refused");
             return Err(RpcError::invalid_argument(format!(
-                "{group}.{method} isn't a stream; only db.queryStream, db.run, db.page and \
-                 db.tablePage are"
+                "{group}.{method} isn't a stream; only db.queryStream, db.run, db.page, \
+                 db.tablePage and ai.chat are"
             )));
         }
     };

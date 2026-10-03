@@ -31,7 +31,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -474,9 +474,51 @@ impl Drop for CallSlot {
     }
 }
 
+/// How long a window's connections outlive its last `/rpc/stream` socket
+/// (phase 6 probe F4; 10 minutes since its review, I1: a short sleep or a
+/// slow network keeps them, and a tab back later reconnects what it shows
+/// after `db.alive`): a reload reconnects well within it and keeps them
+/// (the reconnects then replace them, see `Workspace::connect`); a tab
+/// that stays closed past it loses them (`Workspace::close_owned_by`).
+/// [`Workspaces::with_window_grace`] shortens it for tests.
+pub const WINDOW_GRACE: Duration = Duration::from_secs(10 * 60);
+
+/// One window of one user: its open sockets, and which close last
+/// started its grace period (a later open or close makes that timer stale).
+struct WindowEntry {
+    sockets: usize,
+    generation: u64,
+}
+
+/// Numbers the grace timers across every window, so a timer never matches
+/// a later entry for the same window.
+static NEXT_WINDOW_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+/// One open `/rpc/stream` socket of a window ([`Workspaces::hold_window`]):
+/// dropping it, when it was the window's last, starts the window's grace
+/// period.
+pub struct WindowHold {
+    workspaces: Arc<Workspaces>,
+    core: Arc<Core>,
+    user_id: String,
+    origin: String,
+}
+
+impl Drop for WindowHold {
+    fn drop(&mut self) {
+        self.workspaces
+            .release_window(&self.core, &self.user_id, &self.origin);
+    }
+}
+
 /// The open workspaces, keyed by user id, at most `capacity` of them.
 pub struct Workspaces {
     root: PathBuf,
+    /// [`WINDOW_GRACE`], or a test's.
+    window_grace: Duration,
+    /// Each user's windows with an open `/rpc/stream` socket, or waiting
+    /// out their grace period (see [`Workspaces::hold_window`]).
+    windows: Mutex<HashMap<(String, String), WindowEntry>>,
     capacity: usize,
     options: StorageOptions,
     lru: Mutex<Lru>,
@@ -509,10 +551,19 @@ impl Workspaces {
         self
     }
 
+    /// These workspaces with another [`WINDOW_GRACE`] (tests).
+    #[must_use]
+    pub fn with_window_grace(mut self, grace: Duration) -> Self {
+        self.window_grace = grace;
+        self
+    }
+
     /// Like [`Workspaces::new`] with another cap (at least 1). Tests use 2.
     pub fn with_capacity(root: impl Into<PathBuf>, capacity: usize) -> Self {
         Self {
             root: root.into(),
+            window_grace: WINDOW_GRACE,
+            windows: Mutex::default(),
             capacity: capacity.max(1),
             options: user_storage_options(),
             lru: Mutex::new(Lru::default()),
@@ -574,6 +625,116 @@ impl Workspaces {
             user_id: user_id.to_string(),
             hub: Arc::clone(&self.hub),
         })
+    }
+
+    /// Count one open `/rpc/stream` socket of `user_id`'s window `origin`
+    /// (its write origin, the tab's window id) until the hold is dropped
+    /// (phase 6 probe F4). When a window's last socket closes and none
+    /// opens within the grace period ([`WINDOW_GRACE`]), the window is
+    /// gone: its connections in the user's open workspace are closed
+    /// (`Workspace::close_owned_by`), and the user's other sockets hear
+    /// `connectionClosed` with `WINDOW_CLOSED`. A reload opens a socket
+    /// again within it and keeps them.
+    pub fn hold_window(
+        self: &Arc<Self>,
+        core: &Arc<Core>,
+        user_id: &str,
+        origin: &str,
+    ) -> WindowHold {
+        let mut windows = self.windows.lock().unwrap_or_else(PoisonError::into_inner);
+        let entry = windows
+            .entry((user_id.to_string(), origin.to_string()))
+            .or_insert(WindowEntry {
+                sockets: 0,
+                generation: 0,
+            });
+        entry.sockets += 1;
+        // A grace timer still running for this window is now stale.
+        entry.generation = NEXT_WINDOW_GENERATION.fetch_add(1, Ordering::SeqCst);
+        WindowHold {
+            workspaces: Arc::clone(self),
+            core: Arc::clone(core),
+            user_id: user_id.to_string(),
+            origin: origin.to_string(),
+        }
+    }
+
+    /// A socket of the window closed: past its last, wait out the grace
+    /// period, then close the window's connections unless a socket came
+    /// back (or another close restarted the wait) meanwhile.
+    fn release_window(self: &Arc<Self>, core: &Arc<Core>, user_id: &str, origin: &str) {
+        let key = (user_id.to_string(), origin.to_string());
+        let generation = {
+            let mut windows = self.windows.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(entry) = windows.get_mut(&key) else {
+                return;
+            };
+            entry.sockets = entry.sockets.saturating_sub(1);
+            if entry.sockets > 0 {
+                return;
+            }
+            entry.generation = NEXT_WINDOW_GENERATION.fetch_add(1, Ordering::SeqCst);
+            entry.generation
+        };
+        // No runtime (process shutdown): nothing to wait for.
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let workspaces = Arc::clone(self);
+        let core = Arc::clone(core);
+        let grace = self.window_grace;
+        handle.spawn(async move {
+            tokio::time::sleep(grace).await;
+            let gone = {
+                let mut windows = workspaces
+                    .windows
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                match windows.get(&key) {
+                    Some(entry) if entry.sockets == 0 && entry.generation == generation => {
+                        windows.remove(&key);
+                        true
+                    }
+                    _ => false,
+                }
+            };
+            if !gone {
+                return;
+            }
+            // Only a workspace that is open: an evicted one closed its
+            // connections already, and a closed window isn't worth opening
+            // one for.
+            let Some(open) = workspaces.open_workspace(&key.0) else {
+                return;
+            };
+            let closed = open.ws.close_owned_by(&core, &key.1).await;
+            if closed > 0 {
+                log::info!(activity = "rpc.stream", connections = closed; "Closed a closed tab's connections");
+            }
+        });
+    }
+
+    /// `user_id`'s workspace if it is open, without opening it or touching
+    /// its place in the LRU.
+    fn open_workspace(&self, user_id: &str) -> Option<Arc<OpenWorkspace>> {
+        self.lru
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .slots
+            .get(user_id)
+            .and_then(|slot| slot.cell.get().cloned())
+    }
+
+    /// How many windows of `user_id` have a socket open or are waiting out
+    /// their grace period (tests).
+    #[doc(hidden)]
+    pub fn window_count(&self, user_id: &str) -> usize {
+        self.windows
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .keys()
+            .filter(|(user, _)| user == user_id)
+            .count()
     }
 
     /// How many event listeners (open `/rpc/stream` sockets) `user_id`
@@ -929,6 +1090,13 @@ mod tests {
         // `kept` still gets events.
         w.hub.send("u", &event);
         assert!(kept.recv().await.is_some());
+    }
+
+    /// Review I1 (c): a sleeping laptop or a slow reload gets 10 minutes.
+    #[test]
+    fn a_window_outlives_its_last_socket_by_ten_minutes() {
+        assert_eq!(WINDOW_GRACE, Duration::from_secs(10 * 60));
+        assert_eq!(Workspaces::new("/d").window_grace, WINDOW_GRACE);
     }
 
     #[test]

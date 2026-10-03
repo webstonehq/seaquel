@@ -11,6 +11,10 @@
  * without it (the metadata file is SQLite in the module), and the bridge
  * waits for DuckDB only on its first `connect`. A DuckDB that fails to start
  * fails that connect with the reason, and the next connect tries again.
+ *
+ * The assistant's model calls go through the page's `fetch`
+ * (`makeFetchBridge`, which `openBrowserCore` passes to the module when
+ * none is given, and again after each trap restart; phase 6 Task 8).
  */
 import {
   makeDuckDbBridge,

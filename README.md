@@ -143,17 +143,27 @@ when the default doesn't fit your deployment.
 | `SEAQUEL_COOKIE_DOMAIN`   | Sharing sessions across subdomains, e.g. `.example.com`.                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `SEAQUEL_TRUSTED_PROXIES` | Running behind a reverse proxy or load balancer. Comma-separated proxy IPs/CIDRs (e.g. `10.0.0.0/8`). Without it, sign-in rate limits key on the socket address and `X-Forwarded-For` is ignored, so every client behind the proxy shares one limit.                                                                                                                                                                                                                          |
 | `SEAQUEL_CONTROL_URL`     | Pointing at a staging control plane, or `http://127.0.0.1:1` to test offline mode. Default `https://seaquel.app`.                                                                                                                                                                                                                                                                                                                                                             |
+| `SEAQUEL_AI_EGRESS`       | Changing where the AI assistant's model calls may go. The server calls the provider with the key the browser sends for that call. `public` (default): public addresses over `https` only, redirects never followed. `any`: private networks and `http:` too, for a model server next to Seaquel (Ollama, vLLM). `off`: every model call is refused, for air-gapped installs. Any other value stops the server at startup. See the proxy note below.                           |
 | `PORT` / `DATA_DIR`       | Overriding `8787` / `/data`.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 Internal tuning knobs (`SEAQUEL_LICENSE_SOFT_TTL`, `SEAQUEL_LICENSE_GRACE_TTL`,
 `SEAQUEL_BUNDLE_TRUSTED_PUBKEY`) have sensible defaults documented inline
 in the source; set them only when you need to.
 
-**Outbound proxies and TLS inspection.** License calls to seaquel.app come
-from the Rust service. They go through `HTTPS_PROXY`/`HTTP_PROXY` (and skip
-hosts in `NO_PROXY`) when those are set in the container's environment. If
-a proxy re-signs TLS, point `NODE_EXTRA_CA_CERTS` at a PEM file with its CA
-certificate; `SSL_CERT_FILE` and `SSL_CERT_DIR` work too.
+**Outbound proxies and TLS inspection.** License calls to seaquel.app and
+the AI assistant's model calls come from the Rust service. They go through
+`HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` (and skip hosts in `NO_PROXY`) when
+those are set in the container's environment. If a proxy re-signs TLS,
+point `NODE_EXTRA_CA_CERTS` at a PEM file with its CA certificate;
+`SSL_CERT_FILE` and `SSL_CERT_DIR` work too.
+
+Behind a proxy, `SEAQUEL_AI_EGRESS=public` still refuses a provider URL
+whose host is a private or local IP address, and a name whose answers from
+the server's own DNS are all private or local. A name the server can't
+resolve itself goes to the proxy, which then decides what it may reach, so
+restrict private destinations on the proxy too. The proxy's own host is
+trusted as configured, and a provider URL naming the proxy's host is
+refused.
 
 **What reaches the Rust service.** It gets only the variables it needs:
 the ones above, `DATA_DIR`, the proxy and CA variables, `PATH`, `TZ`,

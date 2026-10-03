@@ -16,6 +16,11 @@
  * 5. saves the snapshot when the page goes away (`pagehide`, hidden), and
  *    routes a trap the page sees outside any call to the restart.
  *
+ * The module gets the page's fetch bridge (`./fetch-bridge.ts`) for the
+ * assistant's model calls, at this open and at every restart's. The
+ * visitor's key never reaches the module's file: it lives in the page's
+ * memory (`$lib/services/session-keys`) and goes with each call.
+ *
  * Demo only: the module is loaded here behind
  * `import.meta.env.VITE_BUILD_TARGET === "demo"`, which Rollup folds, so
  * desktop and web bundles never contain it. Nothing imports this file
@@ -30,11 +35,13 @@ import { log } from "$lib/utils/logger";
 import type { CoreClient } from "../client";
 import { browserCoreClient } from "./client";
 import type { DuckDbBridge } from "./duckdb-bridge";
+import { makeFetchBridge } from "./fetch-bridge";
 import { deleteOldKeys } from "./old-keys";
 import { openSnapshotStore, type SnapshotStore } from "./snapshot-store";
-import { BrowserCore, type BrowserModule, type BrowserNotice } from "./transport";
+import { BrowserCore, type BrowserModule, type BrowserNotice, type FetchBridge } from "./transport";
 
 export { makeDuckDbBridge, type DuckDbBridge, type PageDuckDbBridge } from "./duckdb-bridge";
+export { makeFetchBridge } from "./fetch-bridge";
 export {
   BrowserCore,
   CORE_FAILED,
@@ -42,6 +49,7 @@ export {
   STORAGE_CORRUPT,
   type BrowserModule,
   type BrowserNotice,
+  type FetchBridge,
 } from "./transport";
 
 /**
@@ -55,6 +63,12 @@ export interface OpenBrowserCoreOptions {
   /** The module's exports; the demo build's own module when left out. */
   module?: BrowserModule;
   bridge: DuckDbBridge & { closeAll?(): Promise<void> };
+  /**
+   * The assistant's fetch bridge (phase 6 Task 8): the page's `fetch`
+   * (`makeFetchBridge()`) when left out, `null` for none (every `ai` call
+   * is then `NOT_SUPPORTED`). Tests pass one that reaches only a mock.
+   */
+  fetch?: FetchBridge | null;
   /** A store to use instead of IndexedDB (tests). */
   store?: SnapshotStore;
   /** IndexedDB; `null` when the page has none. */
@@ -152,6 +166,7 @@ export async function openBrowserCore(options: OpenBrowserCoreOptions): Promise<
     store,
     image,
     saveWaitMs: options.saveWaitMs,
+    fetch: options.fetch === undefined ? makeFetchBridge() : (options.fetch ?? undefined),
   });
   notices.push(...core.notices);
   // The view state the last page saved at `pagehide` (Task 7 probe, item 1),

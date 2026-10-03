@@ -1,0 +1,78 @@
+[
+  {
+    "name": "budget-whole-turns",
+    "note": "Two small turns: both kept whole.",
+    "rustOnly": true,
+    "input": {
+      "generate": [
+        {
+          "tag": "a",
+          "user": "First question",
+          "rounds": 2,
+          "resultBytes": 100,
+          "finalText": "Done one."
+        },
+        {
+          "tag": "b",
+          "user": "Second question",
+          "rounds": 1,
+          "resultBytes": 100,
+          "finalText": "Done two."
+        }
+      ]
+    }
+  },
+  {
+    "name": "budget-partial-turn",
+    "note": "Two turns of 20 rounds with 15,000-byte results: the newer whole, the older's question and its latest rounds that fit.",
+    "rustOnly": true,
+    "input": {
+      "generate": [
+        {
+          "tag": "a",
+          "user": "First question",
+          "rounds": 20,
+          "resultBytes": 15000,
+          "finalText": "Done one."
+        },
+        {
+          "tag": "b",
+          "user": "Second question",
+          "rounds": 20,
+          "resultBytes": 15000,
+          "finalText": "Done two."
+        }
+      ]
+    }
+  },
+  {
+    "name": "budget-drops-older-turns",
+    "note": "Three turns where the newest alone nearly fills the budget: the turn that doesn't fit keeps only whole rounds, and nothing older is kept.",
+    "rustOnly": true,
+    "input": {
+      "generate": [
+        {
+          "tag": "a",
+          "user": "First question",
+          "rounds": 1,
+          "resultBytes": 100,
+          "finalText": "Done one."
+        },
+        {
+          "tag": "b",
+          "user": "Second question",
+          "rounds": 2,
+          "resultBytes": 15000,
+          "finalText": "Done two."
+        },
+        {
+          "tag": "c",
+          "user": "Third question",
+          "rounds": 34,
+          "resultBytes": 15000,
+          "finalText": "Done three."
+        }
+      ]
+    }
+  }
+]

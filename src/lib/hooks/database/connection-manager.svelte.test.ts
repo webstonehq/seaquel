@@ -28,6 +28,8 @@ const calls: string[] = [];
 const schemaTables = vi.fn(async () => [] as unknown[]);
 const prompt = vi.fn(async (..._args: unknown[]) => true);
 const vaultPassword = vi.fn(async (_id: string): Promise<string | null> => "vault-pw");
+/** The strict getter, when a test sets it; else the same as `vaultPassword`. */
+let vaultStrict: ((id: string) => Promise<string | null>) | null = null;
 const errorToast = vi.fn();
 const ensureUnlocked = vi.hoisted(() => vi.fn(async (): Promise<unknown> => ({})));
 
@@ -44,6 +46,7 @@ vi.mock("$lib/services/keyring", () => ({
     isAvailable: () => true,
     isUnlocked: () => true,
     getDbPassword: (id: string) => vaultPassword(id),
+    getDbPasswordStrict: (id: string) => (vaultStrict ?? vaultPassword)(id),
     setDbPassword: async (id: string) => void keyringCalls.push(`setDbPassword ${id}`),
     deleteDbPassword: async (id: string) => void keyringCalls.push(`deleteDbPassword ${id}`),
     setSshPassword: async (id: string) => void keyringCalls.push(`setSshPassword ${id}`),
@@ -63,7 +66,9 @@ vi.mock("$lib/services/vault/vault-state.svelte", () => ({
 vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
-vi.mock("$lib/utils/toast", () => ({ errorToast: (msg: string) => errorToast(msg) }));
+vi.mock("$lib/utils/toast", () => ({
+  errorToast: (msg: string) => errorToast(msg),
+}));
 const infoToast = vi.fn();
 vi.mock("svelte-sonner", () => ({
   toast: { success: vi.fn(), info: (m: string) => infoToast(m) },
@@ -82,19 +87,24 @@ const { RecordingLibrary } = await import("./library/recording-library");
 const { LibraryCallError } = await import("./library/types");
 const { setImports } = await import("./shared/index");
 const { m } = await import("$lib/paraglide/messages.js");
+const await_core = await import("$lib/core");
+const { reportConnectionNotFound } = await import("$lib/core/connection-watch");
 
 const connect = vi.fn(async (_request: ConnectRequest): Promise<string> => "pc-new");
 const test = vi.fn(async (_request: ConnectRequest): Promise<void> => {});
 const disconnect = vi.fn(async (id: string) => {
   calls.push(`disconnect ${id}`);
 });
+const bindSaved = vi.fn(async (id: string, savedId: string) => {
+  calls.push(`bindSaved ${id} ${savedId}`);
+});
 
 let library: InstanceType<typeof RecordingLibrary>;
 
-function setup() {
+function setup(onConnectionsChanged: () => void = () => {}) {
   const state = new DatabaseState();
   const providers = {
-    getForType: async () => ({ connect, test, disconnect }),
+    getForType: async () => ({ connect, test, disconnect, bindSaved }),
   } as unknown as ProviderRegistry;
   const persistence = {
     scheduleProject: vi.fn(),
@@ -115,6 +125,8 @@ function setup() {
     providers,
     onSchemaLoaded,
     onCreateInitialTab,
+    () => {},
+    onConnectionsChanged,
   );
   return { state, manager, onSchemaLoaded, onCreateInitialTab };
 }
@@ -210,6 +222,7 @@ beforeEach(() => {
   schemaTables.mockResolvedValue([]);
   prompt.mockResolvedValue(true);
   vaultPassword.mockResolvedValue("vault-pw");
+  vaultStrict = null;
 });
 
 describe("add", () => {
@@ -260,7 +273,11 @@ describe("add", () => {
     env.web = true;
     const { manager, state } = setup();
     state.activeProjectId = "p1";
-    await manager.add({ ...input, sshTunnel: undefined, sshPassword: "" } as Input);
+    await manager.add({
+      ...input,
+      sshTunnel: undefined,
+      sshPassword: "",
+    } as Input);
     expect(library.callsOf("createConnection")[0]).toHaveLength(1);
     expect(ensureUnlocked).toHaveBeenCalled();
     expect(keyringCalls).toEqual(["setDbPassword conn-1"]);
@@ -290,7 +307,9 @@ describe("add", () => {
       sshPassword: "",
     } as Input);
     const request = lastRequest(connect)!;
-    expect(request).toEqual({ target: { type: "form", form: expect.any(Object) } });
+    expect(request).toEqual({
+      target: { type: "form", form: expect.any(Object) },
+    });
     if (request.target.type !== "form") throw new Error("not a form");
     expect("sslMode" in request.target.form).toBe(false);
     expect(request.target.form.sshEnabled).toBe(false);
@@ -321,7 +340,9 @@ describe("add", () => {
 
   it("a failed create disconnects and leaves nothing", async () => {
     const { manager, state } = setup();
-    library.failures.set("createConnection", { error: new Error("STORAGE_ERROR: disk full") });
+    library.failures.set("createConnection", {
+      error: new Error("STORAGE_ERROR: disk full"),
+    });
     await expect(manager.add(input)).rejects.toThrow("disk full");
     expect(state.connections).toEqual([]);
     expect(Object.values(state.connectionOrderByProject).flat()).toEqual([]);
@@ -333,7 +354,9 @@ describe("add", () => {
     const { manager, state, onSchemaLoaded, onCreateInitialTab } = setup();
     state.activeProjectId = "p1";
     state.activeConnectionIdByProject = { p1: "conn-before" };
-    library.failures.set("createConnection", { error: new Error("STORAGE_ERROR: disk full") });
+    library.failures.set("createConnection", {
+      error: new Error("STORAGE_ERROR: disk full"),
+    });
     await expect(manager.add(input)).rejects.toThrow("disk full");
     expect(state.activeConnectionIdByProject.p1).toBe("conn-before");
     expect(onCreateInitialTab).not.toHaveBeenCalled();
@@ -375,7 +398,9 @@ describe("the SSH host-key prompt", () => {
     expect(prompt).toHaveBeenCalledWith("bastion", 2222, "SHA256:abc/DEF+123=");
     expect(connect).toHaveBeenCalledTimes(2);
     expect(connect.mock.calls[0][0]).not.toHaveProperty("trustHostKey");
-    expect(connect.mock.calls[1][0]).toMatchObject({ trustHostKey: "SHA256:abc/DEF+123=" });
+    expect(connect.mock.calls[1][0]).toMatchObject({
+      trustHostKey: "SHA256:abc/DEF+123=",
+    });
   });
 
   it("test prompts and retries too", async () => {
@@ -410,16 +435,62 @@ describe("test", () => {
   });
 });
 
+describe("the saved connection Core records (phase 6 Task 7, Decision 6)", () => {
+  it("add binds the new connection to its row once Core made it", async () => {
+    const { manager, state } = setup();
+    state.activeProjectId = "p1";
+    const id = await manager.add(input);
+    expect(lastRequest(connect)).not.toHaveProperty("savedConnectionId");
+    expect(calls).toEqual([`bindSaved pc-new ${id}`]);
+  });
+
+  it("a failed bind keeps the connection (only the assistant needs it)", async () => {
+    const { manager, state } = setup();
+    state.activeProjectId = "p1";
+    bindSaved.mockRejectedValueOnce(new Error("refused"));
+    const id = await manager.add(input);
+    expect(state.connections.find((c) => c.id === id)?.providerConnectionId).toBe("pc-new");
+  });
+
+  it("reconnect names the saved connection; test names none", async () => {
+    const { manager, state } = setup();
+    showSaved(state, {
+      ...saved,
+      providerConnectionId: "pc-old",
+    } as DatabaseConnection);
+    await manager.reconnect("conn-1", input);
+    expect(lastRequest(connect)).toMatchObject({ savedConnectionId: "conn-1" });
+    await manager.test(input);
+    expect(lastRequest(test)).not.toHaveProperty("savedConnectionId");
+  });
+});
+
+describe("connections changing (review: Allow all is cleared there)", () => {
+  it("says so when the list is applied and when a connection is removed", async () => {
+    const changed = vi.fn();
+    const { manager, state } = setup(changed);
+    showSaved(state);
+    await manager.refreshFromLibrary(null);
+    expect(changed).toHaveBeenCalledTimes(1);
+    await manager.remove("conn-1");
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("reconnect", () => {
   it("drops the old connection first, then connects the form", async () => {
     const { manager, state } = setup();
-    showSaved(state, { ...saved, providerConnectionId: "pc-old" } as DatabaseConnection);
+    showSaved(state, {
+      ...saved,
+      providerConnectionId: "pc-old",
+    } as DatabaseConnection);
     connect.mockResolvedValueOnce("pc-2");
     await manager.reconnect("conn-1", { ...input, password: "typed" } as Input);
     expect(calls).toEqual(["disconnect pc-old"]);
     expect(lastRequest(connect)).toMatchObject({
       target: { type: "form", form },
       secrets: { db: "typed", ssh: "ssh-pw" },
+      savedConnectionId: "conn-1",
     });
     expect(state.connections[0].providerConnectionId).toBe("pc-2");
     // Stored: what the form changed, that it connected, and on desktop the
@@ -432,7 +503,10 @@ describe("reconnect", () => {
 
   it("leaves the connection disconnected when the connect fails", async () => {
     const { manager, state } = setup();
-    showSaved(state, { ...saved, providerConnectionId: "pc-old" } as DatabaseConnection);
+    showSaved(state, {
+      ...saved,
+      providerConnectionId: "pc-old",
+    } as DatabaseConnection);
     connect.mockRejectedValueOnce(new Error("refused"));
     await expect(manager.reconnect("conn-1", input)).rejects.toThrow("refused");
     expect(state.connections[0].providerConnectionId).toBeUndefined();
@@ -445,7 +519,9 @@ describe("autoReconnect", () => {
     const { manager, state } = setup();
     showSaved(state);
     await expect(manager.autoReconnect("conn-1")).resolves.toBe(true);
-    expect(lastRequest(connect)).toEqual({ target: { type: "saved", id: "conn-1" } });
+    expect(lastRequest(connect)).toEqual({
+      target: { type: "saved", id: "conn-1" },
+    });
     expect(vaultPassword).not.toHaveBeenCalled();
     // Only that it connected is stored (lastConnected); secrets left alone.
     expect(library.callsOf("updateConnection")).toEqual([["conn-1", { connected: true }]]);
@@ -483,7 +559,9 @@ describe("autoReconnect", () => {
     state.connections = [{ ...saved, password: "typed-earlier" }];
     await manager.autoReconnect("conn-1");
     expect(vaultPassword).not.toHaveBeenCalled();
-    expect(lastRequest(connect)).toMatchObject({ secrets: { db: "typed-earlier" } });
+    expect(lastRequest(connect)).toMatchObject({
+      secrets: { db: "typed-earlier" },
+    });
   });
 
   it("web: a row that doesn't save its password never opens the vault", async () => {
@@ -492,14 +570,19 @@ describe("autoReconnect", () => {
     state.connections = [{ ...saved, savePassword: false }];
     await manager.autoReconnect("conn-1");
     expect(vaultPassword).not.toHaveBeenCalled();
-    expect(lastRequest(connect)).toEqual({ target: { type: "saved", id: "conn-1" } });
+    expect(lastRequest(connect)).toEqual({
+      target: { type: "saved", id: "conn-1" },
+    });
   });
 
   it("returns false, without a toast, when Core wants credentials", async () => {
     const { manager, state } = setup();
     state.connections = [{ ...saved }];
     connect.mockRejectedValueOnce(
-      new CoreCallError({ code: "CREDENTIALS_REQUIRED", message: "no password" }),
+      new CoreCallError({
+        code: "CREDENTIALS_REQUIRED",
+        message: "no password",
+      }),
     );
     await expect(manager.autoReconnect("conn-1")).resolves.toBe(false);
     expect(errorToast).not.toHaveBeenCalled();
@@ -511,7 +594,13 @@ describe("autoReconnect", () => {
     state.connections = [
       {
         ...saved,
-        sshTunnel: { enabled: true, host: "jump", port: 22, username: "u", authMethod: "key" },
+        sshTunnel: {
+          enabled: true,
+          host: "jump",
+          port: 22,
+          username: "u",
+          authMethod: "key",
+        },
       } as DatabaseConnection,
     ];
     connect.mockRejectedValueOnce(
@@ -537,9 +626,14 @@ describe("toggle and remove", () => {
 
   it("a failed removal keeps the connection", async () => {
     const { manager, state } = setup();
-    showSaved(state, { ...saved, providerConnectionId: "pc-1" } as DatabaseConnection);
+    showSaved(state, {
+      ...saved,
+      providerConnectionId: "pc-1",
+    } as DatabaseConnection);
     state.connectionOrderByProject = { p1: ["conn-1"] };
-    library.failures.set("removeConnection", { error: new Error("STORAGE_ERROR: locked") });
+    library.failures.set("removeConnection", {
+      error: new Error("STORAGE_ERROR: locked"),
+    });
     await expect(manager.remove("conn-1")).rejects.toThrow("locked");
     expect(state.connections.map((c) => c.id)).toEqual(["conn-1"]);
     expect(state.connections[0].providerConnectionId).toBe("pc-1");
@@ -549,7 +643,10 @@ describe("toggle and remove", () => {
 
   it("remove deletes the row, then disconnects and forgets the connection", async () => {
     const { manager, state } = setup();
-    showSaved(state, { ...saved, providerConnectionId: "pc-1" } as DatabaseConnection);
+    showSaved(state, {
+      ...saved,
+      providerConnectionId: "pc-1",
+    } as DatabaseConnection);
     await manager.remove("conn-1");
     expect(library.callsOf("removeConnection")).toEqual([["conn-1"]]);
     // Core deletes its secrets (desktop keychain, web vault rows).
@@ -600,7 +697,7 @@ describe("connectionClosed events", () => {
       message: "restarted",
     });
     expect(state.connections[0].providerConnectionId).toBeUndefined();
-    await vi.waitFor(() => expect(reconnect).toHaveBeenCalledWith("conn-1"));
+    await vi.waitFor(() => expect(reconnect).toHaveBeenCalledWith("conn-1", { background: true }));
     await Promise.resolve();
     expect(errorToast).not.toHaveBeenCalled();
   });
@@ -619,6 +716,30 @@ describe("connectionClosed events", () => {
     expect(errorToast.mock.calls[0][0]).toContain('"Local"');
   });
 
+  // Phase 6 probe F4: the web server closes a closed tab's connections
+  // (WINDOW_CLOSED) and a tab's older connection when it connects the same
+  // saved connection again (CONNECTION_REPLACED). Neither normally reaches a
+  // page that holds the connection; if one does, it's marked disconnected
+  // without an error.
+  it.each(["WINDOW_CLOSED", "CONNECTION_REPLACED"])(
+    "marks a connection closed with %s disconnected, quietly",
+    async (code) => {
+      const { manager, state } = setup();
+      state.connections = [{ ...saved, providerConnectionId: "pc-1" }];
+      const reconnect = vi.spyOn(manager, "autoReconnect").mockResolvedValue(true);
+      manager.handleConnectionClosed({
+        type: "connectionClosed",
+        connectionId: "pc-1",
+        code,
+        message: "closed",
+      });
+      expect(state.connections[0].providerConnectionId).toBeUndefined();
+      await Promise.resolve();
+      expect(errorToast).not.toHaveBeenCalled();
+      expect(reconnect).not.toHaveBeenCalled();
+    },
+  );
+
   it("ignores a connection this page doesn't show", () => {
     const { manager, state } = setup();
     state.connections = [{ ...saved, providerConnectionId: "pc-1" }];
@@ -633,6 +754,345 @@ describe("connectionClosed events", () => {
   });
 });
 
+// Phase 6 probe F4 review I1: a page back from a sleep past the web's
+// window grace finds its connections gone. It asks Core (`db.alive`) on
+// every event-channel restart, and any call that answers
+// CONNECTION_NOT_FOUND tells it too: either way the connection is marked
+// disconnected and reconnected quietly, with a toast only if that fails.
+describe("connections Core no longer holds", () => {
+  const { setCoreClient } = await_core;
+  let resubscribe: ((info: { initial: boolean }) => void) | null = null;
+  const aliveCalls: string[][] = [];
+  let aliveIds: string[] = [];
+  beforeEach(() => {
+    resubscribe = null;
+    aliveCalls.length = 0;
+    aliveIds = [];
+    setCoreClient({
+      call: async (request: {
+        params: { method: string; params: { connectionIds: string[] } };
+      }) => {
+        const { method, params } = request.params;
+        if (method !== "alive") throw new Error(`unexpected db.${method}`);
+        aliveCalls.push(params.connectionIds);
+        return { method: "db", result: { method: "alive", result: aliveIds } };
+      },
+      stream: () => (async function* () {})(),
+      events: () => () => {},
+      onResubscribed: (h: (info: { initial: boolean }) => void) => {
+        resubscribe = h;
+        return () => {};
+      },
+      onEventsUnavailable: () => () => {},
+    } as never);
+  });
+  afterEach(() => setCoreClient(null));
+
+  it("reconnects, quietly, what Core lost while the page was away", async () => {
+    const { manager, state } = setup();
+    state.connections = [
+      { ...saved, providerConnectionId: "pc-1" },
+      { ...saved, id: "conn-2", name: "Kept", providerConnectionId: "pc-2" },
+    ];
+    const reconnect = vi.spyOn(manager, "autoReconnect").mockResolvedValue(true);
+    const stop = manager.listenForCoreEvents();
+    aliveIds = ["pc-2"];
+    resubscribe!({ initial: true });
+    expect(aliveCalls).toEqual([]);
+    resubscribe!({ initial: false });
+    await vi.waitFor(() => expect(reconnect).toHaveBeenCalledWith("conn-1", { background: true }));
+    expect(aliveCalls).toEqual([["pc-1", "pc-2"]]);
+    expect(state.connections.map((c) => c.providerConnectionId)).toEqual([undefined, "pc-2"]);
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    expect(errorToast).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("says so only when the reconnect fails", async () => {
+    const { manager, state } = setup();
+    state.connections = [{ ...saved, providerConnectionId: "pc-1" }];
+    vi.spyOn(manager, "autoReconnect").mockResolvedValue(false);
+    const stop = manager.listenForCoreEvents();
+    resubscribe!({ initial: false });
+    await vi.waitFor(() => expect(errorToast).toHaveBeenCalledOnce());
+    expect(errorToast.mock.calls[0][0]).toContain('"Local"');
+    stop();
+  });
+
+  it("asks nothing and reconnects nothing when the page holds no connection", async () => {
+    const { manager, state } = setup();
+    state.connections = [{ ...saved }];
+    const reconnect = vi.spyOn(manager, "autoReconnect").mockResolvedValue(true);
+    const stop = manager.listenForCoreEvents();
+    resubscribe!({ initial: false });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(aliveCalls).toEqual([]);
+    expect(reconnect).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("a CONNECTION_NOT_FOUND from any call marks it disconnected and reconnects once", async () => {
+    const { manager, state } = setup();
+    state.connections = [{ ...saved, providerConnectionId: "pc-1" }];
+    const reconnect = vi.spyOn(manager, "autoReconnect").mockResolvedValue(true);
+    const stop = manager.listenForCoreEvents();
+    reportConnectionNotFound("pc-1");
+    reportConnectionNotFound("pc-1");
+    // One this page doesn't show is ignored.
+    reportConnectionNotFound("pc-other");
+    await vi.waitFor(() => expect(reconnect).toHaveBeenCalledWith("conn-1", { background: true }));
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(state.connections[0].providerConnectionId).toBeUndefined();
+    expect(errorToast).not.toHaveBeenCalled();
+    stop();
+    // After the unsubscribe nothing is heard.
+    state.connections = [{ ...saved, providerConnectionId: "pc-3" }];
+    reportConnectionNotFound("pc-3");
+    expect(state.connections[0].providerConnectionId).toBe("pc-3");
+  });
+});
+
+// F4 re-review R1, M-b, M-c: a quiet (background) reconnect never moves
+// the project's active connection, keeps the connection's schema tabs
+// unless it fails, and gives way to the user's own disconnect.
+describe("background reconnects", () => {
+  const { setCoreClient } = await_core;
+  let resubscribe: ((info: { initial: boolean }) => void) | null = null;
+  let aliveIds: string[] = [];
+  beforeEach(() => {
+    resubscribe = null;
+    aliveIds = [];
+    setCoreClient({
+      call: async () => ({ method: "db", result: { method: "alive", result: aliveIds } }),
+      stream: () => (async function* () {})(),
+      events: () => () => {},
+      onResubscribed: (h: (info: { initial: boolean }) => void) => {
+        resubscribe = h;
+        return () => {};
+      },
+      onEventsUnavailable: () => () => {},
+    } as never);
+  });
+  afterEach(() => setCoreClient(null));
+
+  function twoHeld() {
+    const ctx = setup();
+    showSaved(ctx.state, { ...saved, providerConnectionId: "pc-1" } as DatabaseConnection);
+    showSaved(ctx.state, {
+      ...saved,
+      id: "conn-2",
+      name: "Second",
+      providerConnectionId: "pc-2",
+    } as DatabaseConnection);
+    ctx.state.activeConnectionIdByProject = { p1: "conn-1" };
+    return ctx;
+  }
+
+  /** A connect that waits for `release`. */
+  function heldConnect() {
+    let release!: (id: string) => void;
+    let fail!: (e: Error) => void;
+    connect.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve, reject) => {
+          release = resolve;
+          fail = reject;
+        }),
+    );
+    return { release: (id: string) => release(id), fail: (e: Error) => fail(e) };
+  }
+
+  it("an inactive connection reported lost reconnects without becoming active", async () => {
+    const { manager, state } = twoHeld();
+    connect.mockResolvedValueOnce("pc-2b");
+    const stop = manager.listenForCoreEvents();
+    reportConnectionNotFound("pc-2");
+    await vi.waitFor(() =>
+      expect(state.connections.find((c) => c.id === "conn-2")?.providerConnectionId).toBe("pc-2b"),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(state.activeConnectionIdByProject.p1).toBe("conn-1");
+    stop();
+  });
+
+  it("after a sleep, reconnecting both keeps the active one; it waits disconnected meanwhile", async () => {
+    const { manager, state } = twoHeld();
+    const first = heldConnect();
+    const second = heldConnect();
+    const stop = manager.listenForCoreEvents();
+    resubscribe!({ initial: false });
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(2));
+    // The gap: both show disconnected, and conn-1 stays active.
+    expect(state.connections.map((c) => c.providerConnectionId)).toEqual([undefined, undefined]);
+    expect(state.activeConnectionIdByProject.p1).toBe("conn-1");
+    second.release("pc-2b");
+    first.release("pc-1b");
+    await vi.waitFor(() =>
+      expect(state.connections.map((c) => c.providerConnectionId)).toEqual(["pc-1b", "pc-2b"]),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(state.activeConnectionIdByProject.p1).toBe("conn-1");
+    expect(errorToast).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("keeps the schema tabs while it reconnects, and closes them only if it fails", async () => {
+    const { manager, state } = twoHeld();
+    state.schemaTabsByProject = {
+      p1: [{ id: "st-1", connectionId: "conn-1" } as never],
+    };
+    const held = heldConnect();
+    const stop = manager.listenForCoreEvents();
+    reportConnectionNotFound("pc-1");
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+    expect(state.schemaTabsByProject.p1.map((t) => t.id)).toEqual(["st-1"]);
+    held.fail(new Error("CONNECTION_ERROR: refused"));
+    await vi.waitFor(() => expect(errorToast).toHaveBeenCalledOnce());
+    expect(state.schemaTabsByProject.p1).toEqual([]);
+    // Even then the active connection doesn't move.
+    expect(state.activeConnectionIdByProject.p1).toBe("conn-1");
+    stop();
+  });
+
+  // N1: the flag is only for a background attempt, and doesn't outlive it.
+  it("a disconnect during a foreground reconnect doesn't cancel a later quiet recovery", async () => {
+    const { manager, state } = twoHeld();
+    state.connections = state.connections.map((c) =>
+      c.id === "conn-1" ? { ...c, providerConnectionId: undefined } : c,
+    );
+    const held = heldConnect();
+    const foreground = manager.autoReconnect("conn-1");
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+    await manager.toggle("conn-1");
+    held.release("pc-fg");
+    expect(await foreground).toBe(true);
+    // Later the connection is lost; the quiet recovery must go through.
+    connect.mockResolvedValueOnce("pc-again");
+    const stop = manager.listenForCoreEvents();
+    reportConnectionNotFound("pc-fg");
+    await vi.waitFor(() => expect(state.connections[0].providerConnectionId).toBe("pc-again"));
+    expect(calls).not.toContain("disconnect pc-again");
+    stop();
+  });
+
+  // N2: the user picking a connection that is reconnecting quietly makes it
+  // active when it lands, as their own reconnect would.
+  it("a foreground caller joining a quiet reconnect makes the connection active", async () => {
+    const { manager, state } = twoHeld();
+    const held = heldConnect();
+    const stop = manager.listenForCoreEvents();
+    reportConnectionNotFound("pc-2");
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+    const picked = manager.autoReconnect("conn-2");
+    held.release("pc-2b");
+    expect(await picked).toBe(true);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(state.activeConnectionIdByProject.p1).toBe("conn-2");
+    stop();
+  });
+
+  it("a disconnect while it reconnects wins: the new connection is closed", async () => {
+    const { manager, state } = twoHeld();
+    const held = heldConnect();
+    const stop = manager.listenForCoreEvents();
+    reportConnectionNotFound("pc-1");
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+    await manager.toggle("conn-1");
+    held.release("pc-late");
+    await vi.waitFor(() => expect(calls).toContain("disconnect pc-late"));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(state.connections[0].providerConnectionId).toBeUndefined();
+    expect(errorToast).not.toHaveBeenCalled();
+    stop();
+  });
+});
+
+// Review M1: a second auto-reconnect of one connection while the first runs
+// gets the first's promise; nothing connects twice.
+describe("single flight", () => {
+  it("autoReconnect of one connection runs once at a time", async () => {
+    const { manager, state } = setup();
+    showSaved(state, { ...saved, password: "typed" } as DatabaseConnection);
+    let release!: (id: string) => void;
+    connect.mockImplementationOnce(() => new Promise<string>((r) => (release = r)));
+    const first = manager.autoReconnect("conn-1");
+    const second = manager.autoReconnect("conn-1");
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+    release("pc-a");
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(connect).toHaveBeenCalledTimes(1);
+    // Once it's done, the next one connects again.
+    expect(await manager.autoReconnect("conn-1")).toBe(true);
+    expect(connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("reconnect from the form of one connection runs once at a time", async () => {
+    const { manager, state } = setup();
+    showSaved(state);
+    let release!: (id: string) => void;
+    connect.mockImplementationOnce(() => new Promise<string>((r) => (release = r)));
+    const first = manager.reconnect("conn-1", {
+      ...input,
+      projectId: "p1",
+    } as never);
+    const second = manager.reconnect("conn-1", {
+      ...input,
+      projectId: "p1",
+    } as never);
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+    release("pc-a");
+    expect(await first).toBe("conn-1");
+    expect(await second).toBe("conn-1");
+    expect(connect).toHaveBeenCalledTimes(1);
+  });
+});
+
+// F1/F2/F5 review P2: on web, a row that saves its password whose vault
+// read failed (or was cancelled) is never dialled without it: a failed
+// login can count toward a lockout (SQL Server).
+describe("auto-reconnect without the saved password", () => {
+  it("doesn't connect when the vault read fails", async () => {
+    env.web = true;
+    const { manager, state } = setup();
+    showSaved(state, {
+      ...saved,
+      type: "mssql",
+      savePassword: true,
+    } as DatabaseConnection);
+    vaultPassword.mockRejectedValueOnce(new VaultCancelledError());
+    expect(await manager.autoReconnect("conn-1")).toBe(false);
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  // F4 re-review M-a: a stored password the vault can't decrypt isn't "no
+  // password": auto-reconnect reads it strictly and doesn't dial.
+  it("doesn't connect when the stored password can't be decrypted", async () => {
+    env.web = true;
+    const { manager, state } = setup();
+    showSaved(state, { ...saved, savePassword: true } as DatabaseConnection);
+    // The plain getter would answer null (as for no row); the strict one throws.
+    vaultPassword.mockResolvedValue(null);
+    vaultStrict = async () => {
+      throw new Error("The vault entry can't be decrypted");
+    };
+    expect(await manager.autoReconnect("conn-1")).toBe(false);
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("still connects a row whose vault holds no password (trust auth, probe F5)", async () => {
+    env.web = true;
+    const { manager, state } = setup();
+    showSaved(state, { ...saved, savePassword: true } as DatabaseConnection);
+    vaultPassword.mockResolvedValueOnce(null);
+    expect(await manager.autoReconnect("conn-1")).toBe(true);
+    expect(lastRequest(connect)).toEqual({
+      target: { type: "saved", id: "conn-1" },
+    });
+  });
+});
+
 describe("update", () => {
   it("saves the AI sharing overrides from the edit form", async () => {
     const { state, manager } = setup();
@@ -644,7 +1104,10 @@ describe("update", () => {
       aiShareData: true,
     } as unknown as Parameters<InstanceType<typeof ConnectionManager>["update"]>[1]);
 
-    expect(state.connections[0]).toMatchObject({ aiShareSchema: false, aiShareData: true });
+    expect(state.connections[0]).toMatchObject({
+      aiShareSchema: false,
+      aiShareData: true,
+    });
     expect(library.callsOf("updateConnection")).toEqual([
       ["conn-1", { aiShareSchema: false, aiShareData: true }],
     ]);
@@ -679,7 +1142,10 @@ describe("update", () => {
       baseline,
     );
     expect(library.callsOf("updateConnection")).toEqual([["conn-1", { port: 6543 }]]);
-    expect(library.connections.get("conn-1")).toMatchObject({ name: "Theirs", port: 6543 });
+    expect(library.connections.get("conn-1")).toMatchObject({
+      name: "Theirs",
+      port: 6543,
+    });
   });
 
   it("desktop: a password the form saves goes in the call; web: to the vault after it", async () => {
@@ -709,14 +1175,19 @@ describe("update", () => {
   it("a rename to a taken name says whose, and changes nothing", async () => {
     const { state, manager } = setup();
     showSaved(state);
-    showSaved(state, { ...saved, id: "conn-2", name: "Prod" } as DatabaseConnection);
+    showSaved(state, {
+      ...saved,
+      id: "conn-2",
+      name: "Prod",
+    } as DatabaseConnection);
     library.failures.set("updateConnection", {
       error: new LibraryCallError("NAME_TAKEN", "taken", "conn-2"),
     });
     await expect(
-      manager.update("conn-1", { ...saved, name: "prod" } as unknown as Parameters<
-        InstanceType<typeof ConnectionManager>["update"]
-      >[1]),
+      manager.update("conn-1", {
+        ...saved,
+        name: "prod",
+      } as unknown as Parameters<InstanceType<typeof ConnectionManager>["update"]>[1]),
     ).rejects.toThrow('Another connection in this project is already called "Prod".');
     expect(state.connections[0].name).toBe("Local");
   });
@@ -773,7 +1244,10 @@ describe("the connection string and the fields", () => {
     form.host = "replica.example.com";
     forgetConnectionString(form);
     await manager.add(getConnectionData(form) as Input);
-    expect(formRequest()).toMatchObject({ host: "replica.example.com", connectionString: "" });
+    expect(formRequest()).toMatchObject({
+      host: "replica.example.com",
+      connectionString: "",
+    });
   });
 
   it("edit a saved row's field, then reconnect: the new field connects", async () => {
@@ -793,7 +1267,10 @@ describe("the connection string and the fields", () => {
     form.databaseName = "other";
     forgetConnectionString(form);
     await manager.reconnect("conn-1", getConnectionData(form) as Input);
-    expect(formRequest()).toMatchObject({ databaseName: "other", connectionString: "" });
+    expect(formRequest()).toMatchObject({
+      databaseName: "other",
+      connectionString: "",
+    });
     // The row now shows, and stores, what was connected.
     expect(state.connections[0]).toMatchObject({ databaseName: "other" });
     expect(state.connections[0].connectionString).toBeUndefined();
@@ -805,19 +1282,27 @@ describe("the connection string and the fields", () => {
   });
 
   it("loads saved connections without waiting for a keychain read", async () => {
-    library.seedConnection("saved-secret", { name: "Saved secret", savePassword: true });
+    library.seedConnection("saved-secret", {
+      name: "Saved secret",
+      savePassword: true,
+    });
     vaultPassword.mockImplementation(() => new Promise(() => {}));
     const { manager, state } = setup();
 
     await manager.initializePersistedConnections();
 
     expect(state.connectionsLoading).toBe(false);
-    expect(state.connections[0]).toMatchObject({ id: "saved-secret", password: "" });
+    expect(state.connections[0]).toMatchObject({
+      id: "saved-secret",
+      password: "",
+    });
     expect(vaultPassword).not.toHaveBeenCalled();
   });
 
   it("a failed load says so (the one-time secrets notice then waits)", async () => {
-    library.failures.set("listConnections", { error: new Error("STORAGE_ERROR: busy") });
+    library.failures.set("listConnections", {
+      error: new Error("STORAGE_ERROR: busy"),
+    });
     const { manager, state } = setup();
     await manager.initializePersistedConnections();
     expect(manager.loaded).toBe(false);
@@ -886,7 +1371,10 @@ describe("importConnections", () => {
    * what Core stored.
    */
   function recordingImports(
-    answer: () => Promise<{ value: { results: ImportKeyOutcome[] }; seq: ChangeSeq }>,
+    answer: () => Promise<{
+      value: { results: ImportKeyOutcome[] };
+      seq: ChangeSeq;
+    }>,
   ) {
     const calls: unknown[][] = [];
     setImports({

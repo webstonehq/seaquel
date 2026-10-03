@@ -8,10 +8,13 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use seaquel_core::ai::native::{NativeHttp, NativeHttpOptions};
+use seaquel_core::ai::AiEgress;
 use seaquel_core::license::server::{LicenseServer, ServerConfig};
 use seaquel_core::{
     ConnectPolicy, ConnectionLimits, Core, EditLimits, LibraryLimits, RunLimits, StateLimits,
 };
+use std::path::PathBuf;
 use std::sync::Arc;
 
 mod error;
@@ -20,6 +23,7 @@ pub mod startup;
 pub mod web_config;
 pub mod workspaces;
 
+pub use error::status_for;
 pub use routes::internal_license::{is_loopback_peer, SECRET_HEADER};
 pub use routes::rpc::{
     MAX_EDIT_CALLS_PER_USER, MAX_IN_FLIGHT_BYTES_PER_USER, SMALL_CALL_BYTES, TOO_MANY_REQUESTS,
@@ -153,13 +157,31 @@ pub const WEB_STATE_LIMITS: StateLimits = StateLimits {
     max_ai_providers: Some(50),
 };
 
+/// What the assistant may do per web user (phase 6, Decision 14): four
+/// turns in flight at once (a fifth is `TOO_MANY_REQUESTS`, 429; each holds
+/// a model stream and, while a tool runs, a database connection), and a
+/// user's message of at most 1 MiB, the chat budget's message cap
+/// ([`WEB_STATE_LIMITS`]' `max_message_bytes`).
+pub const WEB_AI_LIMITS: seaquel_core::ai::AiLimits = seaquel_core::ai::AiLimits {
+    max_turns_in_flight: Some(4),
+    max_message_bytes: Some(1024 * 1024),
+    ..seaquel_core::ai::AiLimits::DEFAULT
+};
+
 /// The server's Core: the compiled-in engines in [`WEB_ENGINES`] and no
 /// others, under [`web_connect_policy`], [`WEB_CONNECTION_LIMITS`],
-/// [`WEB_RUN_LIMITS`], [`WEB_EDIT_LIMITS`], [`WEB_LIBRARY_LIMITS`] and
-/// [`WEB_STATE_LIMITS`]. Core refuses any other driver on
-/// `db.connect` and `db.test` with `ENGINE_NOT_AVAILABLE`, whatever features
-/// Cargo unified into this build.
-pub fn web_core() -> Core {
+/// [`WEB_RUN_LIMITS`], [`WEB_EDIT_LIMITS`], [`WEB_LIBRARY_LIMITS`],
+/// [`WEB_STATE_LIMITS`] and [`WEB_AI_LIMITS`]. Core refuses any other
+/// driver on `db.connect` and `db.test` with `ENGINE_NOT_AVAILABLE`,
+/// whatever features Cargo unified into this build.
+///
+/// Model calls (phase 6, Q1) go through seaquel-http's native client under
+/// `egress` (`SEAQUEL_AI_EGRESS`, [`startup::ai_egress_from_env`]), the
+/// same rule Core checks, trusting `extra_ca_file` (`NODE_EXTRA_CA_CERTS`)
+/// on top of the built-in roots and using the environment's proxies.
+pub fn web_core(egress: AiEgress, extra_ca_file: Option<PathBuf>) -> Core {
+    let mut http = NativeHttpOptions::new(egress.into());
+    http.extra_ca_file = extra_ca_file;
     seaquel_core::with_plugins(|id| WEB_ENGINES.contains(&id))
         .connect_policy(web_connect_policy())
         .connection_limits(WEB_CONNECTION_LIMITS)
@@ -167,15 +189,31 @@ pub fn web_core() -> Core {
         .edit_limits(WEB_EDIT_LIMITS)
         .library_limits(WEB_LIBRARY_LIMITS)
         .state_limits(WEB_STATE_LIMITS)
+        .ai_limits(WEB_AI_LIMITS)
+        .ai_http(Arc::new(NativeHttp::new(http)))
+        .ai_egress(egress)
         .executor(Arc::new(seaquel_runtime::TokioExecutor))
         .build()
 }
 
+/// [`web_core`] from the environment: `SEAQUEL_AI_EGRESS` (an error for a
+/// value it can't read, so the binary refuses to start) and
+/// `NODE_EXTRA_CA_CERTS`.
+pub fn web_core_from_env() -> Result<Core, String> {
+    let egress = startup::ai_egress_from_env()?;
+    let extra_ca_file = std::env::var_os(startup::EXTRA_CA_CERTS_ENV)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from);
+    Ok(web_core(egress, extra_ca_file))
+}
+
 impl AppState {
-    /// [`web_core`], with workspaces under `$DATA_DIR` (or the current
-    /// directory). This is what the binary serves.
+    /// [`web_core_from_env`], with workspaces under `$DATA_DIR` (or the
+    /// current directory). Panics on a `SEAQUEL_AI_EGRESS` it can't read;
+    /// the binary checks it first and exits with the message.
     pub fn new() -> Self {
-        Self::with_core(Arc::new(web_core()))
+        let core = web_core_from_env().unwrap_or_else(|e| panic!("{e}"));
+        Self::with_core(Arc::new(core))
     }
 
     /// `core`, with workspaces and `auth.db` under `$DATA_DIR` (or the

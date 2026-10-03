@@ -8,19 +8,29 @@
 
 import { isTauri } from "$lib/utils/environment";
 import type { CoreClient } from "./client";
+import { watchClient } from "./connection-watch";
 import { HttpCoreClient } from "./http";
 import { TauriCoreClient } from "./tauri";
 
 export * from "./client";
 export { withHostKeyPrompt, type SshServer } from "./host-key";
+export { onConnectionNotFound } from "./connection-watch";
 
 let override: CoreClient | null = null;
 let tauriClient: TauriCoreClient | null = null;
 let httpClient: HttpCoreClient | null = null;
 let browserClient: CoreClient | null = null;
 
-/** Picked per call, so tests and late environment detection see the current mode. */
+/**
+ * Picked per call, so tests and late environment detection see the current
+ * mode. Every client is watched (`watchClient`): a call or stream that finds
+ * its connection gone reports it, once, to `onConnectionNotFound`.
+ */
 export function getCoreClient(): CoreClient {
+  return watchClient(pickCoreClient());
+}
+
+function pickCoreClient(): CoreClient {
   if (override) return override;
   if (import.meta.env.VITE_BUILD_TARGET === "demo" && browserClient) return browserClient;
   if (isTauri()) return (tauriClient ??= new TauriCoreClient());

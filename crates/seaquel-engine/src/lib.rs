@@ -351,6 +351,17 @@ impl ReadOnlyOptions {
     }
 }
 
+/// How long a pooled database connection may sit idle before the sqlx
+/// engines (Postgres, MySQL/MariaDB) close it (phase 6 probe F4): a
+/// connection whose pool filled up for a schema load gives its backends
+/// back once it goes quiet. sqlx's own default, set explicitly.
+pub const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+/// How long the sqlx engines wait for a pooled connection, the first one
+/// at connect included, before failing. sqlx's own default, set
+/// explicitly; Core bounds the whole connect too (`CONNECT_TIMEOUT`).
+pub const POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// The code of a statement the database stopped at
 /// [`ReadOnlyOptions::timeout`].
 pub const TIMEOUT: &str = "TIMEOUT";

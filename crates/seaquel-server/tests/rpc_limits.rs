@@ -14,7 +14,7 @@ use common::{pg_form, Env};
 
 #[test]
 fn the_server_core_has_the_web_limits() {
-    let limits = web_core().connection_limits();
+    let limits = web_core(seaquel_core::ai::AiEgress::Public, None).connection_limits();
     assert_eq!(limits, WEB_CONNECTION_LIMITS);
     assert_eq!(limits.per_workspace, Some(16));
     assert_eq!(limits.max_pool_size, Some(6));
@@ -22,7 +22,7 @@ fn the_server_core_has_the_web_limits() {
 
 #[test]
 fn the_server_core_has_the_web_edit_limits() {
-    let limits = web_core().edit_limits();
+    let limits = web_core(seaquel_core::ai::AiEgress::Public, None).edit_limits();
     assert_eq!(limits, WEB_EDIT_LIMITS);
     assert_eq!(limits.max_changes, Some(10_000));
     assert_eq!(limits.max_tables, Some(100));
@@ -35,7 +35,7 @@ fn the_server_core_has_the_web_edit_limits() {
 
 #[tokio::test]
 async fn the_server_core_has_the_web_library_limits() {
-    let limits = web_core().library_limits();
+    let limits = web_core(seaquel_core::ai::AiEgress::Public, None).library_limits();
     assert_eq!(limits, WEB_LIBRARY_LIMITS);
     assert_eq!(limits.max_name_bytes, Some(1024));
     assert_eq!(limits.max_field_bytes, Some(64 * 1024));
@@ -53,7 +53,7 @@ async fn the_server_core_has_the_web_library_limits() {
 /// Phase 5d-2, Decision 27.
 #[tokio::test]
 async fn the_server_core_has_the_web_state_limits() {
-    let limits = web_core().state_limits();
+    let limits = web_core(seaquel_core::ai::AiEgress::Public, None).state_limits();
     assert_eq!(limits, WEB_STATE_LIMITS);
     assert_eq!(limits.max_view_state_bytes, Some(8 * 1024 * 1024));
     assert_eq!(limits.max_tab_text_bytes, Some(2 * 1024 * 1024));

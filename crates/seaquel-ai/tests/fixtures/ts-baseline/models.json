@@ -1,0 +1,522 @@
+[
+  {
+    "name": "models/anthropic/ok",
+    "note": "Two models.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "{\"data\":[{\"id\":\"model-1\",\"type\":\"model\",\"display_name\":\"Model 1\"},{\"id\":\"model-2\",\"type\":\"model\"}],\"has_more\":false}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "https://api.anthropic.com/v1/models",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "<key>"
+        },
+        "body": null
+      }
+    ],
+    "result": ["model-1", "model-2"],
+    "unusedResponses": 0,
+    "logs": []
+  },
+  {
+    "name": "test/anthropic/ok",
+    "note": "Two models.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "{\"data\":[{\"id\":\"model-1\",\"type\":\"model\",\"display_name\":\"Model 1\"},{\"id\":\"model-2\",\"type\":\"model\"}],\"has_more\":false}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "https://api.anthropic.com/v1/models",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "<key>"
+        },
+        "body": null
+      }
+    ],
+    "result": true,
+    "unusedResponses": 0,
+    "logs": []
+  },
+  {
+    "name": "models/anthropic/no-key",
+    "note": "No key: nothing is requested.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": false
+    },
+    "responses": [],
+    "requests": [],
+    "result": [],
+    "unusedResponses": 0,
+    "logs": []
+  },
+  {
+    "name": "test/anthropic/no-key",
+    "note": "No key: nothing is requested.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": false
+    },
+    "responses": [],
+    "requests": [],
+    "result": false,
+    "unusedResponses": 0,
+    "logs": []
+  },
+  {
+    "name": "models/anthropic/401",
+    "note": "Refused.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
+        "status": 401,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "https://api.anthropic.com/v1/models",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "<key>"
+        },
+        "body": null
+      }
+    ],
+    "result": [],
+    "unusedResponses": 0,
+    "logs": []
+  },
+  {
+    "name": "test/anthropic/401",
+    "note": "Refused.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
+        "status": 401,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "https://api.anthropic.com/v1/models",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "<key>"
+        },
+        "body": null
+      }
+    ],
+    "result": false,
+    "unusedResponses": 0,
+    "logs": []
+  },
+  {
+    "name": "models/openai/ok",
+    "note": "A custom base URL with a trailing slash, with a key.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Local",
+        "type": "openai-compatible",
+        "baseUrl": "http://localhost:11434/v1/"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "{\"object\":\"list\",\"data\":[{\"id\":\"model-1\",\"object\":\"model\"},{\"id\":\"model-2\",\"object\":\"model\"}]}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "http://localhost:11434/v1/models",
+        "headers": {
+          "authorization": "Bearer <key>"
+        },
+        "body": null
+      }
+    ],
+    "result": ["model-1", "model-2"],
+    "unusedResponses": 0,
+    "logs": []
+  },
+  {
+    "name": "test/openai/ok",
+    "note": "A custom base URL with a trailing slash, with a key.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Local",
+        "type": "openai-compatible",
+        "baseUrl": "http://localhost:11434/v1/"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "{\"object\":\"list\",\"data\":[{\"id\":\"model-1\",\"object\":\"model\"},{\"id\":\"model-2\",\"object\":\"model\"}]}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "http://localhost:11434/v1/models",
+        "headers": {
+          "authorization": "Bearer <key>"
+        },
+        "body": null
+      }
+    ],
+    "result": true,
+    "unusedResponses": 0,
+    "logs": []
+  },
+  {
+    "name": "models/openai/keyless",
+    "note": "No key: no `authorization` header.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Local",
+        "type": "openai-compatible",
+        "baseUrl": "http://localhost:11434/v1/"
+      },
+      "key": false
+    },
+    "responses": [
+      {
+        "body": "{\"object\":\"list\",\"data\":[{\"id\":\"model-1\",\"object\":\"model\"},{\"id\":\"model-2\",\"object\":\"model\"}]}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "http://localhost:11434/v1/models",
+        "headers": {},
+        "body": null
+      }
+    ],
+    "result": ["model-1", "model-2"],
+    "unusedResponses": 0,
+    "logs": []
+  },
+  {
+    "name": "test/openai/keyless",
+    "note": "No key: no `authorization` header.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Local",
+        "type": "openai-compatible",
+        "baseUrl": "http://localhost:11434/v1/"
+      },
+      "key": false
+    },
+    "responses": [
+      {
+        "body": "{\"object\":\"list\",\"data\":[{\"id\":\"model-1\",\"object\":\"model\"},{\"id\":\"model-2\",\"object\":\"model\"}]}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "http://localhost:11434/v1/models",
+        "headers": {},
+        "body": null
+      }
+    ],
+    "result": true,
+    "unusedResponses": 0,
+    "logs": []
+  },
+  {
+    "name": "models/openai/default-url",
+    "note": "No base URL: chat defaults to api.openai.com, but the model list asks nothing (the scripted answer goes unused).",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "{\"object\":\"list\",\"data\":[{\"id\":\"model-1\",\"object\":\"model\"},{\"id\":\"model-2\",\"object\":\"model\"}]}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [],
+    "result": [],
+    "unusedResponses": 1,
+    "logs": []
+  },
+  {
+    "name": "test/openai/default-url",
+    "note": "No base URL: chat defaults to api.openai.com, but the model list asks nothing (the scripted answer goes unused).",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "{\"object\":\"list\",\"data\":[{\"id\":\"model-1\",\"object\":\"model\"},{\"id\":\"model-2\",\"object\":\"model\"}]}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [],
+    "result": false,
+    "unusedResponses": 1,
+    "logs": []
+  },
+  {
+    "name": "models/openai/empty-url",
+    "note": "An empty base URL: same.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible",
+        "baseUrl": ""
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "{\"object\":\"list\",\"data\":[{\"id\":\"model-1\",\"object\":\"model\"},{\"id\":\"model-2\",\"object\":\"model\"}]}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [],
+    "result": [],
+    "unusedResponses": 1,
+    "logs": []
+  },
+  {
+    "name": "test/openai/empty-url",
+    "note": "An empty base URL: same.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible",
+        "baseUrl": ""
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "{\"object\":\"list\",\"data\":[{\"id\":\"model-1\",\"object\":\"model\"},{\"id\":\"model-2\",\"object\":\"model\"}]}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [],
+    "result": false,
+    "unusedResponses": 1,
+    "logs": []
+  },
+  {
+    "name": "models/openai/not-json",
+    "note": "A 200 that isn't JSON.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Local",
+        "type": "openai-compatible",
+        "baseUrl": "http://localhost:11434/v1/"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "<html>",
+        "status": 200,
+        "contentType": "text/html"
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "http://localhost:11434/v1/models",
+        "headers": {
+          "authorization": "Bearer <key>"
+        },
+        "body": null
+      }
+    ],
+    "result": [],
+    "unusedResponses": 0,
+    "logs": [
+      "error: [AI] fetchModels error: SyntaxError: Unexpected token '<', \"<html>\" is not valid JSON"
+    ]
+  },
+  {
+    "name": "test/openai/not-json",
+    "note": "A 200 that isn't JSON.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Local",
+        "type": "openai-compatible",
+        "baseUrl": "http://localhost:11434/v1/"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "body": "<html>",
+        "status": 200,
+        "contentType": "text/html"
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "http://localhost:11434/v1/models",
+        "headers": {
+          "authorization": "Bearer <key>"
+        },
+        "body": null
+      }
+    ],
+    "result": true,
+    "unusedResponses": 0,
+    "logs": []
+  },
+  {
+    "name": "models/openai/network-error",
+    "note": "`fetch` throws.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Local",
+        "type": "openai-compatible",
+        "baseUrl": "http://localhost:11434/v1/"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "networkError": true,
+        "body": ""
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "http://localhost:11434/v1/models",
+        "headers": {
+          "authorization": "Bearer <key>"
+        },
+        "body": null
+      }
+    ],
+    "result": [],
+    "unusedResponses": 0,
+    "logs": ["error: [AI] fetchModels error: TypeError: fetch failed"]
+  },
+  {
+    "name": "test/openai/network-error",
+    "note": "`fetch` throws.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Local",
+        "type": "openai-compatible",
+        "baseUrl": "http://localhost:11434/v1/"
+      },
+      "key": true
+    },
+    "responses": [
+      {
+        "networkError": true,
+        "body": ""
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "http://localhost:11434/v1/models",
+        "headers": {
+          "authorization": "Bearer <key>"
+        },
+        "body": null
+      }
+    ],
+    "result": false,
+    "unusedResponses": 0,
+    "logs": ["error: [AI] testConnection error: TypeError: fetch failed"]
+  }
+]

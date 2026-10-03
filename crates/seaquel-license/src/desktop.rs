@@ -39,7 +39,7 @@ impl LicenseError {
 #[derive(Clone)]
 pub struct DesktopClient {
     base_url: String,
-    http: crate::http::LazyClient,
+    http: seaquel_http::client::LazyClient,
 }
 
 impl fmt::Debug for DesktopClient {
@@ -103,10 +103,10 @@ impl DesktopClient {
         }
         Self {
             base_url,
-            // Never panics: see `crate::http`.
-            http: crate::http::LazyClient::new(
+            // Never panics: see `seaquel_http::client`.
+            http: seaquel_http::client::LazyClient::new(
                 "license client",
-                crate::http::ClientOptions::default(),
+                seaquel_http::client::ClientOptions::default(),
             ),
         }
     }

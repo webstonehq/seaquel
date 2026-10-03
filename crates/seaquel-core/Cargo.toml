@@ -29,6 +29,20 @@ license-server = ["dep:seaquel-license", "seaquel-license/server"]
 # itself (`seaquel_core::domain`) is always there: it is pure, builds for
 # wasm32, and its run types are on the `db` wire in every build.
 workspace = []
+# Phase 6: the AI domain and the assistant's turn (`seaquel_core::ai`):
+# `Workspace::ai_chat`, `ai_respond`, `ai_generate`, `ai_models`,
+# `ai_test`, and the tool registry Core runs. It needs an `HttpClient`
+# (`CoreBuilder::ai_http`) and an egress policy (`ai_egress`), with no
+# default for either. seaquel-mcp enables it for the registry only;
+# seaquel-browser enables it with its own fetch bridge.
+ai = ["workspace", "storage", "dep:seaquel-ai"]
+# The native HTTP client (`seaquel-http`'s reqwest client and the egress
+# guard), re-exported as `seaquel_core::ai::native`. src-tauri,
+# seaquel-server and seaquel-cli enable it; it is refused with `browser`.
+ai-native = ["ai", "dep:seaquel-http"]
+# The OS proxy settings (macOS/Windows system config) for the native model
+# client. The desktop turns it on, as `license-desktop` does for its own.
+ai-system-proxy = ["ai-native", "seaquel-http/system-proxy"]
 # The TypeScript bindings of the domain's wire types (`seaquel-rpc/ts`).
 ts = ["seaquel-workspace/ts"]
 # The wasm32 build for the browser (phase 8's Core in the web page). It
@@ -57,6 +71,8 @@ seaquel-ssh = { path = "../seaquel-ssh", optional = true }
 seaquel-git = { path = "../seaquel-git", optional = true }
 seaquel-license = { path = "../seaquel-license", optional = true }
 seaquel-workspace = { path = "../seaquel-workspace" }
+seaquel-ai = { path = "../seaquel-ai", optional = true }
+seaquel-http = { path = "../seaquel-http", optional = true }
 async-stream = { workspace = true }
 dirs = { workspace = true, optional = true }
 # `imports` reads and decodes the other tool's file on a blocking thread
@@ -85,10 +101,13 @@ seaquel-core = { path = ".", default-features = false, features = ["storage", "s
 # no test reads the user's git config.
 git2 = { workspace = true }
 tempfile = "3"
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 # `TokioExecutor` for tests/run_live.rs.
 seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }
 # Seeding and reading the metadata file with plain SQL (tests/library.rs,
 # tests/string_secrets.rs), as the library fixtures' replay rules ask.
 sqlx = { workspace = true }
 serde = { workspace = true }
+# The mock provider and the loopback-only client (tests/ai_*.rs, phase 6):
+# no test reaches a real model provider.
+seaquel-ai = { path = "../seaquel-ai", features = ["testing"] }

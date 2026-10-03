@@ -1,6 +1,9 @@
 import { errorToast } from "$lib/utils/toast";
-import { generateSQL } from "$lib/services/ai";
-import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
+import { errorCode } from "$lib/core/client";
+import { getAi } from "$lib/hooks/database/ai/index";
+import { inlineErrorOf } from "$lib/hooks/database/ai/messages";
+import { isMac, keySymbols } from "$lib/shortcuts/platform";
+import { m } from "$lib/paraglide/messages.js";
 import type { QueryEditorContext } from "./types.js";
 
 interface AIPromptError {
@@ -8,20 +11,32 @@ interface AIPromptError {
   action?: { label: string; fn: () => void };
 }
 
-export function createAIInlinePrompt(
-  ctx: QueryEditorContext,
-  callbacks: { onExecute: () => void },
-) {
+/** The editor's Run shortcut, as the notice names it. */
+function runShortcut(): string {
+  return isMac()
+    ? `${keySymbols.mac.mod}${keySymbols.mac.enter}`
+    : `${keySymbols.other.mod}+${keySymbols.other.enter}`;
+}
+
+/**
+ * The editor's inline prompt (phase 6, Decision 18 and Q9): `ai.generate`
+ * with the active saved connection, whose provider, model and sharing
+ * Core applies. The SQL is inserted at the cursor and never run: the box
+ * says how to run it; the editor's Run is never called from here.
+ */
+export function createAIInlinePrompt(ctx: QueryEditorContext) {
   const { db } = ctx;
 
   let open = $state(false);
   let text = $state("");
   let loading = $state(false);
   let error = $state<AIPromptError | null>(null);
+  let notice = $state<string | null>(null);
 
   function handleOpen() {
     text = "";
     error = null;
+    notice = null;
     open = true;
   }
 
@@ -30,84 +45,44 @@ export function createAIInlinePrompt(
     text = "";
     loading = false;
     error = null;
+    notice = null;
   }
+
+  const openSettings = () => {
+    db.settingsTabs.open("app", "ai-provider");
+    close();
+  };
 
   async function submit() {
     if (!text.trim() || loading) return;
     loading = true;
+    error = null;
+    notice = null;
+    const connection = db.state.activeConnection;
     try {
-      const activeConn = db.state.activeConnection;
-      const shareSchema =
-        activeConn?.aiShareSchema !== undefined
-          ? activeConn.aiShareSchema
-          : aiSettingsStore.settings.shareSchemaGlobally;
-      const activeProviderId = activeConn?.activeAIProviderId ?? null;
-      const activeModel = activeConn?.activeAIModel ?? null;
-
-      if (!activeProviderId || !activeModel) {
-        if (aiSettingsStore.settings.providers.length === 0) {
-          error = {
-            message: "No AI provider configured.",
-            action: {
-              label: "Configure",
-              fn: () => {
-                db.settingsTabs.open("app", "ai-provider");
-                close();
-              },
-            },
-          };
-        } else {
-          error = {
-            message: "No model selected. Pick one from the model switcher to the right.",
-          };
-        }
-        loading = false;
-        return;
-      }
-
-      const sql = await generateSQL({
+      const sql = await getAi().generate({
+        connectionId: connection?.id ?? "",
+        providerId: connection?.activeAIProviderId ?? null,
         request: text,
         existingQuery: ctx.getActiveTab()?.query ?? "",
-        schema: db.state.activeSchema ?? [],
-        shareSchema,
-        providerId: activeProviderId,
-        model: activeModel,
-        databaseType: db.state.activeConnection?.type,
       });
       ctx.getMonacoRef()?.insertText(sql);
-      open = false;
       text = "";
-      callbacks.onExecute();
+      notice = m.ai_inline_inserted({ shortcut: runShortcut() });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg === "no_provider") {
-        error = {
-          message: "No AI provider configured.",
-          action: {
-            label: "Configure",
-            fn: () => {
-              db.settingsTabs.open("app", "ai-provider");
-              close();
-            },
-          },
-        };
-      } else if (msg === "no_api_key") {
-        error = {
-          message: "No API key configured.",
-          action: {
-            label: "Settings \u2192 AI",
-            fn: () => {
-              db.settingsTabs.open("app", "ai-provider");
-              close();
-            },
-          },
-        };
-      } else if (msg === "rate_limit") {
-        error = { message: "Rate limit reached. Please wait and try again." };
-      } else {
-        error = { message: "Something went wrong. Please try again." };
-        errorToast(msg);
-      }
+      const code = errorCode(err) ?? "UNKNOWN";
+      const raw = err instanceof Error ? err.message : String(err);
+      const message = raw.startsWith(`${code}: `) ? raw.slice(code.length + 2) : raw;
+      const worded = inlineErrorOf(code, message);
+      error = {
+        message: worded.message,
+        ...(worded.action === "configure"
+          ? { action: { label: m.ai_inline_configure(), fn: openSettings } }
+          : worded.action === "settings"
+            ? { action: { label: m.ai_inline_settings(), fn: openSettings } }
+            : {}),
+      };
+      if (worded.toast) errorToast(worded.toast);
     } finally {
       loading = false;
     }
@@ -138,6 +113,10 @@ export function createAIInlinePrompt(
     },
     set error(v: AIPromptError | null) {
       error = v;
+    },
+    /** After an insert: how to run it (Q9). */
+    get notice() {
+      return notice;
     },
 
     handleOpen,

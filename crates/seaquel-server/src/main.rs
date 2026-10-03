@@ -40,6 +40,16 @@
 //! - `SEAQUEL_WORKSPACE_CAP`: lowers the workspace LRU's cap (1,024) for
 //!   tests and manual checks; clamped to 1..=1024. Evicting a workspace
 //!   closes that user's database connections.
+//! - `SEAQUEL_AI_EGRESS`: where the assistant's model calls may go
+//!   (phase 6): `public` (the default: public addresses over `https` only,
+//!   no redirects), `any` (private networks and `http:` too, for a model
+//!   server next to this one) or `off` (every model call is refused with
+//!   `AI_EGRESS_BLOCKED`). Anything else stops the server at startup.
+//!   Behind a proxy, `public` still refuses private IP literals and names
+//!   whose answers from this server's DNS are all private; a name this
+//!   server can't resolve goes to the proxy, which decides.
+//! - `NODE_EXTRA_CA_CERTS`: a PEM bundle the license and model clients
+//!   trust on top of the built-in roots (a TLS-inspecting proxy's CA).
 //! - `SEAQUEL_CONTROL_URL`, `SEAQUEL_LICENSE_SOFT_TTL`,
 //!   `SEAQUEL_LICENSE_GRACE_TTL`, `SEAQUEL_BUNDLE_TRUSTED_PUBKEY`: licensing,
 //!   read once at startup, as the Node server read them.
@@ -115,7 +125,17 @@ async fn main() {
         None => log::info!("open-files limit: not available on this platform"),
     }
 
-    let state = AppState::default().with_internal_secret(internal_secret);
+    // Where model calls may go (phase 6): a value it can't read stops the
+    // server rather than guessing.
+    let core = match seaquel_server::web_core_from_env() {
+        Ok(core) => core,
+        Err(message) => {
+            eprintln!("seaquel-server: {message}");
+            std::process::exit(1);
+        }
+    };
+    let state =
+        AppState::with_core(std::sync::Arc::new(core)).with_internal_secret(internal_secret);
     log::info!(
         "seaquel-server data dir: {}, workspace cap {}",
         state.workspaces.root().display(),

@@ -8,7 +8,7 @@ use seaquel_core::secrets::{KeychainStore, SecretStore};
 use seaquel_core::storage::{LEGACY_STORAGE, STORAGE_CORRUPT};
 use seaquel_core::{ConnectPolicy, Core, CoreError, Workspace, WorkspaceSpec};
 use seaquel_rpc::{
-    ConnectTargetParams, CoreEvent, DbRequest, Request, Response, RpcError, WriteOrigin,
+    ConnectTargetParams, CoreEvent, DbRequest, Request, Response, RpcError, StreamKind, WriteOrigin,
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -52,11 +52,23 @@ impl std::error::Error for CommandError {}
 /// (phase 5e, Decision 31): shared repos, and TablePlus's and DBeaver's
 /// files under `import_paths` (the user's home; `None` when there is none,
 /// and then the imports find nothing at the default locations).
+///
+/// The assistant (phase 6) calls models with the native client, anywhere
+/// the user's provider is (`AiEgress::Any`: a local Ollama included), with
+/// the OS proxy settings (`ai-system-proxy`).
 fn desktop_core(import_paths: Option<seaquel_core::ImportPaths>) -> Core {
+    use seaquel_core::ai::native::{NativeHttp, NativeHttpOptions};
+    use seaquel_core::ai::AiEgress;
+
+    let egress = AiEgress::Any;
     let builder = seaquel_core::with_default_plugins()
         .connect_policy(ConnectPolicy::Unrestricted)
         .executor(std::sync::Arc::new(seaquel_runtime::TokioExecutor))
-        .local_files(seaquel_core::LocalFiles::Allowed);
+        .local_files(seaquel_core::LocalFiles::Allowed)
+        .ai_http(Arc::new(NativeHttp::new(NativeHttpOptions::new(
+            egress.into(),
+        ))))
+        .ai_egress(egress);
     match import_paths {
         Some(paths) => builder.import_paths(paths),
         None => builder,
@@ -455,10 +467,10 @@ async fn handle_core_call(
         .await
 }
 
-/// A `db.queryStream`, `db.run`, `db.page` or `db.tablePage` request, its
-/// events pushed to `channel` as [`CoreEvent::Stream`]s (a query stream's
-/// batches) or [`CoreEvent::Run`]s (a run's, page's or table page's
-/// statements and batches), then one
+/// A `db.queryStream`, `db.run`, `db.page`, `db.tablePage` or `ai.chat`
+/// request, its events pushed to `channel` as [`CoreEvent::Stream`]s (a
+/// query stream's batches), [`CoreEvent::Run`]s (a run's, page's or table
+/// page's statements and batches) or [`CoreEvent::Ai`]s (a turn's), then one
 /// `done` or `error`, or nothing more after a `db.cancel` with its
 /// `streamId` (which may arrive before it starts).
 /// `request` is the request's JSON as a string: the invoke carries the
@@ -470,7 +482,9 @@ async fn handle_core_call(
 /// `db` workspace can't be had.
 ///
 /// The stream belongs to the calling webview: reloading it (a new
-/// `core_events` from the same label) or closing it cancels the stream.
+/// `core_events` from the same label) or closing it cancels the stream. A
+/// turn is cancelled through Core and polled to its end, so it stores its
+/// reply (phase 6); so is one whose channel is gone.
 #[tauri::command]
 async fn core_stream(
     request: String,
@@ -501,18 +515,16 @@ async fn run_core_stream(
     mut send: impl FnMut(CoreEvent) -> bool,
 ) -> Result<u64, RpcError> {
     let req = seaquel_rpc::parse_request(body)?;
-    // A query stream's, a run's, a page's or a table page's id.
-    let stream_id = match &req {
-        Request::Db(db) => db.stream_id().map(str::to_string),
-        _ => None,
-    };
+    // A query stream's, a run's, a page's, a table page's or a turn's id.
+    let stream_id = req.stream_id().map(str::to_string);
+    let turn = req.stream_kind() == Some(StreamKind::Ai);
     let db = workspace.db(core).await?;
     // The run's history event carries the webview's label, as `core_call`'s
     // writes do.
     let origin = WriteOrigin::new(Some(label));
     let mut events = seaquel_rpc::dispatch_stream(core, &db.ws, req, origin)?;
     // Tracked once registered, so a reload's cancel always finds it.
-    let _tracking = stream_id.map(|stream_id| {
+    let _tracking = stream_id.clone().map(|stream_id| {
         Webviews::lock(&workspace.webviews)
             .streams
             .entry(label.to_string())
@@ -527,11 +539,38 @@ async fn run_core_stream(
     let mut sent = 0;
     while let Some(event) = events.next().await {
         if !send(event) {
+            if turn {
+                // The webview went away under a turn: stop it through Core and
+                // let it store its reply (phase 6, Task 4's contract).
+                if let Some(id) = &stream_id {
+                    stop_turn(core, &db.ws, id, events).await;
+                }
+            }
             break;
         }
         sent += 1;
     }
     Ok(sent)
+}
+
+/// Stops a turn whose receiver is gone: `cancel` through Core, then polls
+/// the turn to its end so the reply is stored with what streamed (dropping
+/// it would drop the reply's write). The events are dropped. Bounded by
+/// [`seaquel_rpc::TURN_STOP_WAIT`]: a turn still running then is dropped.
+async fn stop_turn(
+    core: &Core,
+    ws: &Workspace,
+    stream_id: &str,
+    mut events: BoxStream<'_, CoreEvent>,
+) {
+    ws.cancel(core, stream_id);
+    let drained = tokio::time::timeout(seaquel_rpc::TURN_STOP_WAIT, async {
+        while events.next().await.is_some() {}
+    })
+    .await;
+    if drained.is_err() {
+        log::warn!(activity = "ai.stop"; "A stopped turn didn't end in time; dropping it");
+    }
 }
 
 /// Push the workspace's [`CoreEvent::ConnectionClosed`] and
@@ -1840,11 +1879,13 @@ mod workspace_tests {
         )
         .unwrap();
         let id = provider["value"]["id"].as_str().unwrap();
-        let secret = json!({"method": "secret", "params": {"method": "get",
-            "params": {"key": format!("ai-api-key:{id}")}}});
+        // Read from the keychain itself: the `secret` group refuses AI keys
+        // (phase 6, Decision 7).
         assert_eq!(
-            call(&core, &ws, &secret.to_string()).unwrap()["result"]["result"],
-            "k-1"
+            tauri::async_runtime::block_on(ws.secrets.get(&format!("ai-api-key:{id}")))
+                .unwrap()
+                .as_deref(),
+            Some("k-1")
         );
         assert_eq!(main_rx.recv_timeout(WAIT).unwrap()["kind"], "aiSettings");
         assert_eq!(editor_rx.recv_timeout(WAIT).unwrap()["kind"], "aiSettings");
@@ -2346,5 +2387,343 @@ mod workspace_tests {
             assert!(answer.is_err(), "not a repo: {answer:?}");
             task.join().unwrap();
         }
+    }
+}
+
+/// The assistant over the desktop's transports (phase 6 Task 5): `ai.chat`
+/// through `core_stream`, a turn stopped by a reload or a gone channel
+/// still storing its reply, and the `secret` group refusing AI keys. Model
+/// calls go to a local mock through a loopback-only client.
+#[cfg(test)]
+mod ai_tests {
+    use super::*;
+    use seaquel_ai::testing::scripts::{openai_chunk, openai_text};
+    use seaquel_ai::testing::{LoopbackOnly, MockProvider, Reply, SseEnd};
+    use seaquel_core::ai::native::{Egress, NativeHttp, NativeHttpOptions};
+    use seaquel_core::secrets::MemoryStore;
+    use serde_json::{json, Value as Json};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    const WAIT: Duration = Duration::from_secs(30);
+
+    /// The desktop's Core with SQLite only, calling models through a
+    /// client that refuses any host but loopback.
+    fn ai_core() -> Core {
+        seaquel_core::with_plugins(|id| id == "sqlite")
+            .connect_policy(ConnectPolicy::Unrestricted)
+            .executor(Arc::new(seaquel_runtime::TokioExecutor))
+            .ai_http(Arc::new(LoopbackOnly(NativeHttp::new(
+                NativeHttpOptions::new(Egress::Any),
+            ))))
+            .ai_egress(seaquel_core::ai::AiEgress::Any)
+            .build()
+    }
+
+    fn group(
+        core: &Core,
+        ws: &DesktopWorkspace,
+        group: &str,
+        method: &str,
+        params: Json,
+    ) -> Result<Json, RpcError> {
+        let inner = if params.is_null() {
+            json!({"method": method})
+        } else {
+            json!({"method": method, "params": params})
+        };
+        let body = json!({"method": group, "params": inner});
+        let res = tauri::async_runtime::block_on(handle_core_call(
+            core,
+            ws,
+            "main",
+            &InvokeBody::Raw(body.to_string().into_bytes()),
+        ))?;
+        let res = serde_json::to_value(res).unwrap();
+        assert_eq!(res["result"]["method"], method, "{res}");
+        Ok(res["result"]["result"].clone())
+    }
+
+    struct World {
+        core: Arc<Core>,
+        ws: Arc<DesktopWorkspace>,
+        mock: MockProvider,
+        chat: String,
+        connection: String,
+        _tmp: tempfile::TempDir,
+    }
+
+    /// A provider at the mock (OpenAI-compatible, keyless), a saved SQLite
+    /// connection on it, a chat, and the connection open.
+    fn world() -> World {
+        let mock = tauri::async_runtime::block_on(MockProvider::start());
+        let core = Arc::new(ai_core());
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = Arc::new(DesktopWorkspace::new(
+            Ok(tmp.path().join("data")),
+            Arc::new(MemoryStore::new()),
+        ));
+        group(&core, &ws, "library", "projectEnsureDefault", Json::Null).unwrap();
+        let provider = group(
+            &core,
+            &ws,
+            "settings",
+            "aiProviderCreate",
+            json!({"provider": {"name": "Mock", "type": "openai-compatible",
+                "baseUrl": format!("{}/v1", mock.url())}}),
+        )
+        .unwrap()["value"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let file = tmp.path().join("app.db");
+        let saved = group(
+            &core,
+            &ws,
+            "library",
+            "connectionCreate",
+            json!({"connection": {"projectId": "default-seaquel", "name": "Lite",
+                "type": "sqlite", "host": "", "port": 0, "username": "",
+                "databaseName": file.display().to_string(),
+                "activeAIProviderId": provider, "activeAIModel": "model-1"}}),
+        )
+        .unwrap()["value"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let chat = group(
+            &core,
+            &ws,
+            "library",
+            "chatCreate",
+            json!({"chat": {"connectionId": saved, "title": "T"}}),
+        )
+        .unwrap()["value"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let connection = group(
+            &core,
+            &ws,
+            "db",
+            "connect",
+            json!({"target": {"type": "saved", "id": saved}, "createIfMissing": true}),
+        )
+        .unwrap()["connectionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        World {
+            core,
+            ws,
+            mock,
+            chat,
+            connection,
+            _tmp: tmp,
+        }
+    }
+
+    impl World {
+        fn chat_body(&self, stream: &str) -> String {
+            json!({"method": "ai", "params": {"method": "chat", "params": {
+                "streamId": stream, "chatId": self.chat, "connectionId": self.connection,
+                "userMessage": {"id": format!("{stream}-u"), "content": "Count the rows."},
+                "assistantMessageId": format!("{stream}-a")}}})
+            .to_string()
+        }
+
+        fn stored(&self) -> Vec<Json> {
+            group(
+                &self.core,
+                &self.ws,
+                "library",
+                "chatMessagesList",
+                json!({"chatId": self.chat}),
+            )
+            .unwrap()["value"]["messages"]
+                .as_array()
+                .unwrap()
+                .clone()
+        }
+
+        /// Some text, then the provider holds the stream open.
+        fn stall_after_text(&self) {
+            self.mock.reply(Reply::Sse {
+                events: vec![openai_chunk(
+                    json!({"choices":[{"index":0,"delta":{"content":"Partial answer"}}]}),
+                )],
+                piece: 64,
+                gap: Duration::ZERO,
+                end: SseEnd::Stall,
+            });
+        }
+
+        /// The turn runs in the background, as `core_stream` runs it.
+        fn background(
+            &self,
+            label: &'static str,
+            body: String,
+        ) -> (
+            mpsc::Receiver<Json>,
+            tauri::async_runtime::JoinHandle<Result<u64, RpcError>>,
+        ) {
+            let (tx, rx) = mpsc::channel();
+            let (core, ws) = (self.core.clone(), self.ws.clone());
+            let task = tauri::async_runtime::spawn(async move {
+                run_core_stream(&core, &ws, label, body.as_bytes(), |event| {
+                    tx.send(serde_json::to_value(event).unwrap()).is_ok()
+                })
+                .await
+            });
+            (rx, task)
+        }
+    }
+
+    #[test]
+    fn core_stream_serves_a_turn_and_counts_its_events() {
+        let w = world();
+        w.mock.reply(Reply::sse(openai_text("Seven rows.")));
+        let mut events = Vec::new();
+        let sent = tauri::async_runtime::block_on(run_core_stream(
+            &w.core,
+            &w.ws,
+            "main",
+            w.chat_body("t1").as_bytes(),
+            |event| {
+                events.push(serde_json::to_value(event).unwrap());
+                true
+            },
+        ))
+        .unwrap();
+        assert_eq!(sent, events.len() as u64);
+        assert!(events
+            .iter()
+            .all(|e| e["type"] == "ai" && e["streamId"] == "t1"));
+        assert_eq!(events[0]["event"]["type"], "started");
+        let done = &events.last().unwrap()["event"];
+        assert_eq!(done["type"], "done", "{done}");
+        assert_eq!(done["messages"][1]["content"], "Seven rows.");
+        assert!(Webviews::lock(&w.ws.webviews).streams.is_empty());
+        assert_eq!(w.stored().len(), 2);
+    }
+
+    /// Task 4's contract: a reload cancels the webview's turn through Core
+    /// and the stream is polled to its end, so the reply keeps what
+    /// streamed. Nothing follows the cancel.
+    #[test]
+    fn a_reload_cancels_a_turn_and_its_reply_is_stored() {
+        let w = world();
+        w.ws.set_event_sink(&w.core, "main", Box::new(|_| true));
+        w.stall_after_text();
+        let (rx, task) = w.background("main", w.chat_body("t2"));
+        loop {
+            let event = rx.recv_timeout(WAIT).unwrap();
+            if event["event"]["type"] == "text" {
+                break;
+            }
+        }
+        assert!(Webviews::lock(&w.ws.webviews).streams["main"].contains("t2"));
+        w.ws.set_event_sink(&w.core, "main", Box::new(|_| true));
+        let sent = tauri::async_runtime::block_on(task).unwrap().unwrap();
+        while let Ok(event) = rx.try_recv() {
+            assert!(!event["event"]["type"].as_str().unwrap().ends_with("done"));
+            assert_ne!(event["event"]["type"], "error", "{event}");
+        }
+        assert!(sent >= 2);
+        let stored = w.stored();
+        assert_eq!(stored.len(), 2, "{stored:?}");
+        assert_eq!(stored[1]["content"], "Partial answer");
+        assert!(Webviews::lock(&w.ws.webviews).streams.is_empty());
+        // The turn is gone: answering it is NOT_FOUND, at once.
+        let err = group(
+            &w.core,
+            &w.ws,
+            "ai",
+            "respond",
+            json!({"streamId": "t2", "callId": "c", "decision": "allow"}),
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "NOT_FOUND");
+    }
+
+    /// A channel the webview dropped (its window closed under the turn)
+    /// cancels the turn rather than dropping it: the reply is stored.
+    #[test]
+    fn a_gone_channel_cancels_a_turn_and_its_reply_is_stored() {
+        let w = world();
+        w.stall_after_text();
+        let mut seen = Vec::new();
+        let sent = tauri::async_runtime::block_on(tokio_timeout(run_core_stream(
+            &w.core,
+            &w.ws,
+            "main",
+            w.chat_body("t3").as_bytes(),
+            |event| {
+                let event = serde_json::to_value(event).unwrap();
+                let text = event["event"]["type"] == "text";
+                seen.push(event);
+                // Gone once the first text arrived.
+                !text
+            },
+        )))
+        .unwrap();
+        assert_eq!(sent, 1, "only `started` was taken: {seen:?}");
+        let stored = w.stored();
+        assert_eq!(stored.len(), 2, "{stored:?}");
+        assert_eq!(stored[1]["content"], "Partial answer");
+        assert_eq!(
+            tauri::async_runtime::block_on(w.ws.db(&w.core))
+                .unwrap()
+                .ws
+                .ai_turn_count(),
+            0
+        );
+    }
+
+    /// The test's own bound on a future, so a turn that never ends fails
+    /// the test instead of hanging it.
+    async fn tokio_timeout<T>(fut: impl std::future::Future<Output = T>) -> T {
+        tokio::time::timeout(WAIT, fut)
+            .await
+            .expect("the stream didn't end")
+    }
+
+    /// Decision 7: Core reads AI keys itself, so the webview can't read,
+    /// set or delete one through the `secret` group; other keys work.
+    #[test]
+    fn the_secret_group_refuses_ai_keys() {
+        let core = ai_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Arc::new(MemoryStore::new());
+        tauri::async_runtime::block_on(store.set("ai-api-key:p1", "test-key-not-real")).unwrap();
+        let ws = DesktopWorkspace::new(Ok(tmp.path().join("data")), store.clone());
+        for (method, params) in [
+            ("get", json!({"key": "ai-api-key:p1"})),
+            ("set", json!({"key": "ai-api-key:p1", "value": "other"})),
+            ("delete", json!({"key": "ai-api-key:p1"})),
+        ] {
+            let err = group(&core, &ws, "secret", method, params).unwrap_err();
+            assert_eq!(err.code, "INVALID_ARGUMENT", "{method}");
+            assert!(!err.message.contains("test-key-not-real"));
+        }
+        assert_eq!(
+            tauri::async_runtime::block_on(store.get("ai-api-key:p1"))
+                .unwrap()
+                .as_deref(),
+            Some("test-key-not-real")
+        );
+        group(
+            &core,
+            &ws,
+            "secret",
+            "set",
+            json!({"key": "db:c1", "value": "pw"}),
+        )
+        .unwrap();
+        assert_eq!(
+            group(&core, &ws, "secret", "get", json!({"key": "db:c1"})).unwrap(),
+            "pw"
+        );
+        group(&core, &ws, "secret", "delete", json!({"key": "db:c1"})).unwrap();
     }
 }

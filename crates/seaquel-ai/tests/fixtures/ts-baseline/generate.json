@@ -1,0 +1,1038 @@
+[
+  {
+    "name": "anthropic/no-existing-query",
+    "note": "A request with an empty editor; the reply's ```sql block is inserted, then the tab runs (bug 9).",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"msg_02\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"model-1\",\"content\":[{\"type\":\"text\",\"text\":\"Here you go:\\n```sql\\nSELECT * FROM users WHERE created_at >= date_trunc('month', now());\\n```\\nThat's it.\"}],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":25,\"output_tokens\":12}}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "<key>"
+        },
+        "body": {
+          "model": "model-1",
+          "max_tokens": 2048,
+          "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": ["SELECT * FROM users WHERE created_at >= date_trunc('month', now());"],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via anthropic model-1"]
+  },
+  {
+    "name": "openai/no-existing-query",
+    "note": "A request with an empty editor; the reply's ```sql block is inserted, then the tab runs (bug 9).",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"chatcmpl-2\",\"object\":\"chat.completion\",\"created\":1700000000,\"model\":\"model-1\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Here you go:\\n```sql\\nSELECT * FROM users WHERE created_at >= date_trunc('month', now());\\n```\\nThat's it.\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":25,\"completion_tokens\":12,\"total_tokens\":37}}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "authorization": "Bearer <key>",
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "model-1",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
+            },
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": ["SELECT * FROM users WHERE created_at >= date_trunc('month', now());"],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via openai-compatible model-1"]
+  },
+  {
+    "name": "anthropic/existing-query",
+    "note": "The editor's text goes with the request.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "only the last 10",
+      "existingQuery": "SELECT * FROM users",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"msg_02\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"model-1\",\"content\":[{\"type\":\"text\",\"text\":\"```\\nSELECT * FROM users ORDER BY id DESC LIMIT 10\\n```\"}],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":25,\"output_tokens\":12}}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "<key>"
+        },
+        "body": {
+          "model": "model-1",
+          "max_tokens": 2048,
+          "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "only the last 10\n\nExisting query for context:\n```sql\nSELECT * FROM users\n```"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": ["SELECT * FROM users ORDER BY id DESC LIMIT 10"],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via anthropic model-1"]
+  },
+  {
+    "name": "openai/existing-query",
+    "note": "The editor's text goes with the request.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "only the last 10",
+      "existingQuery": "SELECT * FROM users",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"chatcmpl-2\",\"object\":\"chat.completion\",\"created\":1700000000,\"model\":\"model-1\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"```\\nSELECT * FROM users ORDER BY id DESC LIMIT 10\\n```\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":25,\"completion_tokens\":12,\"total_tokens\":37}}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "authorization": "Bearer <key>",
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "model-1",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
+            },
+            {
+              "role": "user",
+              "content": "only the last 10\n\nExisting query for context:\n```sql\nSELECT * FROM users\n```"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": ["SELECT * FROM users ORDER BY id DESC LIMIT 10"],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via openai-compatible model-1"]
+  },
+  {
+    "name": "anthropic/no-code-block",
+    "note": "A reply without a fence is inserted whole, trimmed.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"msg_02\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"model-1\",\"content\":[{\"type\":\"text\",\"text\":\"  SELECT 1  \\n\"}],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":25,\"output_tokens\":12}}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "<key>"
+        },
+        "body": {
+          "model": "model-1",
+          "max_tokens": 2048,
+          "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": ["SELECT 1"],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via anthropic model-1"]
+  },
+  {
+    "name": "openai/no-code-block",
+    "note": "A reply without a fence is inserted whole, trimmed.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"chatcmpl-2\",\"object\":\"chat.completion\",\"created\":1700000000,\"model\":\"model-1\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"  SELECT 1  \\n\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":25,\"completion_tokens\":12,\"total_tokens\":37}}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "authorization": "Bearer <key>",
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "model-1",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
+            },
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": ["SELECT 1"],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via openai-compatible model-1"]
+  },
+  {
+    "name": "anthropic/two-blocks",
+    "note": "Two fenced blocks: the first.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"msg_02\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"model-1\",\"content\":[{\"type\":\"text\",\"text\":\"```sql\\nSELECT 1\\n```\\nor\\n```sql\\nSELECT 2\\n```\"}],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":25,\"output_tokens\":12}}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "<key>"
+        },
+        "body": {
+          "model": "model-1",
+          "max_tokens": 2048,
+          "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": ["SELECT 1"],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via anthropic model-1"]
+  },
+  {
+    "name": "openai/two-blocks",
+    "note": "Two fenced blocks: the first.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"chatcmpl-2\",\"object\":\"chat.completion\",\"created\":1700000000,\"model\":\"model-1\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"```sql\\nSELECT 1\\n```\\nor\\n```sql\\nSELECT 2\\n```\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":25,\"completion_tokens\":12,\"total_tokens\":37}}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "authorization": "Bearer <key>",
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "model-1",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
+            },
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": ["SELECT 1"],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via openai-compatible model-1"]
+  },
+  {
+    "name": "anthropic/schema-off",
+    "note": "The active connection doesn't share its schema.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": false,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"msg_02\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"model-1\",\"content\":[{\"type\":\"text\",\"text\":\"```sql\\nSELECT 1\\n```\"}],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":25,\"output_tokens\":12}}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "<key>"
+        },
+        "body": {
+          "model": "model-1",
+          "max_tokens": 2048,
+          "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": ["SELECT 1"],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via anthropic model-1"]
+  },
+  {
+    "name": "openai/schema-off",
+    "note": "The active connection doesn't share its schema.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": false,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"chatcmpl-2\",\"object\":\"chat.completion\",\"created\":1700000000,\"model\":\"model-1\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"```sql\\nSELECT 1\\n```\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":25,\"completion_tokens\":12,\"total_tokens\":37}}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "authorization": "Bearer <key>",
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "model-1",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
+            },
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": ["SELECT 1"],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via openai-compatible model-1"]
+  },
+  {
+    "name": "anthropic/http-429",
+    "note": "A 429.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Rate limited\"}}",
+        "status": 429,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "<key>"
+        },
+        "body": {
+          "model": "model-1",
+          "max_tokens": 2048,
+          "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": [],
+    "executed": 0,
+    "error": "Rate limit reached. Please wait and try again.",
+    "toasts": [],
+    "logs": [
+      "debug: [AI] generateSQL: generating via anthropic model-1",
+      "error: [AI] Anthropic fetch error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Rate limited\"}}"
+    ]
+  },
+  {
+    "name": "openai/http-429",
+    "note": "A 429.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"error\":{\"message\":\"Rate limit reached\",\"type\":\"requests\",\"code\":\"rate_limit_exceeded\"}}",
+        "status": 429,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "authorization": "Bearer <key>",
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "model-1",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
+            },
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": [],
+    "executed": 0,
+    "error": "Rate limit reached. Please wait and try again.",
+    "toasts": [],
+    "logs": [
+      "debug: [AI] generateSQL: generating via openai-compatible model-1",
+      "error: [AI] OpenAI-compat fetch error: 429 {\"error\":{\"message\":\"Rate limit reached\",\"type\":\"requests\",\"code\":\"rate_limit_exceeded\"}}"
+    ]
+  },
+  {
+    "name": "anthropic/http-500",
+    "note": "A 500: a toast with the body, and the body logged (bug 12).",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}",
+        "status": 500,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "<key>"
+        },
+        "body": {
+          "model": "model-1",
+          "max_tokens": 2048,
+          "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": [],
+    "executed": 0,
+    "error": "Something went wrong. Please try again.",
+    "toasts": [
+      "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}"
+    ],
+    "logs": [
+      "debug: [AI] generateSQL: generating via anthropic model-1",
+      "error: [AI] Anthropic fetch error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}"
+    ]
+  },
+  {
+    "name": "openai/http-500",
+    "note": "A 500: a toast with the body, and the body logged (bug 12).",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"error\":{\"message\":\"The server had an error\",\"type\":\"server_error\"}}",
+        "status": 500,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "authorization": "Bearer <key>",
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "model-1",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
+            },
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": [],
+    "executed": 0,
+    "error": "Something went wrong. Please try again.",
+    "toasts": ["{\"error\":{\"message\":\"The server had an error\",\"type\":\"server_error\"}}"],
+    "logs": [
+      "debug: [AI] generateSQL: generating via openai-compatible model-1",
+      "error: [AI] OpenAI-compat fetch error: 500 {\"error\":{\"message\":\"The server had an error\",\"type\":\"server_error\"}}"
+    ]
+  },
+  {
+    "name": "anthropic/network-error",
+    "note": "`fetch` throws.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "networkError": true,
+        "body": ""
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "<key>"
+        },
+        "body": {
+          "model": "model-1",
+          "max_tokens": 2048,
+          "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": [],
+    "executed": 0,
+    "error": "Something went wrong. Please try again.",
+    "toasts": ["Could not connect to api.anthropic.com. Check your network connection."],
+    "logs": [
+      "debug: [AI] generateSQL: generating via anthropic model-1",
+      "error: [AI] Anthropic network error: TypeError: fetch failed"
+    ]
+  },
+  {
+    "name": "openai/network-error",
+    "note": "`fetch` throws.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "OpenAI",
+        "type": "openai-compatible"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "users who signed up this month",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "networkError": true,
+        "body": ""
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "authorization": "Bearer <key>",
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "model-1",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
+            },
+            {
+              "role": "user",
+              "content": "users who signed up this month"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": [],
+    "executed": 0,
+    "error": "Something went wrong. Please try again.",
+    "toasts": [
+      "Could not connect to https://api.openai.com/v1. Check that the server is running and that it allows requests from this app (CORS)."
+    ],
+    "logs": [
+      "debug: [AI] generateSQL: generating via openai-compatible model-1",
+      "error: [AI] OpenAI-compat network error: TypeError: fetch failed"
+    ]
+  },
+  {
+    "name": "anthropic/empty-content",
+    "note": "A reply with no content blocks: an empty string is inserted.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "list every table please",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"m\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"stop_reason\":\"end_turn\"}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": "<key>"
+        },
+        "body": {
+          "model": "model-1",
+          "max_tokens": 2048,
+          "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
+          "messages": [
+            {
+              "role": "user",
+              "content": "list every table please"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": [""],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via anthropic model-1"]
+  },
+  {
+    "name": "anthropic/no-key",
+    "note": "No key: the error, no request.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": false,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "list every table please",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [],
+    "requests": [],
+    "inserted": [],
+    "executed": 0,
+    "error": "No API key configured.",
+    "toasts": [],
+    "logs": []
+  },
+  {
+    "name": "openai/keyless",
+    "note": "An OpenAI-compatible server without a key.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Local",
+        "type": "openai-compatible",
+        "baseUrl": "http://localhost:11434/v1/"
+      },
+      "key": false,
+      "model": "model-1",
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "list every table please",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":\"chatcmpl-2\",\"object\":\"chat.completion\",\"created\":1700000000,\"model\":\"model-1\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"SELECT 1\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":25,\"completion_tokens\":12,\"total_tokens\":37}}",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "url": "http://localhost:11434/v1/chat/completions",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "model": "model-1",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
+            },
+            {
+              "role": "user",
+              "content": "list every table please"
+            }
+          ]
+        }
+      }
+    ],
+    "inserted": ["SELECT 1"],
+    "executed": 1,
+    "error": null,
+    "toasts": [],
+    "logs": ["debug: [AI] generateSQL: generating via openai-compatible model-1"]
+  },
+  {
+    "name": "none/no-model",
+    "note": "No model chosen, providers configured: the message, no request.",
+    "input": {
+      "provider": {
+        "id": "prov-1",
+        "name": "Anthropic",
+        "type": "anthropic"
+      },
+      "key": true,
+      "model": null,
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "list every table please",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [],
+    "requests": [],
+    "inserted": [],
+    "executed": 0,
+    "error": "No model selected. Pick one from the model switcher to the right.",
+    "toasts": [],
+    "logs": []
+  },
+  {
+    "name": "none/no-providers",
+    "note": "No model and no providers.",
+    "input": {
+      "provider": null,
+      "key": true,
+      "model": null,
+      "engine": "postgres",
+      "shareSchema": null,
+      "request": "list every table please",
+      "existingQuery": "",
+      "schema": "SCHEMA"
+    },
+    "responses": [],
+    "requests": [],
+    "inserted": [],
+    "executed": 0,
+    "error": "No AI provider configured.",
+    "toasts": [],
+    "logs": []
+  }
+]

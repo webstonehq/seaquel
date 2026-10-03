@@ -1,0 +1,192 @@
+{
+  "SCHEMA": [
+    {
+      "name": "users",
+      "schema": "public",
+      "type": "table",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "users_pkey",
+          "columns": ["id"],
+          "unique": true,
+          "type": "btree"
+        },
+        {
+          "name": "users_email_idx",
+          "columns": ["email"],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "schema": "public",
+      "type": "table",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "user_id",
+          "type": "integer",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "public",
+            "referencedTable": "users",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "total",
+          "type": "numeric(10,2)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "orders_user_created_idx",
+          "columns": ["user_id", "created_at"],
+          "unique": false,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "users",
+      "schema": "archive",
+      "type": "table",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "active_users",
+      "schema": "public",
+      "type": "view",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "empty",
+      "schema": "public",
+      "type": "table",
+      "columns": [],
+      "indexes": []
+    }
+  ],
+  "SAVED": [
+    {
+      "id": "sq-1",
+      "name": "Monthly revenue",
+      "query": "SELECT date_trunc('month', created_at) AS m, sum(total) FROM orders GROUP BY 1"
+    },
+    {
+      "id": "sq-2",
+      "name": "users",
+      "query": "SELECT * FROM users"
+    },
+    {
+      "id": "sq-3",
+      "name": "Top customers",
+      "query": "SELECT user_id, count(*) FROM orders GROUP BY 1 ORDER BY 2 DESC LIMIT 10"
+    }
+  ],
+  "DASHBOARDS": [
+    {
+      "id": "dash-1",
+      "name": "Sales",
+      "widgets": [
+        {
+          "id": "w-1",
+          "title": "Revenue",
+          "widgetType": "kpi",
+          "query": "SELECT sum(total) FROM orders"
+        },
+        {
+          "id": "w-2",
+          "title": "Notes",
+          "widgetType": "text",
+          "query": ""
+        }
+      ]
+    },
+    {
+      "id": "dash-2",
+      "name": "Empty board",
+      "widgets": []
+    }
+  ],
+  "LARGE": {
+    "tables": 3000,
+    "schema": "big",
+    "columns": 6
+  }
+}

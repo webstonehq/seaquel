@@ -62,6 +62,13 @@ export interface DatabaseProvider {
   disconnect(connectionId: string): Promise<void>;
 
   /**
+   * Record that a connection opened before its saved row existed (`add`)
+   * is that row's (phase 6 Task 7, `db.bindSaved`), so the assistant runs
+   * on it. Core only; others have no assistant.
+   */
+  bindSaved?(connectionId: string, savedConnectionId: string): Promise<void>;
+
+  /**
    * Execute a SELECT query and return rows.
    * @param connectionId Connection ID from connect()
    * @param sql SQL query to execute

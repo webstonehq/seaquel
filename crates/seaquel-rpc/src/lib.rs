@@ -32,6 +32,7 @@
 //!
 //! Values use the tagged `Value` wire format from `seaquel-types`.
 
+mod ai;
 mod db;
 mod git;
 mod imports;
@@ -42,9 +43,13 @@ mod shared;
 mod ssh;
 mod ui;
 mod workspace;
+#[cfg(feature = "ai")]
+pub use ai::TURN_STOP_WAIT;
+pub use ai::{AiRequest, AiResponse, Generated, ProviderParams};
 pub use db::{
     dispatch_stream, workspace_events, ConnectParams, ConnectTargetParams, Connected, CoreEvent,
-    DbRequest, DbResponse, QueryStreamParams, CONNECTION_CLOSED, TUNNEL_CLOSED, WORKSPACE_EVICTED,
+    DbRequest, DbResponse, QueryStreamParams, StreamKind, CONNECTION_CLOSED, CONNECTION_REPLACED,
+    MAX_ALIVE_IDS, TUNNEL_CLOSED, WINDOW_CLOSED, WORKSPACE_EVICTED,
 };
 #[cfg(feature = "git")]
 pub use git::dispatch_git;

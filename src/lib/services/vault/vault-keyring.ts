@@ -20,11 +20,23 @@
 import type { KeyringService } from "$lib/services/keyring";
 import { getStorage } from "$lib/storage";
 import { decryptToString, encrypt, fromBase64, toBase64 } from "./crypto";
-import { getVault, type Vault } from "./vault-state.svelte";
+import { getVault, type UnlockOptions, type Vault } from "./vault-state.svelte";
 
 type Scope = "db" | "ssh" | "ssh-key" | "license" | "ai-api-key-provider";
 
 const LICENSE_KEY_ID = "";
+
+/**
+ * A stored secret the vault's key can't decrypt (a reset vault, a corrupt
+ * row): thrown only by the strict getters, which tell it apart from "no
+ * secret stored" (F4 re-review M-a).
+ */
+export class VaultEntryUnreadableError extends Error {
+  constructor() {
+    super("The saved secret can't be decrypted with this vault");
+    this.name = "VaultEntryUnreadableError";
+  }
+}
 
 export class VaultKeyringService implements KeyringService {
   constructor(private readonly vault: Vault = getVault()) {}
@@ -46,10 +58,15 @@ export class VaultKeyringService implements KeyringService {
     });
   }
 
-  private async getSecret(scope: Scope, id: string): Promise<string | null> {
+  private async getSecret(
+    scope: Scope,
+    id: string,
+    options?: UnlockOptions,
+    strict = false,
+  ): Promise<string | null> {
     const row = await getStorage().userCredentials.load(scope, id);
     if (!row) return null;
-    const key = await this.vault.ensureUnlocked();
+    const key = await this.vault.ensureUnlocked(options);
     try {
       return await decryptToString(key, {
         nonce: fromBase64(row.nonce),
@@ -58,7 +75,9 @@ export class VaultKeyringService implements KeyringService {
     } catch {
       // Stored ciphertext can't be decrypted with the current VK — usually
       // means the user reset their vault or the row is corrupt. Best we
-      // can do is surface "no credential" so the caller can re-prompt.
+      // can do is surface "no credential" so the caller can re-prompt;
+      // a strict read says so instead.
+      if (strict) throw new VaultEntryUnreadableError();
       return null;
     }
   }
@@ -73,6 +92,14 @@ export class VaultKeyringService implements KeyringService {
   }
   getDbPassword(connectionId: string): Promise<string | null> {
     return this.getSecret("db", connectionId);
+  }
+  /**
+   * `getDbPassword`, but a stored password that can't be decrypted throws
+   * `VaultEntryUnreadableError` instead of answering null: null means no
+   * password is stored.
+   */
+  getDbPasswordStrict(connectionId: string): Promise<string | null> {
+    return this.getSecret("db", connectionId, undefined, true);
   }
   deleteDbPassword(connectionId: string): Promise<void> {
     return this.deleteSecret("db", connectionId);
@@ -115,8 +142,13 @@ export class VaultKeyringService implements KeyringService {
   setAIApiKeyForProvider(id: string, key: string): Promise<void> {
     return this.setSecret("ai-api-key-provider", id, key);
   }
-  getAIApiKeyForProvider(id: string): Promise<string | null> {
-    return this.getSecret("ai-api-key-provider", id);
+  /** `quiet`: an unlock this starts isn't announced (an assistant send, probe F1). */
+  getAIApiKeyForProvider(id: string, options?: UnlockOptions): Promise<string | null> {
+    return this.getSecret("ai-api-key-provider", id, options);
+  }
+  /** Whether a key is stored for the provider: its row, without the VK (no unlock). */
+  async hasAIApiKeyForProvider(id: string): Promise<boolean> {
+    return (await getStorage().userCredentials.load("ai-api-key-provider", id)) !== null;
   }
   deleteAIApiKeyForProvider(id: string): Promise<void> {
     return this.deleteSecret("ai-api-key-provider", id);

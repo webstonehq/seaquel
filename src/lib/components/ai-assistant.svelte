@@ -22,8 +22,12 @@
 	import { m } from "$lib/paraglide/messages.js";
 	import AiModelSwitcher from "$lib/components/ai-model-switcher.svelte";
 	import AiMentionPopover from "$lib/components/ai-mention-popover.svelte";
-	import { buildMentionItems, type MentionItem } from "$lib/services/ai-mentions";
+	import { mentionItemsFor, type MentionItem } from "$lib/services/ai-mentions";
 	import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
+	import { toolLineText } from "$lib/hooks/database/ai/messages";
+	import { isPlainReply, replyHtml } from "$lib/hooks/database/ai/reply";
+	import type { AiSegment } from "$lib/types";
+	import WrenchIcon from "@lucide/svelte/icons/wrench";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
 
@@ -31,7 +35,6 @@
 
 	const db = useDatabase();
 	let messageInput = $state("");
-	let allowAllChecked = $state(false);
 	/** Keyed by approval id: one reply can ask for several approvals in turn. */
 	let approvalHandled = $state<Record<string, boolean>>({});
 	let scrollRef = $state<HTMLElement | null>(null);
@@ -50,13 +53,12 @@
 	});
 
 	const mentionItems = $derived(
-		schemaSharing
-			? buildMentionItems(
-					db.state.activeSchema,
-					db.state.projectQueries,
-					db.state.projectDashboards,
-				)
-			: [],
+		mentionItemsFor(
+			schemaSharing,
+			db.state.activeSchema,
+			db.state.projectQueries,
+			db.state.projectDashboards,
+		),
 	);
 
 	function handleScroll() {
@@ -78,6 +80,8 @@
 		const msgs = db.state.aiMessages;
 		const lastMsg = msgs.at(-1);
 		void lastMsg?.content;
+		void lastMsg?.segments;
+		void lastMsg?.error;
 		void db.state.isAIStreaming;
 
 		if (!scrollRef || userScrolledUp) return;
@@ -163,9 +167,14 @@
 		mentionActive = false;
 	}
 
-	function renderMarkdown(text: string): string {
+	/** The text as HTML, or `null` to show it as plain text (too long, or `marked` threw). */
+	function renderMarkdown(text: string): string | null {
 		// Model output can echo database content, so it must be sanitized before {@html}.
-		return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+		return replyHtml(
+			text,
+			(t) => marked.parse(t, { async: false }) as string,
+			(html) => DOMPurify.sanitize(html),
+		);
 	}
 
 	type MessageSegment = { type: 'text'; text: string } | { type: 'sql'; code: string };
@@ -210,6 +219,55 @@
 		}
 	}
 </script>
+
+{#snippet textBlock(content: string, role: "user" | "assistant")}
+	{#if role === 'assistant' && isPlainReply(content)}
+		<!-- Past 64 KiB a reply is plain text: no Markdown, no SQL blocks (probe F2). -->
+		<p class="whitespace-pre-wrap break-words select-text text-sm text-foreground">{content}</p>
+	{:else}
+	{#each parseMessageContent(content) as segment, si (si)}
+		{#if segment.type === 'text'}
+			{#if segment.text.trim()}
+				{#if role === 'assistant'}
+					{@const html = renderMarkdown(segment.text)}
+					{#if html === null}
+						<p class="whitespace-pre-wrap break-words select-text text-sm text-foreground">{segment.text}</p>
+					{:else}
+						<div class="prose prose-sm dark:prose-invert max-w-none select-text prose-p:my-1 prose-headings:mt-2 prose-headings:mb-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-1 prose-code:before:content-none prose-code:after:content-none text-sm">
+							{@html html}
+						</div>
+					{/if}
+				{:else}
+					<p class="whitespace-pre-wrap select-text text-sm text-foreground">{segment.text}</p>
+				{/if}
+			{/if}
+		{:else}
+			<div class="mt-1 rounded border bg-background overflow-hidden">
+				<div class="flex items-center justify-between px-2 py-1 border-b">
+					<span class="text-xs text-muted-foreground font-mono">SQL</span>
+					<Button size="sm" variant="ghost" class="h-6 text-xs gap-1 px-2" onclick={() => { const tabId = db.queryTabs.add(m.ai_sql_tab_title(), segment.code.trim()); if (tabId) db.ui.setActiveView("query"); }}>
+						<ExternalLinkIcon class="size-3" aria-hidden="true" />
+						{m.ai_open_in_editor()}
+					</Button>
+				</div>
+				<pre class="text-xs font-mono p-2 whitespace-pre-wrap select-text overflow-x-auto">{segment.code}</pre>
+			</div>
+		{/if}
+	{/each}
+	{/if}
+{/snippet}
+
+{#snippet toolLine(line: Extract<AiSegment, { type: "tool" }>)}
+	<!-- Q7: one line per tool call: the tool, its SQL, then its rows or its error. -->
+	<div class="my-1 flex items-center gap-1.5 rounded border bg-muted/40 px-2 py-1 text-xs" data-tool-call={line.callId}>
+		<WrenchIcon class="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+		<span class="font-mono shrink-0">{line.name}</span>
+		{#if line.sql}
+			<span class="font-mono truncate text-muted-foreground min-w-0" title={line.sql}>{line.sql}</span>
+		{/if}
+		<span class="ml-auto shrink-0 {line.state === 'error' ? 'text-destructive' : 'text-muted-foreground'}">{toolLineText(line)}</span>
+	</div>
+{/snippet}
 
 <Sidebar.Header class="border-b px-4 py-3">
 	<div class="flex items-start justify-between">
@@ -305,7 +363,7 @@
 				{#each db.state.aiMessages as message (message.id)}
 					<div id="ai-msg-{message.id}" class={message.role === "user" ? "border-l-2 border-primary/40 pl-3" : ""}>
 								{#if message.pendingModelSelection}
-									<p class="text-sm text-muted-foreground mb-3">Choose an AI model to send your message:</p>
+									<p class="text-sm text-muted-foreground mb-3">{m.ai_choose_model_to_send()}</p>
 									<AiModelSwitcher
 										providerId={db.state.activeConnection?.activeAIProviderId ?? null}
 										model={db.state.activeConnection?.activeAIModel ?? null}
@@ -322,38 +380,33 @@
 										}}
 									/>
 								{:else}
-								{#if message.content}
-									{#each parseMessageContent(message.content) as segment, si (si)}
-										{#if segment.type === 'text'}
-											{#if segment.text.trim()}
-												{#if message.role === 'assistant'}
-													<div class="prose prose-sm dark:prose-invert max-w-none select-text prose-p:my-1 prose-headings:mt-2 prose-headings:mb-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-1 prose-code:before:content-none prose-code:after:content-none text-sm">
-														{@html renderMarkdown(segment.text)}
-													</div>
-												{:else}
-													<p class="whitespace-pre-wrap select-text text-sm text-foreground">{segment.text}</p>
-												{/if}
-											{/if}
+								{#if message.segments?.some((s) => s.type === "tool")}
+									{#each message.segments as part, pi (pi)}
+										{#if part.type === "text"}
+											{@render textBlock(part.text, message.role)}
 										{:else}
-											<div class="mt-1 rounded border bg-background overflow-hidden">
-												<div class="flex items-center justify-between px-2 py-1 border-b">
-													<span class="text-xs text-muted-foreground font-mono">SQL</span>
-													<Button size="sm" variant="ghost" class="h-6 text-xs gap-1 px-2" onclick={() => { const tabId = db.queryTabs.add("SQL from AI", segment.code.trim()); if (tabId) db.ui.setActiveView("query"); }}>
-														<ExternalLinkIcon class="size-3" aria-hidden="true" />
-														Open in editor
-													</Button>
-												</div>
-												<pre class="text-xs font-mono p-2 whitespace-pre-wrap select-text overflow-x-auto">{segment.code}</pre>
-											</div>
+											{@render toolLine(part)}
 										{/if}
 									{/each}
+								{:else if message.content}
+									{@render textBlock(message.content, message.role)}
+								{/if}
+								{#if message.truncated}
+									<p class="mt-1 text-xs text-muted-foreground">{m.ai_reply_truncated()}</p>
+								{/if}
+								{#if message.cut}
+									<p class="mt-1 text-xs text-muted-foreground">{m.ai_reply_too_long()}</p>
+								{/if}
+								{#if message.error}
+									<!-- Plain text: no Markdown in an error (review M1). -->
+									<p class="mt-1 rounded border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-xs text-destructive whitespace-pre-wrap select-text" role="alert">{message.error}</p>
 								{/if}
 								{/if}
 								{#if message.pendingApproval}
 									{@const approval = message.pendingApproval}
 									<div class="mt-2 space-y-3">
 										<div class="rounded border bg-background p-2 space-y-1">
-											<p class="text-xs font-medium text-muted-foreground">Query to execute:</p>
+											<p class="text-xs font-medium text-muted-foreground">{m.ai_approval_query()}</p>
 											<pre class="text-xs font-mono whitespace-pre-wrap break-all">{approval.query}</pre>
 										</div>
 										<div class="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -361,9 +414,13 @@
 											<span>{approval.connectionName}</span>
 										</div>
 										<div class="flex items-center gap-1.5">
-											<Checkbox id="allow-all-{message.id}" bind:checked={allowAllChecked} />
-											<Label for="allow-all-{message.id}" class="text-xs font-normal cursor-pointer">
-												Allow all queries this session
+											<Checkbox
+												id="allow-all-{approval.id}"
+												checked={approval.allowAllTicked}
+												onCheckedChange={(v) => approval.setAllowAllTicked(v === true)}
+											/>
+											<Label for="allow-all-{approval.id}" class="text-xs font-normal cursor-pointer">
+												{m.ai_allow_all_connection()}
 											</Label>
 										</div>
 										{#if approval.connectionType === "mssql"}
@@ -379,12 +436,11 @@
 												onclick={() => {
 													if (approvalHandled[approval.id]) return;
 													approvalHandled = { ...approvalHandled, [approval.id]: true };
-													if (allowAllChecked) db.ui.setAIAllowAll();
 													approval.approve();
 												}}
 											>
 												<CheckCircleIcon class="size-3.5" aria-hidden="true" />
-												Allow
+												{m.ai_approval_allow()}
 											</Button>
 											<Button
 												size="sm"
@@ -398,7 +454,7 @@
 												}}
 											>
 												<XCircleIcon class="size-3.5" aria-hidden="true" />
-												Deny
+												{m.ai_approval_deny()}
 											</Button>
 										</div>
 									</div>
@@ -429,7 +485,7 @@
 			}}
 		>
 			<ChevronDownIcon class="size-3" />
-			New messages
+			{m.ai_new_messages()}
 		</Button>
 	</div>
 {/if}

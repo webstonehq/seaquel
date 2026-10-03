@@ -346,6 +346,7 @@ export const SETTINGS_METHOD_KIND: Record<SettingsMethod, "read" | "write"> = {
   aiProviderCreate: "write",
   aiProviderUpdate: "write",
   aiProviderRemove: "write",
+  aiProviderHasKey: "read",
   themesGet: "read",
   themePreferencesSet: "write",
   userThemeCreate: "write",

@@ -66,7 +66,7 @@ pub async fn __test_side_open(bridge: DuckDbBridge) -> Result<(), JsValue> {
     if let Some(previous) = previous {
         previous.ws.close_all(&previous.core).await;
     }
-    let open = build(bridge, None).await.map_err(reject)?;
+    let open = build(bridge, None, None).await.map_err(reject)?;
     SIDE.with(|s| *s.borrow_mut() = Some(Rc::new(open)));
     Ok(())
 }

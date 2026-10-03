@@ -8,6 +8,8 @@ const INFRA = [
   "seaquel-ssh",
   "seaquel-git",
   "seaquel-license",
+  "seaquel-http",
+  "seaquel-ai",
 ];
 
 /** A `cargo metadata` package; string deps are normal dependencies. */
@@ -286,6 +288,44 @@ describe("checkCrateDeps", () => {
       checkCrateDeps([...base, pkg("seaquel-server", "seaquel-core", "seaquel-engine-duckdb")]),
     ).toEqual([
       "seaquel-server -> seaquel-engine-duckdb: interfaces reach everything through seaquel-core",
+    ]);
+  });
+
+  it("accepts the phase 6 crates", () => {
+    const packages = [
+      pkg("seaquel-macros"),
+      pkg("seaquel-runtime", "seaquel-macros"),
+      pkg("seaquel-types"),
+      pkg("seaquel-sql", "seaquel-types"),
+      pkg("seaquel-workspace", "seaquel-types", "seaquel-sql"),
+      pkg("seaquel-ai", "seaquel-runtime", "seaquel-types", "seaquel-sql", "seaquel-workspace"),
+      pkg("seaquel-http", "seaquel-ai", "seaquel-runtime"),
+      pkg("seaquel-license", "seaquel-http", "seaquel-types"),
+      pkg("seaquel-core", "seaquel-ai", "seaquel-http", "seaquel-license"),
+    ];
+    expect(checkCrateDeps(packages)).toEqual([]);
+  });
+
+  it("keeps seaquel-ai wasm-clean and behind Core", () => {
+    const base = [pkg("seaquel-runtime"), pkg("seaquel-http"), pkg("seaquel-storage")];
+    expect(
+      checkCrateDeps([
+        ...base,
+        pkg("seaquel-ai", "seaquel-runtime", "seaquel-http", "seaquel-storage"),
+      ]),
+    ).toEqual([
+      "seaquel-ai -> seaquel-http: seaquel-ai builds for wasm32; it may only depend on pure crates and seaquel-workspace",
+      "seaquel-ai -> seaquel-storage: seaquel-ai builds for wasm32; it may only depend on pure crates and seaquel-workspace",
+    ]);
+    expect(
+      checkCrateDeps([
+        ...base,
+        pkg("seaquel-ai"),
+        pkg("seaquel-server", "seaquel-ai", "seaquel-http"),
+      ]),
+    ).toEqual([
+      "seaquel-server -> seaquel-ai: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())",
+      "seaquel-server -> seaquel-http: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())",
     ]);
   });
 

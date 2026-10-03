@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -11,6 +10,8 @@ use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler};
+use seaquel_core::ai::tools::mcp as args;
+use seaquel_core::ai::tools::Call;
 use seaquel_core::storage::connections;
 use seaquel_core::{ConnectRequest, Core, HostKeyPolicy, Workspace};
 use seaquel_types::storage::PersistedConnection;
@@ -102,7 +103,6 @@ pub(crate) struct Inner {
     /// Core's connection id per exposed saved connection, opened on first
     /// use. A failed open leaves the cell empty, so the next call retries.
     open: Mutex<HashMap<String, Arc<OnceCell<String>>>>,
-    next_query: AtomicU64,
 }
 
 /// Seaquel's MCP server. Cheap to clone: clones share the open connections.
@@ -139,10 +139,16 @@ impl McpServer {
                 exposed,
                 options,
                 open: Mutex::default(),
-                next_query: AtomicU64::new(0),
             }),
             tool_router: Self::tool_router(),
         })
+    }
+
+    /// The tools as `tools/list` lists them, sorted by name. Their frozen
+    /// copy is `seaquel-ai`'s `tests/fixtures/tool-schemas.json` (its `mcp`
+    /// profile), which `tests/tool_schemas.rs` checks.
+    pub fn tool_list() -> Vec<rmcp::model::Tool> {
+        Self::tool_router().list_all()
     }
 
     /// The exposed connections, in storage order.
@@ -275,18 +281,13 @@ impl Inner {
         Ok(id.clone())
     }
 
-    /// A fresh query id for [`Workspace::query_stream`].
-    pub(crate) fn query_id(&self) -> String {
-        format!("mcp-{}", self.next_query.fetch_add(1, Ordering::Relaxed))
-    }
-
     /// Run `work` under the per-call timeout, which leaves out the time a
     /// secret read was pending (see `secret_wait.rs`).
     ///
-    /// On timeout `work` is dropped, and that is what cancels it: a query
-    /// stream from [`Workspace::query_stream`] owned by `work` stops its
-    /// driver when dropped, and a dropped `connect` closes the tunnel it
-    /// opened. The call then fails with `TIMEOUT`.
+    /// On timeout `work` is dropped, and that is what cancels it: the
+    /// registry's query stream ([`Workspace::query_stream`]) owned by `work`
+    /// stops its driver when dropped, and a dropped `connect` closes the
+    /// tunnel it opened. The call then fails with `TIMEOUT`.
     pub(crate) async fn timed<T>(
         &self,
         work: impl Future<Output = Result<T, ToolError>>,
@@ -377,9 +378,9 @@ impl McpServer {
     )]
     async fn list_schemas(
         &self,
-        Parameters(args): Parameters<tools::ConnectionArgs>,
+        Parameters(a): Parameters<args::ConnectionArgs>,
     ) -> CallToolResult {
-        reply(tools::list_schemas(&self.inner, args).await)
+        reply(tools::on_connection(&self.inner, Call::from(a)).await)
     }
 
     /// List the tables and views of a connection, optionally of one schema.
@@ -387,11 +388,8 @@ impl McpServer {
         name = "list_tables",
         annotations(title = "List tables", read_only_hint = true, open_world_hint = false)
     )]
-    async fn list_tables(
-        &self,
-        Parameters(args): Parameters<tools::ListTablesArgs>,
-    ) -> CallToolResult {
-        reply(tools::list_tables(&self.inner, args).await)
+    async fn list_tables(&self, Parameters(a): Parameters<args::ListTablesArgs>) -> CallToolResult {
+        reply(tools::on_connection(&self.inner, Call::from(a)).await)
     }
 
     /// Describe a table: its columns (name, type, nullable, default, primary
@@ -406,9 +404,9 @@ impl McpServer {
     )]
     async fn describe_table(
         &self,
-        Parameters(args): Parameters<tools::DescribeTableArgs>,
+        Parameters(a): Parameters<args::DescribeTableArgs>,
     ) -> CallToolResult {
-        reply(tools::describe_table(&self.inner, args).await)
+        reply(tools::on_connection(&self.inner, Call::from(a)).await)
     }
 
     /// Run one read-only SQL query (SELECT and the like) and return its rows.
@@ -422,8 +420,8 @@ impl McpServer {
             open_world_hint = false
         )
     )]
-    async fn run_query(&self, Parameters(args): Parameters<tools::RunQueryArgs>) -> CallToolResult {
-        reply(tools::run_query(&self.inner, args).await)
+    async fn run_query(&self, Parameters(a): Parameters<args::RunQueryArgs>) -> CallToolResult {
+        reply(tools::on_connection(&self.inner, Call::from(a)).await)
     }
 
     /// Show the database's query plan for a read-only query, without running
@@ -436,11 +434,8 @@ impl McpServer {
             open_world_hint = false
         )
     )]
-    async fn explain_query(
-        &self,
-        Parameters(args): Parameters<tools::ExplainArgs>,
-    ) -> CallToolResult {
-        reply(tools::explain_query(&self.inner, args).await)
+    async fn explain_query(&self, Parameters(a): Parameters<args::ExplainArgs>) -> CallToolResult {
+        reply(tools::on_connection(&self.inner, Call::from(a)).await)
     }
 
     /// List the saved queries of the exposed connections' projects, with
@@ -455,9 +450,12 @@ impl McpServer {
     )]
     async fn list_saved_queries(
         &self,
-        Parameters(args): Parameters<tools::ListSavedQueriesArgs>,
+        Parameters(a): Parameters<args::ListSavedQueriesArgs>,
     ) -> CallToolResult {
-        reply(tools::list_saved_queries(&self.inner, args).await)
+        reply(
+            tools::list_saved_queries(&self.inner, a.connection.as_deref(), a.project.as_deref())
+                .await,
+        )
     }
 
     /// Run a saved query on a connection of its project, with values for its
@@ -472,9 +470,9 @@ impl McpServer {
     )]
     async fn run_saved_query(
         &self,
-        Parameters(args): Parameters<tools::RunSavedQueryArgs>,
+        Parameters(a): Parameters<args::RunSavedQueryArgs>,
     ) -> CallToolResult {
-        reply(tools::run_saved_query(&self.inner, args).await)
+        reply(tools::on_connection(&self.inner, Call::from(a)).await)
     }
 }
 

@@ -19,7 +19,7 @@ apiKey?: string | null, } } | { "method": "aiProviderUpdate", "params": { id: st
 /**
  * Desktop only. Absent: keep; `null`: delete; a string: set.
  */
-apiKey?: string | null, } } | { "method": "aiProviderRemove", "params": { id: string, } } | { "method": "themesGet" } | { "method": "themePreferencesSet", "params": { lightThemeId: string, darkThemeId: string, } } | { "method": "userThemeCreate", "params": { theme: unknown, } } | { "method": "userThemeUpdate", "params": { id: string, theme: unknown, } } | { "method": "userThemeRemove", "params": { id: string, } } | { "method": "onboardingGet" } | { "method": "onboardingPatch", "params": { patch: Record<string, unknown>, } } | { "method": "tutorialList" } | { "method": "tutorialSave", "params": { lessonId: string, challengeId: string, 
+apiKey?: string | null, } } | { "method": "aiProviderRemove", "params": { id: string, } } | { "method": "aiProviderHasKey", "params": { id: string, } } | { "method": "themesGet" } | { "method": "themePreferencesSet", "params": { lightThemeId: string, darkThemeId: string, } } | { "method": "userThemeCreate", "params": { theme: unknown, } } | { "method": "userThemeUpdate", "params": { id: string, theme: unknown, } } | { "method": "userThemeRemove", "params": { id: string, } } | { "method": "onboardingGet" } | { "method": "onboardingPatch", "params": { patch: Record<string, unknown>, } } | { "method": "tutorialList" } | { "method": "tutorialSave", "params": { lessonId: string, challengeId: string, 
 /**
  * Kept as text; Core doesn't parse it.
  */

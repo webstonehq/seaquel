@@ -97,6 +97,13 @@ pub enum SettingsRequest {
     AiProviderRemove {
         id: String,
     },
+    /// Whether the keychain holds the provider's API key (desktop; the page
+    /// can't read the key, Decision 7). One read, for that provider: the
+    /// settings form asks when it opens one. `NOT_SUPPORTED` without a
+    /// secret store (web: the page asks its vault).
+    AiProviderHasKey {
+        id: String,
+    },
     /// The theme preferences and every user theme.
     ThemesGet,
     ThemePreferencesSet {
@@ -172,6 +179,7 @@ impl SettingsRequest {
             SettingsRequest::AiProviderCreate { .. } => "aiProviderCreate",
             SettingsRequest::AiProviderUpdate { .. } => "aiProviderUpdate",
             SettingsRequest::AiProviderRemove { .. } => "aiProviderRemove",
+            SettingsRequest::AiProviderHasKey { .. } => "aiProviderHasKey",
             SettingsRequest::ThemesGet => "themesGet",
             SettingsRequest::ThemePreferencesSet { .. } => "themePreferencesSet",
             SettingsRequest::UserThemeCreate { .. } => "userThemeCreate",
@@ -203,6 +211,7 @@ pub enum SettingsResponse {
     AiProviderCreate(Seqd<AiProviderCreated>),
     AiProviderUpdate(#[cfg_attr(feature = "ts", ts(as = "crate::SeqdJson"))] Seqd<Box<RawValue>>),
     AiProviderRemove(#[cfg_attr(feature = "ts", ts(as = "crate::SeqdJson"))] Seqd<Box<RawValue>>),
+    AiProviderHasKey(Seqd<bool>),
     ThemesGet(Seqd<Themes>),
     ThemePreferencesSet(Seqd<Themes>),
     UserThemeCreate(Seqd<ThemeCreated>),
@@ -229,6 +238,7 @@ impl fmt::Debug for SettingsResponse {
             R::AiProviderCreate(r) => ("aiProviderCreate", &r.seq),
             R::AiProviderUpdate(r) => ("aiProviderUpdate", &r.seq),
             R::AiProviderRemove(r) => ("aiProviderRemove", &r.seq),
+            R::AiProviderHasKey(r) => ("aiProviderHasKey", &r.seq),
             R::ThemesGet(r) => ("themesGet", &r.seq),
             R::ThemePreferencesSet(r) => ("themePreferencesSet", &r.seq),
             R::UserThemeCreate(r) => ("userThemeCreate", &r.seq),
@@ -289,6 +299,7 @@ pub(crate) async fn settings(
             ws.update_ai_provider(core, origin, &id, patch, api_key)
                 .await?,
         ),
+        Q::AiProviderHasKey { id } => R::AiProviderHasKey(ws.ai_provider_has_key(core, &id).await?),
         Q::AiProviderRemove { id } => {
             R::AiProviderRemove(ws.remove_ai_provider(core, origin, &id).await?)
         }

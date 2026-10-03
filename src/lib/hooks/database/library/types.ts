@@ -256,6 +256,11 @@ export interface SettingsService {
   ): Promise<Seqd<unknown>>;
   /** Also deletes its API key (the desktop keychain, or the web vault's rows). */
   removeAiProvider(id: string): Promise<Seqd<unknown>>;
+  /**
+   * Desktop: whether the keychain holds the provider's key (one read; the
+   * page never reads the key). Web: `NOT_SUPPORTED` (the vault knows).
+   */
+  aiProviderHasKey(id: string): Promise<Seqd<boolean>>;
 
   getThemes(): Promise<Seqd<Themes>>;
   setThemePreferences(lightThemeId: string, darkThemeId: string): Promise<Seqd<Themes>>;
@@ -396,6 +401,8 @@ export type RowKind =
   | "workflow"
   | "chat"
   | "chatMessages"
+  /** One stored chat message, applied from a turn's `done`/`error` (phase 6). */
+  | "aiMessage"
   | "setting"
   | "aiSettings"
   | "theme"
