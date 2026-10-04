@@ -14,6 +14,8 @@
  * - asks for every list to be reloaded when events may have been missed:
  *   each time the event channel (re)starts (`onResubscribed`, `initial` the
  *   first time), and when a result or an event shows a new epoch;
+ * - asks for the same reload when another process wrote the file (phase 7a,
+ *   Decision 6: an `external` event, which names no rows), once per 100 ms;
  * - says when updates stopped (`onEventsUnavailable`) until the channel is
  *   back.
  *
@@ -36,7 +38,10 @@ export interface StorageChange {
 }
 
 /** Why every list should be reloaded. */
-export type ReloadReason = { reason: "resubscribed"; initial: boolean } | { reason: "epoch" };
+export type ReloadReason =
+  | { reason: "resubscribed"; initial: boolean }
+  | { reason: "epoch" }
+  | { reason: "external" };
 
 export interface ChangeFeedOptions {
   client: () => CoreClient;
@@ -66,6 +71,8 @@ export class ChangeFeed {
   private readonly reloadHandlers = new Set<(reason: ReloadReason) => void>();
   private readonly statusHandlers = new Set<(reason: EventsUnavailableReason | null) => void>();
   private readonly groups = new Map<string, Group>();
+  /** The grouped `external` reload waiting to be asked for. */
+  private externalTimer: ReturnType<typeof setTimeout> | null = null;
   private stops: Array<() => void> = [];
   private _unavailable: EventsUnavailableReason | null = null;
   private readonly delayMs: number;
@@ -132,6 +139,13 @@ export class ChangeFeed {
     if (this.options.seqs.observe(event.seq) !== "current") return;
     const origin = this.options.origin();
     if (origin !== null && event.origin === origin && !this.options.acceptOwn?.(event)) return;
+    if (event.kind === "external") {
+      this.externalTimer ??= setTimeout(() => {
+        this.externalTimer = null;
+        this.emitReload({ reason: "external" });
+      }, this.delayMs);
+      return;
+    }
     if (!this.handlers.get(event.kind)?.size) return;
 
     const key = `${event.kind}\u0001${event.scope ?? ""}`;
@@ -172,6 +186,8 @@ export class ChangeFeed {
   private dropGroups(): void {
     for (const group of this.groups.values()) clearTimeout(group.timer);
     this.groups.clear();
+    if (this.externalTimer !== null) clearTimeout(this.externalTimer);
+    this.externalTimer = null;
   }
 
   private emitReload(reason: ReloadReason): void {

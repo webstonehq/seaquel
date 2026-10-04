@@ -93,10 +93,17 @@ export class SharedRepoManager {
 
   /**
    * Another window wrote repo `ids` (all when `null`): its row or a file of
-   * its projects. Read the list again and each named repo's status.
+   * its projects. Read the list again and each named repo's status. With
+   * `status: false` (another process wrote the file, phase 7a: no repo is
+   * named, and a `git status` per repo every second would be wasted) only
+   * the list is read.
    */
-  async refreshRepos(ids: readonly string[] | null): Promise<void> {
+  async refreshRepos(
+    ids: readonly string[] | null,
+    { status = true }: { status?: boolean } = {},
+  ): Promise<void> {
     await this.loadRepos();
+    if (!status) return;
     const repos = this.state.sharedRepos.filter((r) => ids === null || ids.includes(r.id));
     await Promise.all(repos.map((r) => this.refreshRepoStatus(r.id)));
   }

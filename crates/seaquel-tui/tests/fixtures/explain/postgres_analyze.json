@@ -1,0 +1,92 @@
+{
+  "plan": {
+    "id": "node-5",
+    "nodeType": "Sort",
+    "startupCost": 487.4,
+    "totalCost": 487.9,
+    "planRows": 200.0,
+    "planWidth": 12,
+    "actualStartupTime": 8.177,
+    "actualTotalTime": 8.178,
+    "actualRows": 10.0,
+    "actualLoops": 1,
+    "sortKey": ["((g.g % 10))"],
+    "children": [
+      {
+        "id": "node-4",
+        "nodeType": "Aggregate",
+        "startupCost": 477.25,
+        "totalCost": 479.75,
+        "planRows": 200.0,
+        "planWidth": 12,
+        "actualStartupTime": 8.151,
+        "actualTotalTime": 8.154,
+        "actualRows": 10.0,
+        "actualLoops": 1,
+        "children": [
+          {
+            "id": "node-3",
+            "nodeType": "Hash Join",
+            "startupCost": 2.25,
+            "totalCost": 427.25,
+            "planRows": 10000.0,
+            "planWidth": 4,
+            "actualStartupTime": 1.59,
+            "actualTotalTime": 5.723,
+            "actualRows": 19800.0,
+            "actualLoops": 1,
+            "joinType": "Inner",
+            "hashCond": "((g.g % 100) = h.h)",
+            "children": [
+              {
+                "id": "node-0",
+                "nodeType": "Function Scan",
+                "alias": "g",
+                "startupCost": 0.0,
+                "totalCost": 200.0,
+                "planRows": 20000.0,
+                "planWidth": 4,
+                "actualStartupTime": 1.559,
+                "actualTotalTime": 2.331,
+                "actualRows": 20000.0,
+                "actualLoops": 1,
+                "children": []
+              },
+              {
+                "id": "node-2",
+                "nodeType": "Hash",
+                "startupCost": 1.0,
+                "totalCost": 1.0,
+                "planRows": 100.0,
+                "planWidth": 4,
+                "actualStartupTime": 0.024,
+                "actualTotalTime": 0.025,
+                "actualRows": 100.0,
+                "actualLoops": 1,
+                "children": [
+                  {
+                    "id": "node-1",
+                    "nodeType": "Function Scan",
+                    "alias": "h",
+                    "startupCost": 0.0,
+                    "totalCost": 1.0,
+                    "planRows": 100.0,
+                    "planWidth": 4,
+                    "actualStartupTime": 0.007,
+                    "actualTotalTime": 0.015,
+                    "actualRows": 100.0,
+                    "actualLoops": 1,
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "planningTime": 0.118,
+  "executionTime": 8.379,
+  "isAnalyze": true
+}

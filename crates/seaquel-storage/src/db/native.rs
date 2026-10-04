@@ -3,7 +3,6 @@
 
 pub use sqlx::error::DatabaseError;
 pub use sqlx::migrate::{MigrateError, Migrator};
-pub use sqlx::pool::PoolConnection as GenericPoolConnection;
 pub use sqlx::sqlite::{SqliteArguments, SqliteRow};
 pub use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 pub use sqlx::{
@@ -17,9 +16,6 @@ use sqlx::{Decode, Sqlite, TypeInfo, ValueRef};
 pub fn embedded_migrator() -> Migrator {
     sqlx::migrate!("./migrations")
 }
-
-/// A pooled connection.
-pub type PoolConnection = GenericPoolConnection<Sqlite>;
 
 /// A transaction begun on the pool.
 pub type Transaction = sqlx::Transaction<'static, Sqlite>;

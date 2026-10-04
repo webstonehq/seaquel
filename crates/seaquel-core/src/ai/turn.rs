@@ -504,6 +504,34 @@ async fn resolve(ws: &Workspace, core: &Core, p: &ChatParams) -> Result<Resolved
     Ok(r)
 }
 
+/// What `@mentions` may name in saved connection's project `project`: its
+/// saved queries and dashboards (a turn's and the inline prompt's).
+pub(crate) async fn mention_sources(
+    ws: &Workspace,
+    project: &str,
+) -> (Vec<MentionQuery>, Vec<MentionDashboard>) {
+    let queries = saved_queries::list(ws.storage(), project)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|q| MentionQuery {
+            name: q.name,
+            query: q.query,
+        })
+        .collect();
+    let boards = dashboards::list(ws.storage(), project)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|d| MentionDashboard {
+            widgets: widgets_of(&d.widgets),
+            id: d.id,
+            name: d.name,
+        })
+        .collect();
+    (queries, boards)
+}
+
 /// The state of a turn between its two writes.
 struct Turn<'a> {
     ws: &'a Workspace,
@@ -638,27 +666,7 @@ impl Turn<'_> {
 
     /// The project's saved queries and dashboards, for `@mentions`.
     async fn mention_sources(&self) -> (Vec<MentionQuery>, Vec<MentionDashboard>) {
-        let project = self.r.row.project_id.as_str();
-        let queries = saved_queries::list(self.ws.storage(), project)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|q| MentionQuery {
-                name: q.name,
-                query: q.query,
-            })
-            .collect();
-        let boards = dashboards::list(self.ws.storage(), project)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|d| MentionDashboard {
-                widgets: widgets_of(&d.widgets),
-                id: d.id,
-                name: d.name,
-            })
-            .collect();
-        (queries, boards)
+        mention_sources(self.ws, &self.r.row.project_id).await
     }
 
     /// Streams one round: its text out as it comes, its calls collected

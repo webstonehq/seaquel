@@ -1,0 +1,42 @@
+┌[1]-Connection──────────────────────────────○ 0┐┌[Q]-untitled-1 - +─────────────────────────────────────────────────────────────────────────INSERT┐
+│✓ prod-analytics → pg · db.internal            ││ 1 type SQL · ctrl+r runs it · esc for Normal mode                                               │
+└───────────────────────────────────────────────┘│                                                                                                 │
+┌[2]-Tables - Views─────────────────────────────┐│                                                                                                 │
+│▾public                                       6││                                                                                                 │
+│  customers                               12.4k││                                                                                                 │
+│  invoices                                48.1k││                                                                                                 │
+│  invoice_line_items                       312k││                                                                                                 │
+│  items                                      86││                                                                                                 │
+│  orders                                  91.7k││                                                                                                 │
+│  payments                                40.2k││                                                                                                 │
+│▸analytics                                    1││                                                                                                 │
+│▸auth                                         1││                                                                                                 │
+│                       ┌ Ask AI ───────────────────────────────────────────── schema shared · data not shared · read-only ┐───────────────────────┘
+│                       │                                                                                                  │───────────────────────┐
+│                       │ › top 10 customers by revenue this quarter, only @invoices with status paid, include             │                       │
+│                       │ @customers.country                                                                               │                       │
+│                       │                                                                                                  │                       │
+│                       │ ✓ generated in 1.8s · claude-sonnet                                                              │                       │
+│                       │ 1 SELECT c.name, c.country, sum(li.quantity * li.unit_price) AS revenue                          │                       │
+│                       │ 2 FROM   invoices i                                                                              │                       │
+│                       │ 3 JOIN   customers c ON c.id = i.customer_id                                                     │                       │
+└───────────────────────│ 4 JOIN   invoice_line_items li ON li.invoice_id = i.id                                           │                       │
+┌[3]-Saved - History────│ 5 WHERE  i.status = 'paid'                                                                       │                       │
+│⇄ revenue_by_month.sql │ 6   AND  i.issued_at >= date_trunc('quarter', now())                                             │                       │
+│⇄ top_customers.sql    │ 7 GROUP BY c.id, c.name, c.country                                                               │                       │
+│  churn_cohorts.sql    │ 8 ORDER BY revenue DESC LIMIT 10;                                                                │                       │
+│▾perf                  └──────────────────────────────────────────────────────────────────────────────────────────────────┘                       │
+│  slow_invoices.sql                            ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└─────────────────────────────────────────1 of 5┘│                                                                                                 │
+┌[4]-Pending Changes────────────────────+0 ~0 -0┐│                                                                                                 │
+│nothing staged                                 ││                                                                                                 │
+│                                               │└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+│                                               │┌Command Log──────────────────────────────────────────────────────────────────────────────────────┐
+│                                               ││statements Seaquel runs show here                                                                │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└───────────────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+Insert: enter | Run: ctrl+r | Refine: tab | Save as: ctrl+s | Close: esc                                                            seaquel <version>

@@ -82,14 +82,21 @@ export interface LibraryViews {
   };
   /** The settings stores (`applyStoredChange`). */
   settings?: (kind: SettingsKind, ids: readonly string[] | null) => Promise<void>;
-  /** Phase 5e: the repo list and the named repos' git status. */
-  sharedRepos?: { refreshRepos(ids: readonly string[] | null): Promise<void> };
+  /**
+   * Phase 5e: the repo list and the named repos' git status (`status:
+   * false`: the list only).
+   */
+  sharedRepos?: {
+    refreshRepos(ids: readonly string[] | null, options?: { status?: boolean }): Promise<void>;
+  };
 }
 
 export class LibrarySync {
   private stops: Array<() => void> = [];
   private loaded = false;
   private reloadWhenLoaded = false;
+  /** A reload waiting for the first load needs the repos' git status. */
+  private statusWhenLoaded = false;
 
   constructor(
     private readonly state: DatabaseState,
@@ -151,21 +158,31 @@ export class LibrarySync {
     this.loaded = true;
     if (this.reloadWhenLoaded) {
       this.reloadWhenLoaded = false;
-      void this.reloadAll();
+      const status = this.statusWhenLoaded;
+      this.statusWhenLoaded = false;
+      void this.reloadAll({ status });
     }
   }
 
   private requestReload(reason: ReloadReason): void {
     void log.info(`Reloading the library lists (${reason.reason})`);
+    // Another process's write (phase 7a) names no repo: the repo list is
+    // read again, but no repo's `git status` runs for it.
+    const status = reason.reason !== "external";
     if (!this.loaded) {
       this.reloadWhenLoaded = true;
+      this.statusWhenLoaded ||= status;
       return;
     }
-    void this.reloadAll();
+    void this.reloadAll({ status });
   }
 
-  /** Reload every list this page holds. */
-  async reloadAll(): Promise<void> {
+  /**
+   * Reload every list this page holds. `status: false` reads the repo list
+   * without the repos' git status. Rows read back unchanged keep their
+   * objects (each manager's `keepSame`).
+   */
+  async reloadAll({ status = true }: { status?: boolean } = {}): Promise<void> {
     const steps: Promise<void>[] = [
       this.views.projects.refreshFromLibrary(null),
       this.views.connections.refreshFromLibrary(null),
@@ -193,7 +210,7 @@ export class LibrarySync {
       }
     }
     if (settings) for (const kind of SETTINGS_KINDS) steps.push(settings(kind, null));
-    if (this.views.sharedRepos) steps.push(this.views.sharedRepos.refreshRepos(null));
+    if (this.views.sharedRepos) steps.push(this.views.sharedRepos.refreshRepos(null, { status }));
     const results = await Promise.allSettled(steps);
     for (const r of results) {
       if (r.status === "rejected") void log.warn("Reloading a library list failed:", r.reason);

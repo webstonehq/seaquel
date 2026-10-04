@@ -18,6 +18,7 @@ use crate::db::{
 use crate::error::LEGACY_JSON_FILES;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::schema;
+use crate::write::Writer;
 use crate::StorageError;
 
 /// The numbered migrations in `migrations/`, run after the baseline.
@@ -43,11 +44,15 @@ pub(crate) const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
 /// How [`Storage::open`] opens the file and sizes its pool.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageOptions {
-    /// The most connections the pool opens at once. At least 1.
+    /// The most connections the storage opens at once, its writer
+    /// connection included (phase 7a Decision 5): a writable storage's pool
+    /// gets one fewer, at least 1, and every write runs on the one writer
+    /// connection outside it. A read-only storage's pool gets them all.
     pub max_connections: u32,
     /// Close a connection after it has been idle this long. `None` keeps
     /// idle connections open. The web server sets it so idle users don't hold
-    /// file handles.
+    /// file handles; with it, the writer connection closes once it has been
+    /// unused that long too.
     pub idle_timeout: Option<Duration>,
     /// Open the file without ever writing it, for a second process such as
     /// `seaquel-cli mcp` reading the desktop app's file:
@@ -70,6 +75,12 @@ pub struct StorageOptions {
     /// uncapped, so a file at or over the cap still opens; it stays
     /// readable, and deletes still work so its user can make room.
     pub max_bytes: Option<u64>,
+    /// Whether a writable open may change the schema (phase 7a Decision 3).
+    /// [`SchemaPolicy::Upgrade`] (the default) is the app's open.
+    /// [`SchemaPolicy::RequireCurrent`] is a second process's (the TUI):
+    /// writable, but it does no schema work. Ignored with `read_only`, which
+    /// never does any, and on wasm32.
+    pub schema: SchemaPolicy,
     /// wasm32 only (phase 8 Decision 4): the file to start from, a
     /// snapshot the page kept ([`Storage::snapshot`]). `None` starts an
     /// empty file. Set it with [`StorageOptions::in_memory`].
@@ -104,6 +115,24 @@ impl StorageOptions {
     }
 }
 
+/// What a writable [`Storage::open`] may do to the file's schema (phase 7a
+/// Decision 3).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SchemaPolicy {
+    /// Create the file if it's missing, set WAL, and run the baseline, the
+    /// migrations and the data steps: the app's open.
+    #[default]
+    Upgrade,
+    /// A second process beside the app: open the file writable, but only if
+    /// nothing is left to do. If the baseline, a migration or a data step
+    /// has work to do, the open fails with [`StorageError::NeedsUpgrade`]
+    /// or [`StorageError::DataStepPending`] (`STORAGE_NEEDS_UPGRADE`); a
+    /// missing file fails with [`StorageError::NotFound`]
+    /// (`STORAGE_NOT_FOUND`). Nothing is created, the journal mode isn't
+    /// set (the app set WAL), and a refused file is left as it was.
+    RequireCurrent,
+}
+
 /// The page size [`StorageOptions::max_bytes`] is counted in: SQLite's
 /// default, which every Seaquel file uses.
 pub const CAP_PAGE_SIZE: u64 = 4096;
@@ -115,24 +144,30 @@ impl Default for StorageOptions {
             idle_timeout: None,
             read_only: false,
             max_bytes: None,
+            schema: SchemaPolicy::Upgrade,
             #[cfg(target_arch = "wasm32")]
             image: None,
         }
     }
 }
 
-/// An open metadata file: a SQLite pool whose connections all run with WAL,
-/// `busy_timeout = 5000` and `foreign_keys = ON`, over a schema the baseline
-/// and the migrations have brought up to date.
+/// An open metadata file: a SQLite pool for reads and one writer
+/// connection for writes (natively; `crate::write`'s `Writer`), all running
+/// with WAL, `busy_timeout = 5000` and `foreign_keys = ON`, over a schema the
+/// baseline and the migrations have brought up to date.
 #[derive(Debug, Clone)]
 pub struct Storage {
     pool: SqlitePool,
     path: PathBuf,
     /// Opened with [`StorageOptions::read_only`]: [`Storage::write`] refuses.
     read_only: bool,
-    /// Serialises this process's writers before they take a pool
-    /// connection (see [`crate::WriteTx`]). Clones share it.
-    write_lock: Arc<crate::lock::Mutex<()>>,
+    /// Serialises this process's writers, and owns the writer connection
+    /// they write on (see [`crate::WriteTx`]). Clones share it.
+    write_lock: Arc<crate::lock::Mutex<Writer>>,
+    /// Set by [`Storage::close`] (shared by clones): the writer connection
+    /// doesn't open again after it.
+    #[cfg(not(target_arch = "wasm32"))]
+    closed: Arc<std::sync::atomic::AtomicBool>,
     /// How long [`Storage::write`] waits for this process's earlier writers.
     write_wait: Duration,
     /// The executor whose `sleep` times that wait ([`Storage::with_executor`];
@@ -200,8 +235,8 @@ impl Storage {
     ) -> Result<Self, StorageError> {
         migrator.set_ignore_missing(true);
         let path = path.as_ref().to_path_buf();
-        if options.read_only {
-            return open_read_only(path, options, &migrator).await;
+        if options.read_only || options.schema == SchemaPolicy::RequireCurrent {
+            return open_checked(path, options, &migrator).await;
         }
         if preflight(&path, true)? == Existing::NonEmpty {
             probe(&path).await?;
@@ -215,7 +250,7 @@ impl Storage {
             .foreign_keys(true);
         let pool_options = || {
             SqlitePoolOptions::new()
-                .max_connections(options.max_connections.max(1))
+                .max_connections(readers(&options))
                 .idle_timeout(options.idle_timeout)
         };
         // The schema work (baseline, migrations, data steps, the name-key
@@ -238,31 +273,48 @@ impl Storage {
             });
         }
         let Some(max) = options.max_bytes else {
-            return Ok(Self::new(pool, path, false));
+            return Ok(Self::new(
+                pool,
+                path,
+                false,
+                Writer::new(connect, options.idle_timeout),
+            ));
         };
-        if let Err(e) = crate::refill_name_keys(&Self::new(pool.clone(), path.clone(), false)).await
-        {
+        let uncapped = Self::new(
+            pool,
+            path.clone(),
+            false,
+            Writer::new(connect.clone(), None),
+        );
+        if let Err(e) = crate::refill_name_keys(&uncapped).await {
             log::warn!(activity = "storage.open", code = e.code(); "Refilling name keys failed");
         }
-        if let Err(e) = crate::refill_list_meta(&Self::new(pool.clone(), path.clone(), false)).await
-        {
+        if let Err(e) = crate::refill_list_meta(&uncapped).await {
             log::warn!(activity = "storage.open", code = e.code(); "Refilling list metadata failed");
         }
-        pool.close().await;
+        uncapped.close().await;
         let pages = (max / CAP_PAGE_SIZE).max(1);
+        let capped_connect = connect.pragma("max_page_count", pages.to_string());
         let capped = pool_options()
-            .connect_with(connect.pragma("max_page_count", pages.to_string()))
+            .connect_with(capped_connect.clone())
             .await
             .map_err(|e| classify(&path, e, false))?;
-        Ok(Self::new(capped, path, false))
+        Ok(Self::new(
+            capped,
+            path,
+            false,
+            Writer::new(capped_connect, options.idle_timeout),
+        ))
     }
 
-    pub(crate) fn new(pool: SqlitePool, path: PathBuf, read_only: bool) -> Self {
+    pub(crate) fn new(pool: SqlitePool, path: PathBuf, read_only: bool, writer: Writer) -> Self {
         Self {
             pool,
             path,
             read_only,
-            write_lock: Arc::default(),
+            write_lock: Arc::new(crate::lock::Mutex::new(writer)),
+            #[cfg(not(target_arch = "wasm32"))]
+            closed: Arc::default(),
             write_wait: WRITE_WAIT,
             clock: None,
         }
@@ -298,8 +350,17 @@ impl Storage {
         self.read_only
     }
 
-    pub(crate) fn write_lock(&self) -> Arc<crate::lock::Mutex<()>> {
+    pub(crate) fn write_lock(&self) -> Arc<crate::lock::Mutex<Writer>> {
         Arc::clone(&self.write_lock)
+    }
+
+    /// Fails as a closed pool does once [`Storage::close`] ran.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn check_open(&self) -> Result<(), StorageError> {
+        if self.closed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(StorageError::Sqlx(db::Error::PoolClosed));
+        }
+        Ok(())
     }
 
     /// The pool, for the query modules.
@@ -312,9 +373,14 @@ impl Storage {
         &self.path
     }
 
-    /// Close every connection. Calls made after this fail.
+    /// Close every connection, the writer's included (after any write in
+    /// flight). Calls made after this fail.
     pub async fn close(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
         self.pool.close().await;
+        #[cfg(not(target_arch = "wasm32"))]
+        self.write_lock.lock().await.close().await;
     }
 }
 
@@ -575,10 +641,25 @@ async fn migration_state(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-/// [`Storage::open`] with [`StorageOptions::read_only`]: a first check that
-/// the file is current through one read-only connection, then a read-only
-/// pool, and the authoritative check again on one of its connections.
-async fn open_read_only(
+/// How many connections a storage's pool gets: all of
+/// [`StorageOptions::max_connections`] when read-only, else one fewer for
+/// the writer connection; at least 1.
+fn readers(options: &StorageOptions) -> u32 {
+    let max = options.max_connections.max(1);
+    if options.read_only {
+        max
+    } else {
+        (max - 1).max(1)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+/// [`Storage::open`] with [`StorageOptions::read_only`] or
+/// [`SchemaPolicy::RequireCurrent`]: a first check that the file is current
+/// through one read-only connection, then the pool (read-only, or writable
+/// with no journal mode set and nothing created), and the authoritative
+/// check again on one of its connections.
+async fn open_checked(
     path: PathBuf,
     options: StorageOptions,
     migrator: &Migrator,
@@ -588,15 +669,21 @@ async fn open_read_only(
     }
     check_current(&path, migrator).await?;
 
-    let connect = sqlite_options()
+    let read_only = options.read_only;
+    let mut connect = sqlite_options()
         .filename(&path)
-        .read_only(true)
+        .read_only(read_only)
+        .create_if_missing(false)
         .busy_timeout(BUSY_TIMEOUT)
         .foreign_keys(true);
+    if let (false, Some(max)) = (read_only, options.max_bytes) {
+        let pages = (max / CAP_PAGE_SIZE).max(1);
+        connect = connect.pragma("max_page_count", pages.to_string());
+    }
     let pool = SqlitePoolOptions::new()
-        .max_connections(options.max_connections.max(1))
+        .max_connections(readers(&options))
         .idle_timeout(options.idle_timeout)
-        .connect_with(connect)
+        .connect_with(connect.clone())
         .await
         .map_err(|e| classify(&path, e, true))?;
 
@@ -610,7 +697,12 @@ async fn open_read_only(
         pool.close().await;
         return Err(e);
     }
-    Ok(Storage::new(pool, path, true))
+    Ok(Storage::new(
+        pool,
+        path,
+        read_only,
+        Writer::new(connect, options.idle_timeout),
+    ))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

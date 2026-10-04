@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌Data - Structure - Indexes - Constraints - DDL────┐
+│not con┌Keybindings───────────────────────────────────────────────────┐       │
+└───────│  0               focus the main view                         │       │
+┌[2]-Tab│  tab             next panel                                  │       │
+│no conn│  shift+tab       previous panel                              │       │
+│       │  [  ]            previous / next tab                         │       │
+│       │  ?               this help                                   │       │
+│       │  u               undo the last staged change                 │       │
+│       │  c               commit the staged changes                   │       │
+│       │  Q               the query editor (a new tab if none)        │       │
+│       │  +               a new query tab                             │       │
+│       │  q               quit (asks if anything would be lost)       │       │
+└───────│  ctrl+c          cancel a running statement, or quit         │       │
+┌[3]-Sav│  ctrl+z          suspend (fg resumes; Unix)                  │       │
+│no save│Panels                                                        │       │
+│       │  j k  arrows     select                                      │       │
+│       │  h l  arrows     previous / next panel                       │       │
+└───────│  enter           open in the main view; fold a schema or fold│       │
+┌[4]-Pen│Tables and views                                              │───────┘
+│nothing│  r               read the tables again                       │───────┐
+│       │Saved and History                                             │       │
+│       │  [  ]            saved queries / history                     │       │
+└───────└─────────────────────────────────────────────────────esc close┘───────┘
+Close: esc | Scroll: j/k                                        seaquel <version>

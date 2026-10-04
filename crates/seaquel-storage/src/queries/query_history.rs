@@ -155,11 +155,13 @@ pub async fn append_many(st: &Storage, items: &[PersistedQueryHistoryItem]) -> R
 /// Sets (not toggles) a row's favourite flag, so two writes queued in
 /// either order agree. An unknown id changes nothing.
 pub async fn set_favorite(st: &Storage, id: &str, favorite: bool) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("UPDATE query_history SET favorite = ? WHERE id = ?")
         .bind(bit(favorite))
         .bind(id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -211,9 +213,11 @@ pub async fn replace_all(
 
 /// Deletes a connection's history.
 pub async fn remove_by_connection(st: &Storage, connection_id: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM query_history WHERE connection_id = ?")
         .bind(connection_id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }

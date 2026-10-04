@@ -11,32 +11,20 @@
 
 use std::process::ExitCode;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand};
 
 mod mcp;
 
-/// The line `--version` and `--help` print about the terms. A macro so it can
-/// go into `concat!`.
-macro_rules! terms_line {
-    () => {
-        "Free for personal use; commercial use needs a license. Terms: https://seaquel.app/terms"
-    };
-}
-
-/// The terms line printed by `--version` and `--help`.
-pub const TERMS_LINE: &str = terms_line!();
-
-/// The desktop app's version, which the bundled CLI shares (see `build.rs`).
-pub const VERSION: &str = env!("SEAQUEL_APP_VERSION");
-
-/// `seaquel-cli --version`: the version, then the terms line.
-const VERSION_TEXT: &str = concat!(env!("SEAQUEL_APP_VERSION"), "\n", terms_line!());
+use seaquel_terminal::VERSION_TEXT;
+/// The terms line and the desktop app's version, which the CLI shares
+/// (`seaquel-terminal`'s `build.rs` reads it).
+pub use seaquel_terminal::{LogLevel, TERMS_LINE, VERSION};
 
 #[derive(Debug, Parser)]
 #[command(
     name = "seaquel-cli",
     version = VERSION_TEXT,
-    about = "Seaquel's command line, bundled with the desktop app.",
+    about = "Seaquel's command line, downloaded alongside the desktop app.",
     after_help = TERMS_LINE,
     subcommand_required = true,
     arg_required_else_help = true
@@ -69,16 +57,6 @@ pub struct McpArgs {
     /// protocol.
     #[arg(long, value_enum, default_value_t = LogLevel::Warn)]
     pub log_level: LogLevel,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum LogLevel {
-    Off,
-    Error,
-    Warn,
-    Info,
-    Debug,
-    Trace,
 }
 
 /// Runs a parsed command line and returns the process exit code.

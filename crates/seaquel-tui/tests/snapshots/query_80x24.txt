@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌[Q]-revenue_by_month.sql - untitled-1 - +─────────┐
+│✓ prod-analytics → pg · d…││ 3        sum(li.quantity * li.unit_price) AS reve│
+└──────────────────────────┘│ 4 FROM   invoices i                              │
+┌[2]-Tables - Views────────┐│ 5 JOIN   customers c ON c.id = i.customer_id     │
+│▾public                  6││ 6 JOIN   invoice_line_items li ON li.invoice_id =│
+│  customers          12.4k││ 7 WHERE  i.iss                                   │
+│  invoices           48.1k│└───────────┌───────────────┐──────────────────────┘
+└────────────────────3 of 9┘┌Results - E│issued_at  date│──ANALYZE ✓ · 412.3 ms┐
+┌[3]-Saved - History───────┐│node       │issuer_id  int8│lf ms  share of total │
+│⇄ revenue_by_month.sql    ││Sort (sum(r└───────────────┘  3.1              1% │
+│⇄ top_customers.sql       ││└─ HashAggrega…    1,204     44.8             11% │
+│  churn_cohorts.sql       ││   └─ Hash Joi…  298,410     61.0             15% │
+│▾perf                    1││      ├─ Seq S…  312,006    238.9             58% │
+│  slow_invoices.sql       ││      └─ Hash     31,877      6.2              2% │
+│                          ││         └─ Ha…   31,877     19.4              5% │
+│                          ││            ├─    31,877     33.6              8% │
+│                          ││            └─    12,418      5.3              1% │
+└────────────────────1 of 5┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Insert: tab | Choose: arrows | Close: esc                  INSERT · Ln 7, Col 13

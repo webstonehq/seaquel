@@ -1,0 +1,24 @@
+┌[1]-Connection────────● 30┐┌Data - Structure - Indexes - Constraints - DDL────┐
+│✓┌ Commit 30 changes ───────────────────────────────────────────────────────┐ │
+└─│ Run on prod-analytics in a single transaction:                           │›│
+┌[│ ~15  UPDATE  public.invoices                                             │ │
+│▾│ -15  DELETE  public.invoices                                             │ │
+│ │                                                                          │ │
+│ │ ⚠ Destructive statements:                                                │ │
+│ │   DELETE without WHERE · DELETE FROM t0                                  │ │
+│ │   DELETE without WHERE · DELETE FROM t1                                  │ │
+│ │   DELETE without WHERE · DELETE FROM t2                                  │ │
+│ │   DELETE without WHERE · DELETE FROM t3                                  │ │
+│▸│   DELETE without WHERE · DELETE FROM t4                                  │ │
+└─│   DELETE without WHERE · DELETE FROM t5                                  │ │
+┌[│   DELETE without WHERE · DELETE FROM t6                                  │ │
+│⇄│   DELETE without WHERE · DELETE FROM t7                                  │ │
+│⇄│   DELETE without WHERE · DELETE FROM t8                                  │ │
+│ │   DELETE without WHERE · DELETE FROM t9                                  │ │
+└─│ …and 5 more                                                              │ │
+┌[│                                                                          │5┘
+│▾│ ⚠ Includes a DELETE on a connection tagged production.                   │─┐
+│ │ type prod to confirm › pr▌                                               │ │
+│s└──────────────────────────────────────────────────────────────────────────┘ │
+└───────────────────1 of 30┘└──────────────────────────────────────────────────┘
+Execute: enter | Preview SQL: tab | Cancel: esc                 seaquel <version>

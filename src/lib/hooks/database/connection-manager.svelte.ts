@@ -51,6 +51,7 @@ import {
   type ConnectionFields,
 } from "./library/convert.js";
 import { LibraryError, libraryError } from "./library/messages.js";
+import { keepSame } from "./library/same-data.js";
 import { closeConnectionTabs } from "./connection-tabs-cleanup.js";
 import {
   applyConnectionRow,
@@ -371,7 +372,8 @@ export class ConnectionManager {
       const row = byId.get(id);
       const current = next.find((c) => c.id === id);
       if (row) {
-        const updated = connectionFromWire(row, current);
+        // An unchanged row keeps its object (an `external` reload reads them all).
+        const updated = keepSame(current, connectionFromWire(row, current));
         if (current) {
           if (remote && storedFieldsDiffer(current, updated)) revisions.push(key);
           next = next.map((c) => (c.id === id ? updated : c));

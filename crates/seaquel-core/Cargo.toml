@@ -25,7 +25,8 @@ imports = ["storage", "dep:plist", "dep:dirs", "dep:tokio"]
 license-desktop = ["dep:seaquel-license", "seaquel-license/desktop"]
 license-server = ["dep:seaquel-license", "seaquel-license/server"]
 # `Workspace::connect`/`test` and the editor's runs (`Workspace::run`/`page`).
-# seaquel-cli enables it with storage, secrets and ssh. The domain crate
+# seaquel-terminal enables it with storage, secrets and ssh for both
+# terminal binaries (seaquel-cli and seaquel-tui). The domain crate
 # itself (`seaquel_core::domain`) is always there: it is pure, builds for
 # wasm32, and its run types are on the `db` wire in every build.
 workspace = []
@@ -38,7 +39,8 @@ workspace = []
 ai = ["workspace", "storage", "dep:seaquel-ai"]
 # The native HTTP client (`seaquel-http`'s reqwest client and the egress
 # guard), re-exported as `seaquel_core::ai::native`. src-tauri,
-# seaquel-server and seaquel-cli enable it; it is refused with `browser`.
+# seaquel-server and seaquel-tui enable it (seaquel-cli doesn't: it calls no
+# model); it is refused with `browser`.
 ai-native = ["ai", "dep:seaquel-http"]
 # The OS proxy settings (macOS/Windows system config) for the native model
 # client. The desktop turns it on, as `license-desktop` does for its own.

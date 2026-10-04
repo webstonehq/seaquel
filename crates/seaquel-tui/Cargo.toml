@@ -1,0 +1,56 @@
+[package]
+name = "seaquel-tui"
+version = "0.1.0"
+edition = "2021"
+description = "The `seaquel-tui` binary: a lazygit-style terminal client over Seaquel Core, shipped as its own release asset (phase 7a)."
+
+[[bin]]
+name = "seaquel-tui"
+path = "src/main.rs"
+
+[dependencies]
+seaquel-terminal = { path = "../seaquel-terminal" }
+# Decision 2: `ai-native` for Ask AI (Task 7) on top of what
+# seaquel-terminal brings (`storage`, `secrets`, `ssh`, `workspace`). No
+# `imports`, `git` or `license-*`, and no seaquel-mcp or seaquel-rpc.
+seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace", "ai-native"] }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+# The SQL editor's buffer, cursor and undo (Q7 A); modes, completion and
+# highlighting are the TUI's own layer over it.
+ratatui-textarea = { workspace = true }
+unicode-width = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "signal"] }
+# Logs go to a file (`<data_dir>/logs/tui.log`), never to the screen.
+tracing-subscriber = { workspace = true }
+# The file's `tracing` subscriber is set without `tracing-log`'s bridge, so
+# `log`'s key-values reach the file (already in Cargo.lock).
+tracing = "0.1"
+# The state file (`<data_dir>/tui/state.json`) and a connection's stored
+# SSH tunnel JSON; `raw_value` for an apply's history labels (Task 5).
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+# Typed passwords are wiped on drop (already in Cargo.lock, 1.9).
+zeroize = "1"
+# `SchemaTable` and the stored rows' types (Core's answers).
+seaquel-types = { path = "../seaquel-types" }
+
+[target.'cfg(unix)'.dependencies]
+# `raise(SIGTSTP)` for Ctrl+Z.
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+# Ask AI's tests (Task 7): `MockProvider` on 127.0.0.1, `LoopbackOnly`
+# around the model client in every test build, and the fake key. Never a
+# real provider or key.
+seaquel-ai = { path = "../seaquel-ai", features = ["testing"] }
+# `async_trait` for the tests' blocking and refusing secret stores.
+seaquel-runtime = { path = "../seaquel-runtime" }
+# The trust test checks the known_hosts line's key against the fingerprint
+# the dialog showed.
+base64 = { workspace = true }
+sha2 = "0.10"

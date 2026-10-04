@@ -32,7 +32,7 @@ pub use error::{
 };
 #[cfg(target_arch = "wasm32")]
 pub use open::Image;
-pub use open::{Storage, StorageOptions, CAP_PAGE_SIZE, WRITE_WAIT};
+pub use open::{SchemaPolicy, Storage, StorageOptions, CAP_PAGE_SIZE, WRITE_WAIT};
 pub use write::{Reader, WriteTx};
 
 /// Refills the `name_key` of every row that has a text name and no key

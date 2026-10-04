@@ -342,6 +342,40 @@ describe("git and the sync", () => {
     expect(shared.of("sync").map((c) => c.args)).toEqual([[{ projectId: "p2" }]]);
   });
 
+  it("another process's write reads the repo list again but runs no git status", async () => {
+    const page = await open();
+    git.calls.length = 0;
+    shared.fake.calls.length = 0;
+
+    await page.sharedRepos.refreshRepos(null, { status: false });
+
+    expect(git.calls).toEqual([]);
+    expect(shared.of("listRepos").length).toBe(1);
+    // Without the option, as for another window's repo write, it does.
+    await page.sharedRepos.refreshRepos(null);
+    expect(git.calls).toContain("status");
+  });
+
+  it("a full reload keeps an unchanged dashboard's object", async () => {
+    const page = await open();
+    page.state.dashboardsByProject = { ...page.state.dashboardsByProject, p1: [] };
+    await library.createDashboard({
+      projectId: "p1",
+      name: "Sales",
+      viewport: { x: 0, y: 0, zoom: 1 },
+      widgets: [{ id: "w1", type: "table", title: "Orders", sql: "SELECT 1" }],
+    } as never);
+    await page.dashboards.refreshFromLibrary("p1", null);
+    const before = page.state.dashboardsByProject.p1[0];
+    expect(before.name).toBe("Sales");
+
+    // Another process wrote something else: the reload's answer is newer.
+    library.n += 1;
+    await page.dashboards.refreshFromLibrary("p1", null);
+    expect(page.state.dashboardsByProject.p1[0]).toBe(before);
+    expect(page.state.dashboardsByProject.p1[0].widgets).toBe(before.widgets);
+  });
+
   it("a status that can't be read shows on the repo", async () => {
     const page = await open();
     git.statusFails = true;

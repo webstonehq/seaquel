@@ -36,7 +36,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use futures::StreamExt;
-use seaquel_core::storage::StorageOptions;
+use seaquel_core::storage::{SchemaPolicy, StorageOptions};
 use seaquel_core::{Core, CoreError, Workspace, WorkspaceSpec};
 use seaquel_rpc::CoreEvent;
 use tokio::sync::{mpsc, oneshot, OnceCell};
@@ -108,16 +108,17 @@ fn read_user_db_max_bytes() -> u64 {
     }
 }
 
-/// Each workspace's pool: at most 2 connections, idle ones closed after
-/// 60 s, and the file capped at [`user_db_max_bytes`] (phase 5d-2 review:
-/// a per-user backstop behind the per-call limits; a write past it fails
-/// with `STORAGE_FULL`, 507).
+/// Each workspace's storage: at most 2 connections (one reader, and the
+/// writer connection; phase 7a Decision 5), each closed once idle for 60 s, and the file capped at
+/// [`user_db_max_bytes`] (phase 5d-2 review: a per-user backstop behind the
+/// per-call limits; a write past it fails with `STORAGE_FULL`, 507).
 pub fn user_storage_options() -> StorageOptions {
     StorageOptions {
         max_connections: 2,
         idle_timeout: Some(Duration::from_secs(60)),
         read_only: false,
         max_bytes: Some(user_db_max_bytes()),
+        schema: SchemaPolicy::Upgrade,
     }
 }
 

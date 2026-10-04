@@ -11,9 +11,11 @@
 
 mod keychain;
 mod memory;
+mod secret_wait;
 
 pub use keychain::{KeychainStore, DESKTOP_SERVICE};
 pub use memory::MemoryStore;
+pub use secret_wait::{SecretWait, DEFAULT_SECRET_WAIT_LIMIT};
 
 use seaquel_runtime::{MaybeSend, MaybeSync};
 
@@ -69,6 +71,16 @@ pub enum SecretError {
         key: String,
         message: String,
     },
+    /// There is no store to ask: no D-Bus session or Secret Service
+    /// provider (a headless Linux host), no keychain the session can use
+    /// (macOS over SSH). Unlike [`SecretError::Store`], nothing refused, so
+    /// a connect can ask for the secret instead (phase 7a probe F4).
+    #[error("{op} secret {key:?} failed: {message}")]
+    Unavailable {
+        op: SecretOp,
+        key: String,
+        message: String,
+    },
 }
 
 impl SecretError {
@@ -77,14 +89,23 @@ impl SecretError {
     pub fn code(&self) -> &'static str {
         match self {
             SecretError::InvalidKey { .. } => "INVALID_ARGUMENT",
-            SecretError::Store { .. } => "SECRET_STORE_ERROR",
+            SecretError::Store { .. } | SecretError::Unavailable { .. } => "SECRET_STORE_ERROR",
         }
+    }
+
+    /// Whether the store isn't there at all (no Secret Service on a
+    /// headless Linux host, no login keychain over SSH on macOS), as
+    /// opposed to a store that refused. The wire code is the same.
+    pub fn unavailable(&self) -> bool {
+        matches!(self, SecretError::Unavailable { .. })
     }
 
     /// The key the failed call was for.
     pub fn key(&self) -> &str {
         match self {
-            SecretError::InvalidKey { key, .. } | SecretError::Store { key, .. } => key,
+            SecretError::InvalidKey { key, .. }
+            | SecretError::Store { key, .. }
+            | SecretError::Unavailable { key, .. } => key,
         }
     }
 }

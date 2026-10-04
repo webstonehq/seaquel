@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌Data - Structure - Indexes - Constraints - DDL────┐
+│not connected · enter to …││nothing selected                                  │
+└──────────────────────────┘│                                                  │
+┌[2]-Tables - Views────────┐│                                                  │
+│no connection             ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│         ┌ Projects ────────────────────────────────────────────────┐         │
+│         │ Analytics                                                │         │
+└─────────│ Billing                                                  │         │
+┌[3]-Saved└──────────────────────────────────────────────────────────┘         │
+│no saved queries          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+└──────────────────────────┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Select: j/k | Choose: enter | Back: esc                         seaquel <version>

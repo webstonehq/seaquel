@@ -1,0 +1,42 @@
+┌[1]-Connection──────────────────────────────○ 0┐┌Data - Structure - Indexes - Constraints - DDL───────────────────────────────────────────────────┐
+│not connected · enter to pick a connectio┌Keybindings───────────────────────────────────────────────────┐                                         │
+└─────────────────────────────────────────│Global                                                        │                                         │
+┌[2]-Tables - Views───────────────────────│  1 2 3 4         focus a panel                               │                                         │
+│no connection                            │  0               focus the main view                         │                                         │
+│                                         │  tab             next panel                                  │                                         │
+│                                         │  shift+tab       previous panel                              │                                         │
+│                                         │  [  ]            previous / next tab                         │                                         │
+│                                         │  ?               this help                                   │                                         │
+│                                         │  u               undo the last staged change                 │                                         │
+│                                         │  c               commit the staged changes                   │                                         │
+│                                         │  Q               the query editor (a new tab if none)        │                                         │
+│                                         │  +               a new query tab                             │                                         │
+│                                         │  q               quit (asks if anything would be lost)       │                                         │
+│                                         │  ctrl+c          cancel a running statement, or quit         │                                         │
+│                                         │  ctrl+z          suspend (fg resumes; Unix)                  │                                         │
+│                                         │Panels                                                        │                                         │
+│                                         │  j k  arrows     select                                      │                                         │
+│                                         │  h l  arrows     previous / next panel                       │                                         │
+│                                         │  enter           open in the main view; fold a schema or fold│                                         │
+│                                         │Tables and views                                              │                                         │
+│                                         │  r               read the tables again                       │                                         │
+└─────────────────────────────────────────│Saved and History                                             │                                         │
+┌[3]-Saved - History──────────────────────│  [  ]            saved queries / history                     │                                         │
+│no saved queries                         │  r               read saved queries and history again        │                                         │
+│                                         │  o               open it in a query tab                      │                                         │
+│                                         │Pending changes                                               │                                         │
+│                                         │  enter           view the diff in the main view              │                                         │
+│                                         │  space  d        unstage the selected change                 │                                         │
+│                                         │  e               edit the staged value                       │                                         │
+│                                         │  D               discard every staged change (asks)          │                                         │
+└─────────────────────────────────────────│Connection                                                    │                                         │
+┌[4]-Pending Changes────────────────────+0│  enter           pick a project and a connection             │                                         │
+│nothing staged                           │  h l  arrows     previous / next panel                       │                                         │
+│                                         │Main view                                                     │─────────────────────────────────────────┘
+│                                         │  esc             back to the panel                           │─────────────────────────────────────────┐
+│                                         │  enter           open it in a query tab (over panel 3)       │                                         │
+│                                         │Data grid                                                     │                                         │
+│                                         │  h j k l  arrows move the cell cursor                        │                                         │
+│                                         │  g  G            first / last row of the page                │                                         │
+└─────────────────────────────────────────└─────────────────────────────────────────────────────esc close┘─────────────────────────────────────────┘
+Close: esc | Scroll: j/k                                                                                                            seaquel <version>

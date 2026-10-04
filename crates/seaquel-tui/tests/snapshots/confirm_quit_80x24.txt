@@ -1,0 +1,24 @@
+┌[1]-Connection─────────● 3┐┌Data - Structure - Indexes - Constraints - DDL────┐
+│not connected · enter to …││nothing selected                                  │
+└──────────────────────────┘│                                                  │
+┌[2]-Tables - Views────────┐│                                                  │
+│no connection             ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                     ┌Quit?─────────────────────────────┐                     │
+│                     │                                  │                     │
+│                     │ 3 staged changes will be lost.   │                     │
+└─────────────────────│                                  │                     │
+┌[3]-Saved - History──└─────────────────y quit   esc stay┘                     │
+│no saved queries          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+└──────────────────────────┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Quit: y | Stay: esc                                             seaquel <version>

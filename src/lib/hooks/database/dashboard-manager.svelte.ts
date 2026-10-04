@@ -27,6 +27,7 @@ import {
   resolvedDashboardVersionFromWire,
 } from "./library/convert.js";
 import { libraryErrorMessage, limitMessage, limitOf } from "./library/messages.js";
+import { keepSame } from "./library/same-data.js";
 import { closeDashboardTabs } from "./connection-tabs-cleanup.js";
 import { reportProjection } from "./shared/projection.js";
 
@@ -506,7 +507,8 @@ export class DashboardManager {
         if (current) removed.push(current);
         next = next.filter((d) => d.id !== id);
       } else {
-        const dashboard = dashboardFromWire(row, current);
+        // An unchanged row keeps its object (an `external` reload reads them all).
+        const dashboard = keepSame(current, dashboardFromWire(row, current));
         next = current ? next.map((d) => (d.id === id ? dashboard : d)) : [...next, dashboard];
         if (current && current.name !== dashboard.name) renamed.push([id, dashboard.name]);
       }

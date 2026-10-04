@@ -108,8 +108,8 @@ pub use upgrade::{
 pub use workspace::SAVED_CONNECTION_NOT_FOUND;
 #[cfg(feature = "workspace")]
 pub use workspace::{
-    ConnectRequest, ConnectTarget, HostKeyPolicy, NO_SECRET_STORE, SECRET_UNREADABLE,
-    WORKSPACE_CLOSED,
+    ConnectRequest, ConnectTarget, HostKeyPolicy, NO_SECRET_STORE, SECRET_STORE_UNAVAILABLE,
+    SECRET_UNREADABLE, WORKSPACE_CLOSED,
 };
 pub use workspace::{
     CoreError, Workspace, WorkspaceEvent, WorkspaceId, WorkspaceSpec, CONNECTION_CLOSED,
@@ -863,31 +863,49 @@ impl Core {
     #[cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
     pub async fn open_workspace(&self, spec: WorkspaceSpec) -> Result<Arc<Workspace>, CoreError> {
         info!(activity = "workspace.open"; "Opening workspace");
+        #[cfg(feature = "storage")]
+        let maintenance = !spec.second_process;
+        #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+        let external_changes = spec.external_changes;
         let workspace = Workspace::open(spec, self.executor.as_ref()).await?;
-        // Phase 5d Decision 12a: move secrets left in stored connection
-        // strings to the keychain, then strip them (once; a read-only open
-        // never runs it).
+        // Phase 7a Decision 3: a second process beside the app (the TUI)
+        // runs none of the maintenance writes below; they stay the app's.
         #[cfg(feature = "storage")]
-        workspace
-            .upgrade_string_secrets(self.executor.as_deref())
-            .await;
-        // Phase 5d-1 probe fix: rows an older release wrote or renamed
-        // after the `backfill_name_keys` step (a downgrade, then this
-        // release again) get their `name_key` back. Only a read when there
-        // are none; a failure is logged and the lookups still fold the
-        // NULL-key rows themselves.
-        #[cfg(feature = "storage")]
-        if let Err(e) = storage::refill_name_keys(workspace.storage()).await {
-            log::warn!(activity = "workspace.open", code = e.code(); "Refilling name keys failed");
+        if maintenance {
+            // Phase 5d Decision 12a: move secrets left in stored connection
+            // strings to the keychain, then strip them (once; a read-only
+            // open never runs it).
+            workspace
+                .upgrade_string_secrets(self.executor.as_deref())
+                .await;
+            // Phase 5d-1 probe fix: rows an older release wrote or renamed
+            // after the `backfill_name_keys` step (a downgrade, then this
+            // release again) get their `name_key` back. Only a read when
+            // there are none; a failure is logged and the lookups still fold
+            // the NULL-key rows themselves.
+            if let Err(e) = storage::refill_name_keys(workspace.storage()).await {
+                log::warn!(activity = "workspace.open", code = e.code(); "Refilling name keys failed");
+            }
+            // 5d-2 Task 7 review: workflows and versions an older release
+            // wrote without their list metadata get it (the lists compute it
+            // for such a row meanwhile).
+            if let Err(e) = storage::refill_list_meta(workspace.storage()).await {
+                log::warn!(activity = "workspace.open", code = e.code(); "Refilling list metadata failed");
+            }
         }
-        // 5d-2 Task 7 review: workflows and versions an older release wrote
-        // without their list metadata get it (the lists compute it for such
-        // a row meanwhile).
-        #[cfg(feature = "storage")]
-        if let Err(e) = storage::refill_list_meta(workspace.storage()).await {
-            log::warn!(activity = "workspace.open", code = e.code(); "Refilling list metadata failed");
+        let workspace = Arc::new(workspace);
+        // Phase 7a Decision 6: only after the open's own work (which runs on
+        // the writer connection anyway, so it never looks external).
+        #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+        if let Some(interval) = external_changes {
+            match &self.executor {
+                Some(executor) => workspace.start_external_poll(Arc::clone(executor), interval),
+                None => {
+                    log::warn!(activity = "workspace.poll"; "No executor: external changes aren't polled")
+                }
+            }
         }
-        Ok(Arc::new(workspace))
+        Ok(workspace)
     }
 
     /// The [`ConnectPolicy`], or `NOT_SUPPORTED` without one.

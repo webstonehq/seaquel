@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌[Q]-untitled-1 - +───────────────INSERT · modified┐
+│✓ prod-analytics → pg · d…││ 1 SELECT 42                                      │
+└──────────────────────────┘│                                                  │
+┌[2]-Tables - Views────────┐│                                                  │
+│▾public                  6││                                                  │
+│  customers          12.4k││                                                  │
+│  invoices           48.1k│└──────────────────────────────────────────────────┘
+│  invoice_line_items  312k│┌Results - Explain - Messages──────────────────────┐
+│  items                 86││ctrl+r runs the text, ctrl+e the statement at the │
+│  orders             91.7k││cursor                                            │
+│  payment┌ Save query ──────────────────────────────────────────────┐         │
+│▸analytic│                                                          │         │
+└─────────│ name › answer▌                                           │         │
+┌[3]-Saved└──────────────────────────────────────────────────────────┘         │
+│⇄ revenue_by_month.sql    ││                                                  │
+│⇄ top_customers.sql       ││                                                  │
+│  churn_cohorts.sql       ││                                                  │
+└────────────────────1 of 5┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Save: enter | Cancel: esc                                       seaquel <version>

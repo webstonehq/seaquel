@@ -9,6 +9,7 @@
     "wasm:build:browser": "node scripts/build-wasm.mjs --module browser",
     "wasm:build:browser-test": "node scripts/build-wasm.mjs --module browser --test-hooks",
     "cli:build": "node scripts/build-cli.mjs",
+    "tui:build": "node scripts/build-cli.mjs --bin seaquel-tui",
     "predev": "npm run wasm:build",
     "dev": "vite dev",
     "predev:demo": "npm run wasm:build && npm run wasm:build:browser",

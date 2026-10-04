@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌[Q]-untitled-1 - +──────────────────────────INSERT┐
+│✓ prod-analytics → pg · d…││ 1 type SQL · ctrl+r runs it · esc for Normal mode│
+└──────────────────────────┘│                                                  │
+┌[2]-Tables - Views────────┐│                                                  │
+│▾public                  6││                                                  │
+│  customers          12.4k││                                                  │
+│  invoices           48.1k│└──────────────────────────────────────────────────┘
+│  invoice_line_items  312k│┌Results - Explain - Messages──────────────────────┐
+│┌ Ask AI ─────────────────────── schema shared · data not shared · read-only ┐│
+││                                                                            ││
+││ › count @inv▌                                                              ││
+││   public.invoices            table                                         ││
+└│   public.invoice_line_items  table                                         ││
+┌│                                                                            ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+│⇄ top_customers.sql       ││                                                  │
+│  churn_cohorts.sql       ││                                                  │
+└────────────────────1 of 5┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Insert: tab | Choose: arrows | Close: esc                       seaquel <version>

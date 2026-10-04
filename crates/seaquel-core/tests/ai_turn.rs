@@ -1569,3 +1569,93 @@ async fn the_key_is_redacted_before_the_message_is_cut() {
     assert!(!shown.contains("test-"), "a piece of the key shows");
     assert_eq!(&shown[1020..], "<red");
 }
+
+// ── The inline prompt's mentions (phase 7a Task 7) ──
+
+/// The TUI's Ask AI completes `@` names and sends the request as typed:
+/// Core resolves the mentions for `ai.generate` as it does for a turn (a
+/// table, a saved query, a dashboard; `@"…"` for a name with spaces), and
+/// a request without any is sent unchanged.
+#[tokio::test]
+async fn generate_resolves_mentions_as_a_turn_does() {
+    let mut setup = Setup::default();
+    let mut off = Conn::new("conn-2", "postgres");
+    off.share_schema = Some(false);
+    setup.conns.push(off);
+    let w = world(setup).await;
+    *w.db.schema.lock().unwrap() = vec![serde_json::from_value(json!({
+        "name": "invoices", "schema": "public", "type": "table",
+        "columns": [{"name": "id", "type": "integer", "nullable": false,
+                     "isPrimaryKey": true, "isForeignKey": false}],
+        "indexes": []
+    }))
+    .unwrap()];
+    common::insert_rows(
+        w.ws.storage(),
+        "saved_queries",
+        &[
+            json!({"id": "saved-1", "project_id": "p1", "name": "Paid totals",
+                 "query": "SELECT sum(total) FROM invoices", "created_at": T0, "updated_at": T0}),
+        ],
+    )
+    .await;
+    w.connect("conn-1").await;
+    let answer = json!({"content": [{"type": "text", "text": "```sql\nSELECT 1\n```"}]});
+    for _ in 0..3 {
+        w.mock.reply(Reply::json(200, &answer));
+    }
+    let generate_on = |connection: &str, request: &str| seaquel_core::ai::GenerateParams {
+        connection_id: connection.into(),
+        request: request.into(),
+        existing_query: String::new(),
+        api_key: None,
+        provider_id: None,
+    };
+    let generate = |request: &str| seaquel_core::ai::GenerateParams {
+        connection_id: "conn-1".into(),
+        request: request.into(),
+        existing_query: String::new(),
+        api_key: None,
+        provider_id: None,
+    };
+    let sql =
+        w.ws.ai_generate(
+            &w.core,
+            generate("top payers in @invoices like @\"Paid totals\""),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sql, "SELECT 1");
+    let sql =
+        w.ws.ai_generate(&w.core, generate("no mention here"))
+            .await
+            .unwrap();
+    assert_eq!(sql, "SELECT 1");
+    let sent = w.http.sent();
+    let user = |i: usize| {
+        sent[i].body["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let first = user(0);
+    assert!(
+        first.starts_with("top payers in @invoices like @\"Paid totals\"\n\nReferenced context:\n"),
+        "{first}"
+    );
+    assert!(first.contains("Table: public.invoices"), "{first}");
+    assert!(first.contains("Saved query: Paid totals"), "{first}");
+    assert_eq!(user(1), "no mention here");
+
+    // Schema sharing off (Decision 24 of phase 7a): the request goes byte
+    // for byte as typed, with no context.
+    let typed = "top payers in @invoices like @\"Paid totals\"";
+    w.ws.ai_generate(&w.core, generate_on("conn-2", typed))
+        .await
+        .unwrap();
+    let sent = w.http.sent();
+    assert_eq!(
+        sent[2].body["messages"][0]["content"].as_str().unwrap(),
+        typed
+    );
+}

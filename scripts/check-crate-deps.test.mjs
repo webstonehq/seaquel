@@ -229,6 +229,56 @@ describe("checkCrateDeps", () => {
     ]);
   });
 
+  it("accepts the phase 7a terminal crates", () => {
+    const packages = [
+      pkg("seaquel-core"),
+      pkg("seaquel-runtime"),
+      pkg("seaquel-types"),
+      pkg("seaquel-rpc", "seaquel-core", "seaquel-types"),
+      pkg("seaquel-mcp", "seaquel-core", "seaquel-rpc", "seaquel-types"),
+      pkg("seaquel-terminal", "seaquel-core", "seaquel-runtime", "seaquel-types"),
+      pkg("seaquel-cli", "seaquel-core", "seaquel-mcp", "seaquel-terminal"),
+      pkg("seaquel-tui", "seaquel-core", "seaquel-terminal", "seaquel-runtime", "seaquel-types"),
+    ];
+    expect(checkCrateDeps(packages)).toEqual([]);
+  });
+
+  it("keeps the MCP server out of the TUI and seaquel-terminal to Core", () => {
+    const base = [
+      pkg("seaquel-core"),
+      pkg("seaquel-rpc", "seaquel-core"),
+      pkg("seaquel-mcp", "seaquel-core"),
+      pkg("seaquel-storage"),
+    ];
+    expect(
+      checkCrateDeps([
+        ...base,
+        pkg("seaquel-terminal", "seaquel-core"),
+        pkg("seaquel-tui", "seaquel-core", "seaquel-terminal", "seaquel-mcp", "seaquel-storage"),
+      ]),
+    ).toEqual([
+      "seaquel-tui -> seaquel-mcp: seaquel-tui doesn't link the MCP server (rmcp); only seaquel-cli does",
+      "seaquel-tui -> seaquel-storage: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())",
+    ]);
+    expect(
+      checkCrateDeps([
+        ...base,
+        pkg("seaquel-terminal", "seaquel-core", "seaquel-mcp", "seaquel-rpc"),
+      ]),
+    ).toEqual([
+      "seaquel-terminal -> seaquel-mcp: seaquel-terminal may use only seaquel-core, seaquel-runtime and seaquel-types",
+      "seaquel-terminal -> seaquel-rpc: seaquel-terminal may use only seaquel-core, seaquel-runtime and seaquel-types",
+    ]);
+    // Nothing depends on the TUI.
+    expect(
+      checkCrateDeps([
+        ...base,
+        pkg("seaquel-tui", "seaquel-core"),
+        pkg("seaquel-cli", "seaquel-tui"),
+      ]),
+    ).toEqual(["seaquel-cli -> seaquel-tui: interfaces reach everything through seaquel-core"]);
+  });
+
   it("rejects seaquel-mcp bypassing Core for an engine", () => {
     const errors = checkCrateDeps([
       pkg("seaquel-mcp", "seaquel-core", "seaquel-engine-postgres"),

@@ -1,0 +1,42 @@
+┌[1]-Connection──────────────────────────────○ 0┐┌[Q]-untitled-1 - +──────────────────────────────────────────────────────────────INSERT · modified┐
+│✓ prod-analytics → pg · db.internal            ││ 1 SELECT id, customer, total FROM invoices;                                                     │
+└───────────────────────────────────────────────┘│ 2 SELECT count(*) FROM invoices;                                                                │
+┌[2]-Tables - Views─────────────────────────────┐│ 3 UPDATE invoices SET total = 0 WHERE id < 3;                                                   │
+│▾public                                       6││ 4 SELEC 1                                                                                       │
+│  customers                               12.4k││                                                                                                 │
+│  invoices                                48.1k││                                                                                                 │
+│  invoice_line_items                       312k││                                                                                                 │
+│  items                                      86││                                                                                                 │
+│  orders                                  91.7k││                                                                                                 │
+│  payments                                40.2k││                                                                                                 │
+│▸analytics                                    1││                                                                                                 │
+│▸auth                                         1││                                                                                                 │
+│                                               │└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+│                                               │┌Results - Explain - Messages─────────────────────────────────────────────────────statement 1 of 2┐
+│                                               ││ id     customer   total                                                                         │
+│                                               ││ 48112  Acme Corp  4210.00                                                                       │
+│                                               ││ 48111  Initech    NULL                                                                          │
+│                                               ││ 48110  Globex       88.10                                                                       │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└─────────────────────────────────────────3 of 9┘│                                                                                                 │
+┌[3]-Saved - History────────────────────────────┐│                                                                                                 │
+│⇄ revenue_by_month.sql                         ││                                                                                                 │
+│⇄ top_customers.sql                            ││                                                                                                 │
+│  churn_cohorts.sql                            ││                                                                                                 │
+│▾perf                                         1││                                                                                                 │
+│  slow_invoices.sql                            ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└─────────────────────────────────────────1 of 5┘│                                                                                                 │
+┌[4]-Pending Changes────────────────────+0 ~0 -0┐│                                                                                                 │
+│nothing staged                                 ││id                                                                           rows 1–3 of 3 · 4 ms│
+│                                               │└───────────────────────────────────────────────────────────────────────────────────────────1 of 3┘
+│                                               │┌Command Log──────────────────────────────────────────────────────────────────────────────────────┐
+│                                               ││statements Seaquel runs show here                                                                │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└───────────────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+Move: h j k l | Open cell: enter | Page: n p | Tabs: [ ] | Run: ctrl+r | Results: ctrl+w | Back: esc | Keybindings: ?               seaquel <version>

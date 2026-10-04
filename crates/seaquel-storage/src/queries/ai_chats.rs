@@ -79,14 +79,16 @@ pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedA
 
 /// Upserts a chat.
 pub async fn save_chat(st: &Storage, chat: &PersistedAIChat) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query(&upsert_sql("ai_chats", &CHAT_COLUMNS, "id"))
         .bind(&chat.id)
         .bind(&chat.connection_id)
         .bind(&chat.title)
         .bind(&chat.created_at)
         .bind(&chat.updated_at)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -143,19 +145,23 @@ pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
 
 /// Deletes a chat. Its messages cascade.
 pub async fn remove_chat(st: &Storage, chat_id: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM ai_chats WHERE id = ?")
         .bind(chat_id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 
 /// Deletes a connection's chats.
 pub async fn remove_by_connection(st: &Storage, connection_id: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM ai_chats WHERE connection_id = ?")
         .bind(connection_id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 

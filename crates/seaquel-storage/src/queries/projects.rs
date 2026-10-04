@@ -279,9 +279,11 @@ pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
 /// v2026.4.5-beta.1, whose `saved_queries` and `dashboards` have no foreign
 /// key).
 pub async fn remove(st: &Storage, project_id: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM projects WHERE id = ?")
         .bind(project_id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }

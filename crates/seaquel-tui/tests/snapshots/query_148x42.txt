@@ -1,0 +1,42 @@
+┌[1]-Connection──────────────────────────────○ 0┐┌[Q]-revenue_by_month.sql - untitled-1 - +───────────────────────────────────────INSERT · modified┐
+│✓ prod-analytics → pg · db.internal            ││ 1 SELECT c.name,                                                                                │
+└───────────────────────────────────────────────┘│ 2        date_trunc('month', i.issued_at) AS month,                                             │
+┌[2]-Tables - Views─────────────────────────────┐│ 3        sum(li.quantity * li.unit_price) AS revenue                                            │
+│▾public                                       6││ 4 FROM   invoices i                                                                             │
+│  customers                               12.4k││ 5 JOIN   customers c ON c.id = i.customer_id                                                    │
+│  invoices                                48.1k││ 6 JOIN   invoice_line_items li ON li.invoice_id = i.id                                          │
+│  invoice_line_items                       312k││ 7 WHERE  i.iss                                                                                  │
+│  items                                      86││ 8 GROUP BY┌───────────────┐                                                                     │
+│  orders                                  91.7k││ 9 ORDER BY│issued_at  date│                                                                     │
+│  payments                                40.2k││           │issuer_id  int8│                                                                     │
+└─────────────────────────────────────────3 of 9┘│           └───────────────┘                                                                     │
+┌[3]-Saved - History────────────────────────────┐│                                                                                                 │
+│⇄ revenue_by_month.sql                         │└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+│⇄ top_customers.sql                            │┌Results - Explain - Messages─────────────────────────────────────────────────ANALYZE ✓ · 412.3 ms┐
+│  churn_cohorts.sql                            ││node                                                               rows  self ms  share of total │
+│▾perf                                         1││Sort (sum(revenue)) DESC                                          1,204      3.1              1% │
+│  slow_invoices.sql                            ││└─ HashAggregate                                                  1,204     44.8             11% │
+│                                               ││   └─ Hash Join li.invoice_id = i.id                            298,410     61.0             15% │
+│                                               ││      ├─ Seq Scan invoice_line_items li                         312,006    238.9             58% │
+│                                               ││      └─ Hash                                                    31,877      6.2              2% │
+│                                               ││         └─ Hash Join c.id = i.customer_id                       31,877     19.4              5% │
+│                                               ││            ├─ Index Scan invoices_issued_at_idx                 31,877     33.6              8% │
+│                                               ││            └─ Seq Scan customers c                              12,418      5.3              1% │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└─────────────────────────────────────────1 of 5┘│                                                                                                 │
+┌[4]-Pending Changes────────────────────+0 ~0 -0┐│                                                                                                 │
+│nothing staged                                 ││                                                                                                 │
+│                                               │└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+│                                               │┌Command Log──────────────────────────────────────────────────────────────────────────────────────┐
+│                                               ││statements Seaquel runs show here                                                                │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└───────────────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+Insert: tab | Choose: arrows | Close: esc                                                                                      INSERT · Ln 7, Col 13

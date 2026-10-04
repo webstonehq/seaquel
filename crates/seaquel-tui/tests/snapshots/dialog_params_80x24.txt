@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌[Q]-untitled-1 - +───────────────INSERT · modified┐
+│✓ prod-analytics → pg · d…││ 1 SELECT * FROM invoices WHERE issued_at BETWEEN │
+└──────────────────────────┘│                                                  │
+┌[2]-Tables - Views────────┐│                                                  │
+│▾public                  6││                                                  │
+│  customers          12.4k││                                                  │
+│  invoices           48.1k│└──────────────────────────────────────────────────┘
+│  invoice_line_items  312k│┌Results - Explain - Messages──────────────────────┐
+│  items┌ Parameters ──────────────────────────────────────────────────┐at the │
+│  order│                                                              │       │
+│  payme│ from › 2026-01-01▌                                           │       │
+│▸analyt│ to   ›                                                       │       │
+└───────│                                                              │       │
+┌[3]-Sav│ NULL sets NULL; \NULL is the text                            │       │
+│⇄ reven└──────────────────────────────────────────────────────────────┘       │
+│⇄ top_customers.sql       ││                                                  │
+│  churn_cohorts.sql       ││                                                  │
+└────────────────────1 of 5┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Next: tab | Run: enter | Cancel: esc                            seaquel <version>

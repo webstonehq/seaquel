@@ -288,15 +288,34 @@ async fn every_connection_gets_the_pragmas() {
     )
     .await
     .unwrap();
-    assert_eq!(storage.pool().options().get_max_connections(), 3);
+    // Three connections: two in the pool for reads, and the writer
+    // connection outside it (phase 7a Decision 5).
+    assert_eq!(storage.pool().options().get_max_connections(), 2);
     assert_eq!(
         storage.pool().options().get_idle_timeout(),
         Some(Duration::from_secs(60))
     );
+    let mut tx = storage.write().await.unwrap();
+    let writer: (i64, i64, String) = (
+        sqlx::query_scalar("PRAGMA foreign_keys")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap(),
+        sqlx::query_scalar("PRAGMA busy_timeout")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap(),
+        sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap(),
+    );
+    assert_eq!(writer, (1, 5000, "wal".to_string()));
+    tx.commit().await.unwrap();
 
-    // Hold three at once, so each is its own connection.
+    // Hold both at once, so each is its own connection.
     let mut held = Vec::new();
-    for _ in 0..3 {
+    for _ in 0..2 {
         held.push(storage.pool().acquire().await.unwrap());
     }
     for conn in &mut held {

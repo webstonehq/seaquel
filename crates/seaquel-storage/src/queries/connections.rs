@@ -266,10 +266,12 @@ pub async fn update(tx: &mut WriteTx, c: &PersistedConnection) -> Result<bool> {
 
 /// Deletes the connection. Its labels, history and AI chats cascade.
 pub async fn remove(st: &Storage, connection_id: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM connections WHERE id = ?")
         .bind(connection_id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 

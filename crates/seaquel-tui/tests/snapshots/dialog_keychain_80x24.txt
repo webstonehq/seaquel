@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌Data - Structure - Indexes - Constraints - DDL────┐
+│… staging → pg · db.inter…││nothing selected                                  │
+└──────────────────────────┘│                                                  │
+┌[2]-Tables - Views────────┐│                                                  │
+│no connection             ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│         ┌ Waiting for the keychain ────────────────────────────────┐         │
+│         │ Waiting for macOS to allow access to the keychain.       │         │
+│         │ Choose Always Allow in the dialog, which may be behind   │         │
+└─────────│ this window.                                             │         │
+┌[3]-Saved└──────────────────────────────────────────────────────────┘         │
+│no saved queries          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+└──────────────────────────┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Stop waiting: esc                                               seaquel <version>

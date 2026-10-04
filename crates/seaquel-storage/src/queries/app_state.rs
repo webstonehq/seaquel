@@ -33,7 +33,10 @@ pub async fn delete_in(tx: &mut WriteTx, key: &str) -> Result<bool> {
 
 /// Sets `key`. `None` keeps a row whose value is NULL.
 pub async fn set(st: &Storage, key: &str, value: Option<&str>) -> Result<()> {
-    set_with(st.pool(), key, value).await
+    let mut tx = super::codec::begin(st).await?;
+    set_with(tx.conn(), key, value).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub(crate) async fn set_with<'e, E>(db: E, key: &str, value: Option<&str>) -> Result<()>

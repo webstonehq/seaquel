@@ -4,7 +4,7 @@
 use crate::db;
 use seaquel_types::storage::PersistedCredential;
 
-use super::codec::{text, Result};
+use super::codec::{begin, text, Result};
 use crate::{Storage, WriteTx};
 
 pub async fn load(st: &Storage, scope: &str, key: &str) -> Result<Option<PersistedCredential>> {
@@ -29,6 +29,7 @@ pub async fn load(st: &Storage, scope: &str, key: &str) -> Result<Option<Persist
 }
 
 pub async fn save(st: &Storage, c: &PersistedCredential) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query(
         "INSERT OR REPLACE INTO user_credentials (scope, key, nonce, ciphertext, updated_at) \
          VALUES (?, ?, ?, ?, ?)",
@@ -38,27 +39,32 @@ pub async fn save(st: &Storage, c: &PersistedCredential) -> Result<()> {
     .bind(&c.nonce)
     .bind(&c.ciphertext)
     .bind(&c.updated_at)
-    .execute(st.pool())
+    .execute(tx.conn())
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 
 pub async fn remove(st: &Storage, scope: &str, key: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM user_credentials WHERE scope = ? AND key = ?")
         .bind(scope)
         .bind(key)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 
 /// Deletes every credential for `key` (a connection id, say), in every
 /// scope.
 pub async fn remove_all_for_key(st: &Storage, key: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM user_credentials WHERE key = ?")
         .bind(key)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 

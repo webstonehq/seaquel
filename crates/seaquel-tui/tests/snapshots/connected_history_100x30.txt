@@ -1,0 +1,30 @@
+┌[1]-Connection──────────────○ 0┐┌SQL──────────────────────────────────────────────────────────────┐
+│✓ prod-analytics → pg · db.int…││12:03:51 · 18 ms · 40 rows                                       │
+└───────────────────────────────┘│                                                                 │
+┌[2]-Tables - Views─────────────┐│SELECT * FROM public.invoices ORDER BY issued_at DESC LIMIT 40;  │
+│▾public                       6││                                                                 │
+│  customers               12.4k││                                                                 │
+│  invoices                48.1k││                                                                 │
+│  invoice_line_items       312k││                                                                 │
+└─────────────────────────3 of 9┘│                                                                 │
+┌[3]-Saved - History────────────┐│                                                                 │
+│12:03:51  SELECT * FROM public…││                                                                 │
+│                               ││                                                                 │
+│                               ││                                                                 │
+│                               ││                                                                 │
+│                               ││                                                                 │
+│                               ││                                                                 │
+│                               ││                                                                 │
+│                               ││                                                                 │
+│                               ││                                                                 │
+│                               ││                                                                 │
+│                               ││                                                                 │
+│                               ││                                                                 │
+└─────────────────────────1 of 1┘└─────────────────────────────────────────────────────────────────┘
+┌[4]-Pending Changes────+0 ~0 -0┐┌Command Log──────────────────────────────────────────────────────┐
+│nothing staged                 ││statements Seaquel runs show here                                │
+│                               ││                                                                 │
+│                               ││                                                                 │
+│                               ││                                                                 │
+└───────────────────────────────┘└─────────────────────────────────────────────────────────────────┘
+Select: j/k | Open: enter | Open in a tab: o | Saved/History: [ ] | Keybindings: ?  seaquel <version>

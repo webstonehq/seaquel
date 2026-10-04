@@ -20,6 +20,7 @@ import {
 import { projectFromWire, workflowSummaryFromWire } from "./library/convert.js";
 import { LAST_PROJECT } from "./library/types.js";
 import { libraryError } from "./library/messages.js";
+import { keepSame } from "./library/same-data.js";
 import { bumpRevisions, libraryNameOf, refreshConnectionOrder } from "./library/view.js";
 import { errorToast } from "$lib/utils/toast";
 import { errorCode } from "$lib/core/client";
@@ -166,7 +167,8 @@ export class ProjectManager {
       const row = byId.get(id);
       const current = next.find((p) => p.id === id);
       if (row) {
-        const project = projectFromWire(row);
+        // An unchanged row keeps its object (an `external` reload reads them all).
+        const project = keepSame(current, projectFromWire(row));
         if (current) {
           if (remote && projectDiffers(current, project)) revisions.push(key);
           next = next.map((p) => (p.id === id ? project : p));

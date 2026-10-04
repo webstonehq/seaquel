@@ -29,11 +29,13 @@ pub async fn save_preferences(
     light_theme_id: &str,
     dark_theme_id: &str,
 ) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("INSERT OR REPLACE INTO theme_preferences (id, light_theme_id, dark_theme_id) VALUES (1, ?, ?)")
         .bind(light_theme_id)
         .bind(dark_theme_id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 

@@ -1,0 +1,347 @@
+
+class Component extends DCLogic {
+  static COLS = [['id','int8'],['customer','text'],['status','enum'],['issued_at','date'],['due_at','date'],['total','numeric'],['paid_at','timestamptz']];
+  static ROWS = [
+    ['48112','Acme Corp','sent','2026-09-24','2026-10-24','4210.00',null],
+    ['48111','Initech','paid','2026-09-24','2026-10-24','860.50','2026-09-25 09:12'],
+    ['48110','Umbrella Health','draft','2026-09-23',null,'12400.00',null],
+    ['48109','Globex Ltd','overdue','2026-08-22','2026-09-21','2975.00',null],
+    ['48108','Stark Industrial','paid','2026-09-21','2026-10-21','1025.00','2026-09-22 14:40'],
+    ['48107','Wayne Logistics','sent','2026-09-20','2026-10-20','7880.00',null],
+    ['48106','Hooli','overdue','2026-08-18','2026-09-17','540.00',null],
+    ['48105','Soylent Foods','paid','2026-09-18','2026-10-18','2300.00','2026-09-19 08:03'],
+    ['48104','Vandelay Imports','sent','2026-09-17','2026-10-17','615.75',null],
+    ['48103','Pied Piper','paid','2026-09-16','2026-10-16','9999.00','2026-09-16 17:21'],
+    ['48102','Cyberdyne','overdue','2026-08-14','2026-09-13','3410.20',null],
+    ['48101','Tyrell Corp','paid','2026-09-14','2026-10-14','18250.00','2026-09-15 11:48'],
+    ['48100','Massive Dynamic','sent','2026-09-13','2026-10-13','1190.00',null],
+    ['48099','Oscorp','paid','2026-09-12','2026-10-12','4475.00','2026-09-12 16:30'],
+    ['48098','Aperture Labs','sent','2026-09-11','2026-10-11','730.00',null]
+  ];
+  static TABS2 = {
+    Tables: [['customers','12.4k'],['invoices','48.1k'],['invoice_line_items','312k'],['items','86'],['orders','91.7k'],['payments','40.2k'],['refunds','1.3k'],['services','12'],['subscriptions','8.8k']],
+    Views: [['active_customers','view'],['mrr_monthly','matview'],['overdue_invoices','view']],
+    Functions: [['recalc_totals(int8)','plpgsql'],['set_updated_at()','trigger'],['next_invoice_no()','sql']],
+    Enums: [['invoice_status','4 values'],['billing_period','3 values']]
+  };
+  static SAVED = [
+    ['M','revenue_by_month.sql',["SELECT c.name,","       date_trunc('month', i.issued_at) AS month,","       sum(li.quantity * li.unit_price) AS revenue","FROM   invoices i","JOIN   customers c ON c.id = i.customer_id","JOIN   invoice_line_items li ON li.invoice_id = i.id","GROUP BY 1, 2","ORDER BY revenue DESC;"]],
+    ['A','top_customers.sql',["SELECT c.name, sum(i.total) AS lifetime","FROM   customers c","JOIN   invoices i ON i.customer_id = c.id","WHERE  i.status = 'paid'","GROUP BY c.name","ORDER BY lifetime DESC","LIMIT  25;"]],
+    ['','churn_cohorts.sql',["WITH cohorts AS (","  SELECT customer_id, date_trunc('month', min(started_at)) AS cohort","  FROM subscriptions GROUP BY 1",")","SELECT cohort, count(*) FILTER (WHERE canceled_at IS NULL) AS retained","FROM cohorts JOIN subscriptions USING (customer_id)","GROUP BY cohort ORDER BY cohort;"]],
+    ['','slow_invoices.sql',["SELECT id, customer_id, issued_at, now() - due_at AS late_by","FROM   invoices","WHERE  status = 'overdue'","ORDER BY late_by DESC;"]]
+  ];
+  static HIST = [
+    ['12:03:51','SELECT * FROM public.invoices ORDER BY issued_at DESC LIMIT 40;'],
+    ['12:01:10','SELECT count(*) FROM public.customers;'],
+    ['11:58:42',"SELECT * FROM items WHERE name ILIKE '%hosting%';"],
+    ['11:52:09','EXPLAIN ANALYZE SELECT … FROM invoice_line_items …']
+  ];
+  static STATUS = { sent:'#79c0ff', paid:'#7ee787', draft:'#8b949e', overdue:'#ff7b72' };
+  static P = ['conn','tables','saved','pending','main'];
+
+  state = {
+    focus: 'tables', ctx: 'tables', ti: 1, oi: 0, si: 0, pi: 0, row: 3, col: 5,
+    mainTab: 0, tablesTab: 0, savedTab: 0,
+    base: Component.ROWS.map(r => Object.fromEntries(Component.COLS.map(([k], i) => [k, r[i]]))),
+    edits: { '48109.total': '3150.00' }, dels: ['48106'],
+    hist: [{ t: 'edit', key: '48109.total', prev: undefined }, { t: 'del', id: '48106' }],
+    editing: null, filter: '', filtering: false, modal: null, clock: 43467,
+    log: [
+      { time: '12:04:02', tag: '', tagColor: '', text: 'SELECT count(*) FROM public.invoices;', ms: '4 ms' },
+      { time: '12:04:02', tag: '', tagColor: '', text: 'SELECT * FROM public.invoices ORDER BY issued_at DESC LIMIT 40;', ms: '18 ms' },
+      { time: '12:04:19', tag: 'staged ', tagColor: '#e3b341', text: 'UPDATE invoices SET total = 3150.00 WHERE id = 48109', ms: '' },
+      { time: '12:04:27', tag: 'staged ', tagColor: '#ff7b72', text: 'DELETE FROM invoices WHERE id = 48106', ms: '' }
+    ]
+  };
+
+  componentDidMount() { this._k = e => this.onKey(e); window.addEventListener('keydown', this._k); }
+  componentWillUnmount() { window.removeEventListener('keydown', this._k); }
+
+  fmtTime(sec) { const p = n => String(n).padStart(2, '0'); return `${p(Math.floor(sec / 3600) % 24)}:${p(Math.floor(sec / 60) % 60)}:${p(sec % 60)}`; }
+  addLog(s, entries) {
+    let clock = s.clock + 3 + Math.floor(Math.random() * 6);
+    const log = [...s.log, ...entries.map(e => ({ tag: '', tagColor: '', ms: '', ...e, time: this.fmtTime(clock) }))].slice(-4);
+    return { log, clock };
+  }
+  sqlVal(v, k) { if (v === null) return 'NULL'; return (k === 'id' || k === 'total') ? v : `'${v}'`; }
+  fmt(v, k) { if (v === null || v === undefined) return 'NULL'; if (k === 'total' && !isNaN(+v) && v !== '') return (+v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return v; }
+  visRows(s = this.state) { const f = s.filter.toLowerCase(); return s.base.filter(r => !f || [r.id, r.customer, r.status].some(v => String(v).toLowerCase().includes(f))); }
+  val(s, r, k) { const key = r.id + '.' + k; return key in s.edits ? s.edits[key] : r[k]; }
+  pend(s = this.state) {
+    return [...Object.keys(s.edits).map(key => { const [id, col] = key.split('.'); return { t: 'M', key, id, col }; }), ...s.dels.map(id => ({ t: 'D', id }))];
+  }
+  tableName(s = this.state) { return Component.TABS2.Tables[s.ti][0]; }
+  isGrid(s = this.state) { return s.ctx === 'tables' && s.tablesTab === 0 && this.tableName(s) === 'invoices' && s.mainTab === 0; }
+
+  focus(p) { this.setState(s => ({ focus: p, ctx: p === 'main' ? s.ctx : (p === 'conn' ? s.ctx : p), editing: null, filtering: false })); }
+  clamp(v, n) { return Math.max(0, Math.min(n - 1, v)); }
+
+  startEdit() {
+    const s = this.state, r = this.visRows()[s.row]; if (!r) return;
+    const k = Component.COLS[s.col][0];
+    if (k === 'id') { this.setState(s => this.addLog(s, [{ tag: 'read-only ', tagColor: '#ff7b72', text: 'id is the primary key' }])); return; }
+    if (s.dels.includes(r.id)) return;
+    const v = this.val(s, r, k);
+    this.setState({ editing: { id: r.id, k, v: v === null ? 'NULL' : v } });
+  }
+  applyEdit() {
+    this.setState(s => {
+      const ed = s.editing, r = s.base.find(x => x.id === ed.id), key = ed.id + '.' + ed.k;
+      const nv = ed.v === 'NULL' ? null : ed.v, edits = { ...s.edits }, prev = s.edits[key];
+      if (nv === r[ed.k]) delete edits[key]; else edits[key] = nv;
+      if (edits[key] === prev) return { editing: null };
+      return { editing: null, edits, hist: [...s.hist, { t: 'edit', key, prev }],
+        ...this.addLog(s, [{ tag: 'staged ', tagColor: '#e3b341', text: `UPDATE invoices SET ${ed.k} = ${this.sqlVal(nv, ed.k)} WHERE id = ${ed.id}` }]) };
+    });
+  }
+  toggleDel(id) {
+    this.setState(s => {
+      const has = s.dels.includes(id);
+      return { dels: has ? s.dels.filter(x => x !== id) : [...s.dels, id], hist: [...s.hist, { t: has ? 'undel' : 'del', id }],
+        ...this.addLog(s, [has ? { tag: 'unstaged ', tagColor: '#8b949e', text: `DELETE FROM invoices WHERE id = ${id}` } : { tag: 'staged ', tagColor: '#ff7b72', text: `DELETE FROM invoices WHERE id = ${id}` }]) };
+    });
+  }
+  unstage(item) {
+    this.setState(s => {
+      if (item.t === 'M') { const edits = { ...s.edits }; const prev = edits[item.key]; delete edits[item.key]; return { edits, hist: [...s.hist, { t: 'edit', key: item.key, prev }], ...this.addLog(s, [{ tag: 'unstaged ', tagColor: '#8b949e', text: `UPDATE invoices … WHERE id = ${item.id}` }]) }; }
+      return { dels: s.dels.filter(x => x !== item.id), hist: [...s.hist, { t: 'undel', id: item.id }], ...this.addLog(s, [{ tag: 'unstaged ', tagColor: '#8b949e', text: `DELETE FROM invoices WHERE id = ${item.id}` }]) };
+    });
+  }
+  undo() {
+    this.setState(s => {
+      const h = s.hist[s.hist.length - 1]; if (!h) return null;
+      const out = { hist: s.hist.slice(0, -1) };
+      if (h.t === 'edit') { const edits = { ...s.edits }; if (h.prev === undefined) delete edits[h.key]; else edits[h.key] = h.prev; out.edits = edits; }
+      if (h.t === 'del') out.dels = s.dels.filter(x => x !== h.id);
+      if (h.t === 'undel') out.dels = [...s.dels, h.id];
+      return { ...out, ...this.addLog(s, [{ tag: 'undo ', tagColor: '#d2a8ff', text: h.t === 'edit' ? `edit ${h.key.replace('.', ' · ')}` : `${h.t === 'del' ? 'delete' : 'unstage'} id ${h.id}` }]) };
+    });
+  }
+  commit() {
+    this.setState(s => {
+      const p = this.pend(s);
+      const base = s.base.filter(r => !s.dels.includes(r.id)).map(r => { const n = { ...r }; Component.COLS.forEach(([k]) => { const key = r.id + '.' + k; if (key in s.edits) n[k] = s.edits[key]; }); return n; });
+      const lg = this.addLog(s, [
+        { tag: '', text: 'BEGIN;', ms: '1 ms' },
+        ...p.map(i => i.t === 'M' ? { text: `UPDATE invoices SET ${i.col} = ${this.sqlVal(s.edits[i.key], i.col)} WHERE id = ${i.id};`, ms: '3 ms' } : { text: `DELETE FROM invoices WHERE id = ${i.id};`, ms: '2 ms' }),
+        { tag: 'committed ', tagColor: '#7ee787', text: `COMMIT; ${p.length} statement${p.length === 1 ? '' : 's'}`, ms: '6 ms' }
+      ]);
+      const n = base.filter(r => !s.filter || this.visRows({ ...s, base }).includes(r)).length;
+      return { base, edits: {}, dels: [], hist: [], modal: null, pi: 0, row: this.clamp(s.row, Math.max(1, n)), ...lg };
+    });
+  }
+  cycleTab(d) {
+    this.setState(s => {
+      const f = s.focus === 'main' ? s.ctx : s.focus;
+      if (s.focus === 'main' && s.ctx === 'tables' && s.tablesTab === 0) return { mainTab: (s.mainTab + d + 5) % 5 };
+      if (f === 'tables') return { tablesTab: (s.tablesTab + d + 4) % 4, oi: 0 };
+      if (f === 'saved') return { savedTab: (s.savedTab + 1) % 2, si: 0 };
+      return null;
+    });
+  }
+
+  onKey(e) {
+    const tg = e.target; if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.isContentEditable)) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key, s = this.state, done = () => e.preventDefault(), P = Component.P;
+    if (s.modal === 'help') { if (['Escape', '?', 'q', 'Enter'].includes(k)) this.setState({ modal: null }); return done(); }
+    if (s.modal === 'commit') { if (k === 'Enter') this.commit(); else if (k === 'Escape' || k === 'q') this.setState({ modal: null }); return done(); }
+    if (s.editing) {
+      const ed = s.editing;
+      if (k === 'Escape') this.setState({ editing: null });
+      else if (k === 'Enter') this.applyEdit();
+      else if (k === 'Backspace') this.setState({ editing: { ...ed, v: ed.v.slice(0, -1) } });
+      else if (k.length === 1) this.setState({ editing: { ...ed, v: ed.v + k } });
+      else return;
+      return done();
+    }
+    if (s.filtering) {
+      if (k === 'Escape') this.setState({ filtering: false, filter: '', row: 0 });
+      else if (k === 'Enter') this.setState({ filtering: false });
+      else if (k === 'Backspace') this.setState({ filter: s.filter.slice(0, -1), row: 0 });
+      else if (k.length === 1) this.setState({ filter: s.filter + k, row: 0 });
+      else return;
+      return done();
+    }
+    if (k >= '0' && k <= '4') { this.focus(k === '0' ? 'main' : P[+k - 1]); return done(); }
+    if (k === 'Tab') { const i = P.indexOf(s.focus); this.focus(P[(i + (e.shiftKey ? P.length - 1 : 1)) % P.length]); return done(); }
+    if (k === '?') { this.setState({ modal: 'help' }); return done(); }
+    if (k === 'c') { if (this.pend().length) this.setState({ modal: 'commit' }); return done(); }
+    if (k === 'u') { this.undo(); return done(); }
+    if (k === '[' || k === ']') { this.cycleTab(k === ']' ? 1 : -1); return done(); }
+    const down = k === 'j' || k === 'ArrowDown', up = k === 'k' || k === 'ArrowUp', left = k === 'h' || k === 'ArrowLeft', right = k === 'l' || k === 'ArrowRight';
+    const dy = down ? 1 : up ? -1 : 0, f = s.focus;
+    if (f === 'main') {
+      if (k === 'Escape') { if (s.filter) this.setState({ filter: '', row: 0 }); else this.focus(s.ctx); return done(); }
+      if (!this.isGrid()) return;
+      const n = this.visRows().length;
+      if (dy) this.setState({ row: this.clamp(s.row + dy, n) });
+      else if (left || right) this.setState({ col: this.clamp(s.col + (right ? 1 : -1), 7) });
+      else if (k === 'g') this.setState({ row: 0 });
+      else if (k === 'G') this.setState({ row: n - 1 });
+      else if (k === 'e' || k === 'Enter') this.startEdit();
+      else if (k === 'd') { const r = this.visRows()[s.row]; if (r) this.toggleDel(r.id); }
+      else if (k === '/') this.setState({ filtering: true });
+      else return;
+      return done();
+    }
+    if (left || right) { const i = P.indexOf(f); this.focus(P[(i + (right ? 1 : 3)) % 4]); return done(); }
+    if (f === 'tables') {
+      const tab = Object.keys(Component.TABS2)[s.tablesTab], n = Component.TABS2[tab].length;
+      if (dy) this.setState(s.tablesTab === 0 ? { ti: this.clamp(s.ti + dy, n), mainTab: 0, row: 0, filter: '' } : { oi: this.clamp(s.oi + dy, n) });
+      else if (k === 'Enter') this.focus('main');
+      else return;
+      return done();
+    }
+    if (f === 'saved') {
+      const n = s.savedTab === 0 ? Component.SAVED.length : Component.HIST.length;
+      if (dy) this.setState({ si: this.clamp(s.si + dy, n) });
+      else if (k === 'Enter') this.focus('main');
+      else return;
+      return done();
+    }
+    if (f === 'pending') {
+      const p = this.pend();
+      if (dy) this.setState({ pi: this.clamp(s.pi + dy, p.length) });
+      else if ((k === ' ' || k === 'd') && p[s.pi]) { this.unstage(p[s.pi]); this.setState({ pi: this.clamp(s.pi, p.length - 1) }); }
+      else if (k === 'Enter') this.focus('main');
+      else return;
+      return done();
+    }
+  }
+
+  renderVals() {
+    const s = this.state, C = Component, P = C.P;
+    const G = '#7ee787', dim = '#30363d';
+    const on = p => s.focus === p, bd = p => on(p) ? G : dim, nc = p => on(p) ? G : '#8b949e';
+    const selBg = (sel, p) => sel ? (on(p) ? '#1f3450' : '#161b22') : 'transparent';
+    const selW = (sel, p) => sel && on(p) ? 700 : 400;
+    const tabs = (names, active, p) => names.map((n, i) => ({ text: (i ? ' - ' : '') + n, color: i === active ? (on(p) ? G : '#c9d1d9') : '#8b949e', weight: i === active ? 700 : 400 }));
+    const p = this.pend(), nUpd = Object.keys(s.edits).length, nDel = s.dels.length;
+    const invMarker = [nUpd ? `~${nUpd}` : '', nDel ? `-${nDel}` : ''].filter(Boolean).join(' ');
+
+    const tabName = Object.keys(C.TABS2)[s.tablesTab], list = C.TABS2[tabName];
+    const idx2 = s.tablesTab === 0 ? s.ti : s.oi;
+    const tableItems = list.map(([name, count], i) => ({ name, count, marker: name === 'invoices' && s.tablesTab === 0 ? invMarker : '', bg: selBg(i === idx2, 'tables'), weight: selW(i === idx2, 'tables'),
+      onClick: e => { e.stopPropagation(); this.setState(s.tablesTab === 0 ? { ti: i, focus: 'tables', ctx: 'tables', mainTab: 0, row: 0, filter: '' } : { oi: i, focus: 'tables', ctx: 'tables' }); } }));
+
+    const savedList = s.savedTab === 0 ? C.SAVED.map(([st, n]) => ({ s: st, name: n, sc: st === 'M' ? '#e3b341' : '#7ee787' })) : C.HIST.map(([t, q]) => ({ s: '', name: `${t} ${q}`, sc: '' }));
+    const savedItems = savedList.map((it, i) => ({ ...it, s: it.s || ' ', bg: selBg(i === s.si, 'saved'), weight: selW(i === s.si, 'saved'), onClick: e => { e.stopPropagation(); this.setState({ si: i, focus: 'saved', ctx: 'saved' }); } }));
+
+    const pendingItems = p.map((it, i) => ({ s: it.t, sc: it.t === 'M' ? '#e3b341' : '#ff7b72', label: `id ${it.id}`, sub: it.t === 'M' ? it.col : (s.base.find(r => r.id === it.id) || {}).customer,
+      bg: selBg(i === s.pi, 'pending'), weight: selW(i === s.pi, 'pending'), onClick: e => { e.stopPropagation(); this.setState({ pi: i, focus: 'pending', ctx: 'pending' }); } }));
+
+    // main panel
+    let mainTabs, mainRight = '', lines = [], showGrid = false, mainCounter = '';
+    const L = (text, color = '#c9d1d9', bg = 'transparent', weight = 400) => ({ text, color, bg, weight });
+    if (s.ctx === 'tables' && s.tablesTab === 0) {
+      const tn = this.tableName();
+      mainTabs = tabs(['Data', 'Structure', 'Indexes', 'Constraints', 'DDL'], s.mainTab, 'main');
+      mainRight = 'public.' + tn;
+      if (tn !== 'invoices') lines = [L(''), L(`  public.${tn}`, '#d2a8ff'), L('  Mockup data is only wired up for public.invoices.', '#8b949e'), L('  Press k/j in [2] to go back to it.', '#6e7681')];
+      else if (s.mainTab === 0) showGrid = true;
+      else if (s.mainTab === 1) lines = [L('column        type          null   default', '#56d4dd', 'transparent', 700), L('─'.repeat(64), dim),
+        L('id            int8          no     nextval(\'invoices_id_seq\')'), L('customer_id   int8          no     —'), L('status        invoice_status no    \'draft\''),
+        L('issued_at     date          no     current_date'), L('due_at        date          yes    —'), L('total         numeric(12,2) no     0'), L('paid_at       timestamptz   yes    —')];
+      else if (s.mainTab === 2) lines = [L('name                          columns        type', '#56d4dd', 'transparent', 700), L('─'.repeat(64), dim),
+        L('invoices_pkey                 (id)           btree · unique'), L('invoices_issued_at_idx        (issued_at)    btree'), L('invoices_customer_id_idx      (customer_id)  btree'), L('invoices_status_idx           (status)       btree · partial')];
+      else if (s.mainTab === 3) lines = [L('name                       definition', '#56d4dd', 'transparent', 700), L('─'.repeat(64), dim),
+        L('invoices_pkey              PRIMARY KEY (id)'), L('invoices_customer_id_fkey  FOREIGN KEY (customer_id) → customers(id)'), L('invoices_total_check       CHECK (total >= 0)')];
+      else lines = ['CREATE TABLE public.invoices (', "  id          int8 PRIMARY KEY DEFAULT nextval('invoices_id_seq'),", '  customer_id int8 NOT NULL REFERENCES customers(id),', "  status      invoice_status NOT NULL DEFAULT 'draft',",
+        '  issued_at   date NOT NULL DEFAULT current_date,', '  due_at      date,', '  total       numeric(12,2) NOT NULL DEFAULT 0 CHECK (total >= 0),', '  paid_at     timestamptz', ');'].map(t => L(t));
+    } else if (s.ctx === 'tables') {
+      const [n, kind] = list[s.oi];
+      mainTabs = tabs(['Definition'], 0, 'main'); mainRight = 'public.' + n;
+      lines = [L(`-- ${tabName.slice(0, -1).toLowerCase()} · ${kind}`, '#6e7681'), L(`public.${n}`, '#d2a8ff'), L(''), L('Definitions are stubbed in this mockup.', '#8b949e')];
+    } else if (s.ctx === 'saved') {
+      mainTabs = tabs(['SQL'], 0, 'main');
+      if (s.savedTab === 0) { const [st, n, sql] = C.SAVED[s.si]; mainRight = n + (st ? `  ${st === 'M' ? 'modified' : 'added'}` : ''); lines = sql.map((t, i) => L(`${String(i + 1).padStart(3)}  ${t}`)); }
+      else { const [t, q] = C.HIST[s.si]; mainRight = 'ran ' + t; lines = [L(`  1  ${q}`)]; }
+    } else {
+      mainTabs = tabs(['Diff', 'SQL'], 0, 'main');
+      const it = p[s.pi];
+      if (!it) lines = [L('nothing staged — edit a cell with e or stage a delete with d', '#6e7681')];
+      else {
+        const r = s.base.find(x => x.id === it.id); mainRight = `public.invoices · id = ${it.id}`;
+        lines.push(L(`@@ public.invoices  WHERE id = ${it.id} @@`, '#56d4dd'));
+        C.COLS.forEach(([k]) => {
+          const pad = k.padEnd(14);
+          if (it.t === 'D') lines.push(L(`- ${pad}${this.fmt(r[k], k)}`, '#ff7b72', '#2a1b1b'));
+          else if (k === it.col) { lines.push(L(`- ${pad}${this.sqlVal(r[k], k)}`, '#ff7b72', '#2a1b1b')); lines.push(L(`+ ${pad}${this.sqlVal(s.edits[it.key], k)}`, G, '#15291c')); }
+          else lines.push(L(`  ${pad}${this.fmt(r[k], k)}`, '#8b949e'));
+        });
+        lines.push(L(''), L('-- generated', '#6e7681'));
+        if (it.t === 'D') lines.push(L(`DELETE FROM public.invoices WHERE id = ${it.id};`));
+        else lines.push(L('UPDATE public.invoices'), L(`   SET ${it.col} = ${this.sqlVal(s.edits[it.key], it.col)}`), L(` WHERE id = ${it.id};`));
+      }
+    }
+
+    // grid
+    const vr = this.visRows(), row = this.clamp(s.row, vr.length);
+    const rows = vr.map((r, ri) => {
+      const sel = ri === row, del = s.dels.includes(r.id);
+      const edited = C.COLS.some(([k]) => (r.id + '.' + k) in s.edits);
+      const cells = {};
+      C.COLS.forEach(([k], ci) => {
+        const key = r.id + '.' + k, v = this.val(s, r, k), isEd = s.editing && s.editing.id === r.id && s.editing.k === k;
+        let color = v === null ? '#6e7681' : k === 'id' ? '#8b949e' : k === 'status' ? (C.STATUS[v] || '#c9d1d9') : '#c9d1d9';
+        if (key in s.edits) color = '#e3b341';
+        let bg = 'transparent', text = this.fmt(v, k);
+        if (del) color = '#ff7b72';
+        if (sel && ci === s.col && on('main')) { bg = key in s.edits ? '#e3b341' : '#58a6ff'; color = '#0d1117'; }
+        if (isEd) { bg = '#30363d'; color = '#ffffff'; text = s.editing.v + '▌'; }
+        cells['c' + ci] = { text, color, bg, align: k === 'total' && !isEd ? 'right' : 'left', deco: del ? 'line-through' : 'none',
+          onClick: e => { e.stopPropagation(); this.setState({ focus: 'main', row: ri, col: ci }); } };
+      });
+      return { ...cells, bg: selBg(sel, 'main'), weight: selW(sel, 'main'), mark: del ? '-' : edited ? '~' : '', markColor: del ? '#ff7b72' : '#e3b341' };
+    });
+    const cr = vr[row], ck = C.COLS[s.col];
+    let cellInfo = '', cellChange = '';
+    if (cr) { cellInfo = `${ck[0]} · ${ck[1]}  `; const key = cr.id + '.' + ck[0]; if (key in s.edits) cellChange = `${this.fmt(cr[ck[0]], ck[0])} → ${this.fmt(s.edits[key], ck[0])}`; }
+    if (showGrid) mainCounter = vr.length ? `${row + 1} of ${vr.length}` : '0 of 0';
+    else if (s.ctx === 'pending') mainCounter = '';
+
+    // key bar
+    const K = arr => arr.map(([label, key], i) => ({ label, key, sep: i ? ' | ' : '' }));
+    let keys, modeLabel = 'seaquel 2026.4.5';
+    if (s.modal === 'commit') keys = K([['Execute', 'enter'], ['Cancel', 'esc']]);
+    else if (s.modal === 'help') keys = K([['Close', 'esc']]);
+    else if (s.editing) { keys = K([['Save', 'enter'], ['Cancel', 'esc'], ['Set NULL', 'type NULL']]); modeLabel = 'EDIT'; }
+    else if (s.filtering) { keys = K([['Apply', 'enter'], ['Clear', 'esc']]); modeLabel = 'FILTER'; }
+    else if (on('main') && showGrid) keys = K([['Move', 'hjkl'], ['Edit', 'e'], ['Stage delete', 'd'], ['Filter', '/'], ['Tabs', '[ ]'], ['Undo', 'u'], ['Commit', 'c'], ['Back', 'esc'], ['Keybindings', '?']]);
+    else if (on('main')) keys = K([['Tabs', '[ ]'], ['Back', 'esc'], ['Commit', 'c'], ['Keybindings', '?']]);
+    else if (on('tables')) keys = K([['Select', 'j/k'], ['Open', 'enter'], ['Tabs', '[ ]'], ['Next panel', 'tab'], ['Undo', 'u'], ['Commit', 'c'], ['Keybindings', '?']]);
+    else if (on('saved')) keys = K([['Select', 'j/k'], ['Open', 'enter'], ['Saved/History', '[ ]'], ['Next panel', 'tab'], ['Keybindings', '?']]);
+    else if (on('pending')) keys = K([['Select', 'j/k'], ['Unstage', 'space'], ['Undo', 'u'], ['Commit', 'c'], ['View diff', 'enter'], ['Keybindings', '?']]);
+    else keys = K([['Next panel', 'tab'], ['Focus panel', '1-4'], ['Main', '0'], ['Keybindings', '?']]);
+
+    const nIns = 0;
+    const commitLines = [];
+    if (nUpd) commitLines.push({ text: `~${nUpd}  UPDATE   public.invoices`, color: '#e3b341' });
+    if (nDel) commitLines.push({ text: `-${nDel}  DELETE   public.invoices`, color: '#ff7b72' });
+
+    const H = (k, d, head) => ({ k, d, kc: head ? G : '#58a6ff', kw: head ? 700 : 400 });
+    const helpLines = [H('Global', '', 1), H('1 2 3 4 / 0', 'focus panel / main view'), H('tab  shift+tab', 'next / previous panel'), H('[  ]', 'previous / next tab'), H('u', 'undo last staged change'), H('c', 'commit pending changes'),
+      H('Data grid', '', 1), H('h j k l  arrows', 'move cell cursor'), H('g  G', 'first / last row'), H('e  enter', 'edit cell (type NULL for null)'), H('d', 'stage / unstage row delete'), H('/', 'filter rows · esc clears'),
+      H('Pending changes', '', 1), H('space', 'unstage selected change'), H('enter', 'view diff in main')];
+
+    const f = fn => e => { fn(); };
+    return {
+      b0: bd('main'), b1: bd('conn'), b2: bd('tables'), b3: bd('saved'), b4: bd('pending'),
+      n1: nc('conn'), n2: nc('tables'), n3: nc('saved'), n4: nc('pending'), w1: on('conn') ? 700 : 400, w4: on('pending') ? 700 : 400,
+      n2c: nc('tables'), n3c: nc('saved'), n4c: nc('pending'), n0c: nc('main'),
+      fConn: f(() => this.focus('conn')), fTables: f(() => this.focus('tables')), fSaved: f(() => this.focus('saved')), fPending: f(() => this.focus('pending')), fMain: f(() => s.focus !== 'main' && this.focus('main')),
+      connPending: p.length ? `● ${p.length}` : '○ 0', connColor: p.length ? '#e3b341' : '#6e7681',
+      tablesTabs: tabs(Object.keys(C.TABS2), s.tablesTab, 'tables'), tableItems, tablesCounter: `${idx2 + 1} of ${list.length}`,
+      savedTabs: tabs(['Saved', 'History'], s.savedTab, 'saved'), savedItems, savedCounter: `${s.si + 1} of ${savedList.length}`,
+      pendingItems, noPending: !p.length, pendingCounter: p.length ? `${this.clamp(s.pi, p.length) + 1} of ${p.length}` : '',
+      pIns: `+${nIns}`, pUpd: `~${nUpd}`, pDel: `-${nDel}`,
+      mainTabs, mainRight, showGrid, lines: showGrid ? [] : lines, rows, noRows: showGrid && !vr.length,
+      filterText: s.filtering ? s.filter + '▌' : (s.filter || 'filter…'), filterColor: s.filtering || s.filter ? '#c9d1d9' : '#6e7681',
+      cellInfo, cellChange, gridFooter: s.filter ? `${vr.length} match${vr.length === 1 ? '' : 'es'} · 18 ms` : `rows 1–${vr.length} of 48,112 · 18 ms`, mainCounter,
+      log: s.log, keys, modeLabel,
+      showCommit: s.modal === 'commit', commitTitle: `Commit ${p.length} change${p.length === 1 ? '' : 's'}`, commitLines, commitHasDelete: nDel > 0,
+      showHelp: s.modal === 'help', helpLines
+    };
+  }
+}

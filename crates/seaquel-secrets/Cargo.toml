@@ -8,8 +8,10 @@ description = "Seaquel secret storage: the SecretStore trait and the OS keychain
 seaquel-runtime = { path = "../seaquel-runtime" }
 keyring = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt"] }
+# `rt`: the keychain's blocking calls. `sync`: `SecretWait::changed`'s
+# watch channel.
+tokio = { workspace = true, features = ["rt", "sync"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "macros", "time"] }
 uuid = { workspace = true }

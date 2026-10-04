@@ -1,0 +1,42 @@
+┌[1]-Connection──────────────────────────────○ 0┐┌Data - Structure - Indexes - Constraints - DDL────────────────────────────────────public.invoices┐
+│✓ prod-analytics → pg · db.internal            ││name                    columns      type                                                        │
+└───────────────────────────────────────────────┘│───────────────────────────────────────────────────                                              │
+┌[2]-Tables - Views─────────────────────────────┐│invoices_pkey           (id)         btree · unique                                              │
+│▾public                                       6││invoices_issued_at_idx  (issued_at)  btree                                                       │
+│  customers                               12.4k││invoices_customer_idx   (customer)   btree                                                       │
+│  invoices                                48.1k││invoices_status_idx     (status)     btree                                                       │
+│  invoice_line_items                       312k││                                                                                                 │
+│  items                                      86││                                                                                                 │
+│  orders                                  91.7k││                                                                                                 │
+│  payments                                40.2k││                                                                                                 │
+│▸analytics                                    1││                                                                                                 │
+│▸auth                                         1││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└─────────────────────────────────────────3 of 9┘│                                                                                                 │
+┌[3]-Saved - History────────────────────────────┐│                                                                                                 │
+│⇄ revenue_by_month.sql                         ││                                                                                                 │
+│⇄ top_customers.sql                            ││                                                                                                 │
+│  churn_cohorts.sql                            ││                                                                                                 │
+│▾perf                                         1││                                                                                                 │
+│  slow_invoices.sql                            ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└─────────────────────────────────────────1 of 5┘│                                                                                                 │
+┌[4]-Pending Changes────────────────────+0 ~0 -0┐│                                                                                                 │
+│nothing staged                                 ││                                                                                                 │
+│                                               │└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+│                                               │┌Command Log──────────────────────────────────────────────────────────────────────────────────────┐
+│                                               ││statements Seaquel runs show here                                                                │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└───────────────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+Tabs: [ ] | Back: esc | Commit: c | Keybindings: ?                                                                                  seaquel <version>

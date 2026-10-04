@@ -323,9 +323,11 @@ pub async fn save_all(
 
 /// Deletes a project's saved queries. Their versions cascade.
 pub async fn remove_by_project(st: &Storage, project_id: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM saved_queries WHERE project_id = ?")
         .bind(project_id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }

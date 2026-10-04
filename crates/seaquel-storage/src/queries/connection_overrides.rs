@@ -5,7 +5,7 @@ use crate::db;
 use crate::db::SqliteRow;
 use seaquel_types::storage::PersistedConnectionOverride;
 
-use super::codec::{bit, flag, opt_number, opt_text, select_sql, text, upsert_sql, Result};
+use super::codec::{begin, bit, flag, opt_number, opt_text, select_sql, text, upsert_sql, Result};
 use crate::Storage;
 
 const TABLE: &str = "connection_overrides";
@@ -53,6 +53,7 @@ pub async fn load_all(st: &Storage) -> Result<Vec<PersistedConnectionOverride>> 
 
 /// Upserts an override.
 pub async fn save(st: &Storage, o: &PersistedConnectionOverride) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query(&upsert_sql(TABLE, &COLUMNS, "shared_connection_id"))
         .bind(&o.shared_connection_id)
         .bind(&o.username)
@@ -61,16 +62,19 @@ pub async fn save(st: &Storage, o: &PersistedConnectionOverride) -> Result<()> {
         .bind(bit(o.save_password))
         .bind(bit(o.save_ssh_password))
         .bind(bit(o.save_ssh_key_passphrase))
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 
 /// Deletes one override.
 pub async fn remove(st: &Storage, shared_connection_id: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM connection_overrides WHERE shared_connection_id = ?")
         .bind(shared_connection_id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }

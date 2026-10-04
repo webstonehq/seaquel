@@ -26,6 +26,10 @@
 #   is no second account. ./ssh/init adds the keys and turns on forwarding.
 #   It reaches Postgres as `postgres` on this network. Run the tests with
 #   SEAQUEL_TEST_SSH='{"host":"127.0.0.1","port":2222,"remote_host":"postgres","remote_port":5432}'
+# - `blackhole` accepts TCP connections on 5432 and never answers, for the
+#   tests that need a database that hangs behind a working tunnel (Core's
+#   `a_dropped_connect_closes_its_tunnel`). The bastion reaches it as
+#   `blackhole` on this network; it has no host port.
 
 name: seaquel-test-databases
 
@@ -127,6 +131,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    restart: unless-stopped
+
+  blackhole:
+    image: alpine/socat:1.8.0.3
+    container_name: seaquel-blackhole
+    command: ["TCP-LISTEN:5432,fork,reuseaddr", "SYSTEM:sleep 3600"]
     restart: unless-stopped
 
 volumes:

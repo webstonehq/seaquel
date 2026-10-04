@@ -19,6 +19,7 @@ import {
   type SavedQueryFields,
 } from "./library/convert.js";
 import { libraryError } from "./library/messages.js";
+import { keepSame } from "./library/same-data.js";
 import { libraryNameOf, refreshQueryVersions } from "./library/view.js";
 import { reportProjection } from "./shared/projection.js";
 
@@ -334,7 +335,11 @@ export class SavedQueryManager {
       if (!seqs.take(rowKey("savedQuery", id), seq)) continue;
       const row = byId.get(id);
       if (row) {
-        const query = savedQueryFromWire(row);
+        // An unchanged row keeps its object (an `external` reload reads them all).
+        const query = keepSame(
+          next.find((q) => q.id === id),
+          savedQueryFromWire(row),
+        );
         next = next.some((q) => q.id === id)
           ? next.map((q) => (q.id === id ? query : q))
           : [...next, query];

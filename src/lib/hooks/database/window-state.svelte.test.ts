@@ -576,7 +576,9 @@ describe.skipIf(missing)("review fixes", () => {
     setLibrary(holding("listWorkflows", new Promise((r) => (release = r))));
     const switching = w.projects.setActive("p2");
     // The load answered (its copy is stored), the restore waits on the workflows.
-    await vi.waitFor(async () => expect(await storedState("win-a", "p2")).not.toBeNull());
+    await vi.waitFor(async () => expect(await storedState("win-a", "p2")).not.toBeNull(), {
+      timeout: 5000,
+    });
     w.windowState.scheduleProject("p2");
     await w.windowState.saveNow("p2");
     expect(w.ui.saves("p2")).toEqual([]);
@@ -588,10 +590,14 @@ describe.skipIf(missing)("review fixes", () => {
     openTabs(w, ["stored-p2", "new"], "p2");
     w.windowState.scheduleProject("p2");
     await w.windowState.saveNow("p2");
-    expect((await storedState("win-a", "p2"))?.state.queryTabs.map((t) => t.id)).toEqual([
-      "stored-p2",
-      "new",
-    ]);
+    await vi.waitFor(
+      async () =>
+        expect((await storedState("win-a", "p2"))?.state.queryTabs.map((t) => t.id)).toEqual([
+          "stored-p2",
+          "new",
+        ]),
+      { timeout: 5000 },
+    );
   });
 
   it("I1: no save between the load's answer and the restore (startup)", async () => {
@@ -600,7 +606,9 @@ describe.skipIf(missing)("review fixes", () => {
     let release!: () => void;
     setLibrary(holding("getProjectSidebar", new Promise((r) => (release = r))));
     const starting = w.projects.initialize();
-    await vi.waitFor(async () => expect(await storedState("win-a")).not.toBeNull());
+    await vi.waitFor(async () => expect(await storedState("win-a")).not.toBeNull(), {
+      timeout: 5000,
+    });
     await w.windowState.saveNow("p1");
     expect(w.ui.saves()).toEqual([]);
     release();

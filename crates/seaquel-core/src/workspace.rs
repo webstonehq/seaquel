@@ -17,6 +17,8 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+use std::time::Duration;
 
 use futures::channel::mpsc;
 
@@ -52,9 +54,56 @@ pub struct WorkspaceSpec {
     /// on its workspaces fail with `NOT_SUPPORTED`.
     #[cfg(feature = "secrets")]
     pub secrets: Option<Arc<dyn SecretStore>>,
+    /// A second process beside the app ([`WorkspaceSpec::second_process`]):
+    /// no maintenance writes when it opens.
+    #[cfg(feature = "storage")]
+    pub second_process: bool,
+    /// How often to poll for other connections' commits
+    /// ([`WorkspaceSpec::with_external_changes`]); `None`, the default,
+    /// doesn't poll.
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    pub external_changes: Option<Duration>,
 }
 
 impl WorkspaceSpec {
+    /// Opens the storage as a second process beside the app (phase 7a
+    /// Decision 3; the TUI): writable, but only a current file
+    /// ([`seaquel_storage::SchemaPolicy::RequireCurrent`]: a missing file is
+    /// `STORAGE_NOT_FOUND`, one with schema work left
+    /// `STORAGE_NEEDS_UPGRADE`, and nothing is created or migrated), and
+    /// with none of the open's maintenance writes: no string-secrets
+    /// upgrade (whose keychain items the app's binary wouldn't own), no
+    /// name-key or list-metadata refill. Those stay the app's. A row whose
+    /// string still holds a pre-5a secret connects with it, as the MCP
+    /// server's do. The policy is applied when the workspace opens, so it
+    /// holds whatever [`WorkspaceSpec::with_storage_options`] set, before
+    /// or after.
+    #[cfg(feature = "storage")]
+    #[must_use]
+    pub fn second_process(mut self) -> Self {
+        self.second_process = true;
+        self
+    }
+
+    /// Polls the storage every `interval` for commits made by any other
+    /// connection to the file (another process: the TUI beside the app, or
+    /// the app beside the TUI), and announces each change it sees as one
+    /// [`WorkspaceEvent::StorageChanged`] of kind [`StoredKind::External`]
+    /// (phase 7a Decision 6). Off by default; the desktop app and the TUI
+    /// turn it on (1 s), the web server and the demo don't. Native only:
+    /// in the browser no one else writes the file.
+    ///
+    /// The poll runs on Core's executor ([`crate::CoreBuilder::executor`];
+    /// without one it doesn't run), starts once the open's own work is
+    /// done, and ends with [`Workspace::close`], [`Workspace::close_all`]
+    /// or the last reference to the workspace.
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    #[must_use]
+    pub fn with_external_changes(mut self, interval: Duration) -> Self {
+        self.external_changes = Some(interval);
+        self
+    }
+
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
         Self {
             data_dir: data_dir.into(),
@@ -64,6 +113,10 @@ impl WorkspaceSpec {
             storage_options: StorageOptions::default(),
             #[cfg(feature = "secrets")]
             secrets: None,
+            #[cfg(feature = "storage")]
+            second_process: false,
+            #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+            external_changes: None,
         }
     }
 
@@ -110,6 +163,10 @@ impl fmt::Debug for WorkspaceSpec {
             .field("storage_options", &self.storage_options);
         #[cfg(feature = "secrets")]
         s.field("secrets", &self.secrets.as_ref().map(|_| "<store>"));
+        #[cfg(feature = "storage")]
+        s.field("second_process", &self.second_process);
+        #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+        s.field("external_changes", &self.external_changes);
         s.finish()
     }
 }
@@ -201,6 +258,11 @@ pub struct Workspace {
     connecting: Mutex<Connecting>,
     /// The change sequence (phase 5d, Decision 17).
     changes: ChangeCounter,
+    /// Cancelled by [`Workspace::close`] and [`Workspace::close_all`]: ends
+    /// the external-changes poll (phase 7a Decision 6).
+    poll_stop: CancellationToken,
+    /// Whether the external-changes poll is running.
+    polling: AtomicBool,
     data_dir: PathBuf,
     #[cfg(feature = "storage")]
     storage: Storage,
@@ -225,10 +287,13 @@ impl Workspace {
     ) -> Result<Self, CoreError> {
         #[cfg(feature = "storage")]
         let storage = {
-            let storage =
-                Storage::open(spec.data_dir.join(&spec.storage_file), spec.storage_options)
-                    .await
-                    .map_err(CoreError::from)?;
+            let mut options = spec.storage_options;
+            if spec.second_process {
+                options.schema = seaquel_storage::SchemaPolicy::RequireCurrent;
+            }
+            let storage = Storage::open(spec.data_dir.join(&spec.storage_file), options)
+                .await
+                .map_err(CoreError::from)?;
             match executor {
                 Some(executor) => storage.with_executor(Arc::clone(executor)),
                 None => storage,
@@ -242,6 +307,8 @@ impl Workspace {
             changes: ChangeCounter::new(id.to_string()),
             closed: AtomicBool::new(false),
             closing: CancellationToken::new(),
+            poll_stop: CancellationToken::new(),
+            polling: AtomicBool::new(false),
             subscribers: Mutex::default(),
             connecting: Mutex::default(),
             data_dir: spec.data_dir,
@@ -254,6 +321,13 @@ impl Workspace {
             #[cfg(feature = "ai")]
             ai: crate::ai::WorkspaceAi::default(),
         })
+    }
+
+    /// Whether the external-changes poll
+    /// ([`WorkspaceSpec::with_external_changes`]) is running (tests).
+    #[doc(hidden)]
+    pub fn polls_external_changes(&self) -> bool {
+        self.polling.load(Ordering::SeqCst)
     }
 
     /// This workspace's id.
@@ -284,6 +358,7 @@ impl Workspace {
     /// server calls it when it evicts a workspace, after
     /// [`Workspace::close_all`].
     pub async fn close(&self) {
+        self.poll_stop.cancel();
         #[cfg(feature = "storage")]
         self.storage.close().await;
     }
@@ -485,6 +560,7 @@ impl Workspace {
     /// (`CONNECTION_NOT_FOUND`) isn't: the GUI asked for that.
     pub async fn close_all(&self, core: &Core) {
         self.closed.store(true, Ordering::SeqCst);
+        self.poll_stop.cancel();
         // An apply in flight drops its transaction (a rollback) or stops at
         // the statement it runs, before the connections close under it.
         self.closing.cancel();
@@ -609,6 +685,79 @@ impl Workspace {
         self.announce(ticket, kind, scope, ids, origin)
     }
 
+    /// Starts the external-changes poll (phase 7a Decision 6): every
+    /// `interval` on `executor`'s clock, [`Storage::external_version`]; a
+    /// value that moved since the last poll is one
+    /// [`StoredKind::External`] event, after taking a change-sequence
+    /// number. The task holds only a weak reference, so it never keeps the
+    /// workspace alive, and ends with [`Workspace::close`],
+    /// [`Workspace::close_all`] or the last reference.
+    ///
+    /// The number matters: the GUI applies a refetched row only when its
+    /// `seq.n` is higher than the one it holds, and another process's
+    /// write doesn't move this workspace's sequence by itself, so without
+    /// it the reload's answers would carry the same `n` and be dropped.
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    pub(crate) fn start_external_poll(
+        self: &Arc<Self>,
+        executor: Arc<dyn seaquel_runtime::Executor>,
+        interval: Duration,
+    ) {
+        use futures::future::{select, Either};
+
+        let weak = Arc::downgrade(self);
+        let stop = self.poll_stop.clone();
+        self.polling.store(true, Ordering::SeqCst);
+        let clock = Arc::clone(&executor);
+        log::info!(activity = "workspace.poll", interval_ms = interval.as_millis() as u64; "Polling for external changes");
+        executor.spawn(Box::pin(async move {
+            let mut last: Option<i64> = None;
+            let mut failing = false;
+            // The first poll runs at once: it records the baseline.
+            let mut first = true;
+            loop {
+                if !first {
+                    let wait = select(clock.sleep(interval), Box::pin(stop.cancelled())).await;
+                    if let Either::Right(_) = wait {
+                        break;
+                    }
+                }
+                first = false;
+                let Some(ws) = weak.upgrade() else { break };
+                if stop.is_cancelled() {
+                    break;
+                }
+                match ws.storage.external_version().await {
+                    Ok(Some(version)) => {
+                        failing = false;
+                        if last.is_some_and(|prev| prev != version) && !stop.is_cancelled() {
+                            ws.record_storage_write(
+                                &WriteOrigin::none(),
+                                StoredKind::External,
+                                None,
+                                None,
+                            );
+                        }
+                        last = Some(version);
+                    }
+                    // A write holds the turn: try again on the next tick.
+                    Ok(None) => {}
+                    Err(_) if stop.is_cancelled() => break,
+                    Err(e) => {
+                        // Said once per run of failures, not every tick.
+                        if !failing {
+                            log::warn!(activity = "workspace.poll", code = e.code(); "Polling for external changes failed");
+                        }
+                        failing = true;
+                    }
+                }
+            }
+            if let Some(ws) = weak.upgrade() {
+                ws.polling.store(false, Ordering::SeqCst);
+            }
+        }));
+    }
+
     /// Cancelled once [`Workspace::close_all`] runs.
     #[cfg(feature = "workspace")]
     pub(crate) fn closing(&self) -> &CancellationToken {
@@ -655,6 +804,14 @@ pub const SAVED_CONNECTION_NOT_FOUND: &str = "CONNECTION_NOT_FOUND";
 /// needs (a denied keychain prompt, a locked keychain).
 #[cfg(feature = "workspace")]
 pub const SECRET_UNREADABLE: &str = "SECRET_UNREADABLE";
+
+/// `Workspace::connect` when every secret read the connection needs found
+/// no store at all (no Secret Service on a headless Linux host, no login
+/// keychain over SSH on macOS; `SecretError::unavailable`), so an
+/// interface can ask for the secret instead (phase 7a probe F4). A refusal
+/// among the reads is `SECRET_UNREADABLE`.
+#[cfg(feature = "workspace")]
+pub const SECRET_STORE_UNAVAILABLE: &str = "SECRET_STORE_UNAVAILABLE";
 
 /// The code a workspace without a secret store (the web server's) gives a
 /// secret read. `Workspace::connect` no longer fails with it (phase 6 probe
@@ -1049,17 +1206,27 @@ impl Workspace {
         // row connects with what was supplied, as a form does (phase 6
         // probe F5: a trust-auth database saved with `savePassword` on).
         // The builder still words a missing SSH password itself.
-        if let Some(first) = plan
+        let failed: Vec<&UnreadableSecret> = plan
             .secrets()
             .unreadable
             .iter()
-            .find(|u| u.code != NO_SECRET_STORE)
-        {
+            .filter(|u| u.code != NO_SECRET_STORE)
+            .collect();
+        if let Some(first) = failed.first() {
             let name = match &target {
                 Target::Saved(row) => row.name.as_str(),
                 Target::Form(form) => form.name.as_str(),
             };
-            return Err(unreadable_error(name, first));
+            // A store that isn't there (probe F4) isn't a refusal; a
+            // refusal among the reads still wins.
+            if failed.iter().all(|u| u.code == SECRET_STORE_UNAVAILABLE) {
+                return Err(unavailable_error(name, first));
+            }
+            let refused = failed
+                .iter()
+                .find(|u| u.code != SECRET_STORE_UNAVAILABLE)
+                .unwrap_or(first);
+            return Err(unreadable_error(name, refused));
         }
         Ok(plan)
     }
@@ -1097,7 +1264,13 @@ impl Workspace {
     async fn read_secret(&self, key: &str) -> Result<Option<String>, String> {
         #[cfg(feature = "secrets")]
         if let Some(store) = &self.secrets {
-            return store.get(key).await.map_err(|e| e.code().to_string());
+            return store.get(key).await.map_err(|e| {
+                if e.unavailable() {
+                    SECRET_STORE_UNAVAILABLE.to_string()
+                } else {
+                    e.code().to_string()
+                }
+            });
         }
         let _ = key;
         Err(NO_SECRET_STORE.to_string())
@@ -1329,22 +1502,67 @@ async fn open_tunnel<'a>(
     }
 }
 
+/// What a secret key holds, for a message.
 #[cfg(feature = "workspace")]
-fn unreadable_error(name: &str, failed: &UnreadableSecret) -> CoreError {
-    let what = if failed.key.starts_with("ssh-key:") {
+fn secret_what(key: &str) -> &'static str {
+    if key.starts_with("ssh-key:") {
         "SSH key passphrase"
-    } else if failed.key.starts_with("ssh:") {
+    } else if key.starts_with("ssh:") {
         "SSH password"
     } else {
         "password"
-    };
+    }
+}
+
+/// The platform's secret store, for a message: the macOS keychain, the
+/// Secret Service on Linux, Windows Credential Manager.
+#[cfg(feature = "workspace")]
+fn store_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "the keychain"
+    } else if cfg!(windows) {
+        "Windows Credential Manager"
+    } else {
+        "the system keyring (Secret Service)"
+    }
+}
+
+/// What to do when the store refused a read, per platform.
+#[cfg(feature = "workspace")]
+fn store_allow_hint() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Allow Seaquel to access the keychain when the system asks"
+    } else if cfg!(windows) {
+        "Check the entry in Windows Credential Manager"
+    } else {
+        "Unlock the system keyring when it asks"
+    }
+}
+
+#[cfg(feature = "workspace")]
+fn unreadable_error(name: &str, failed: &UnreadableSecret) -> CoreError {
+    let what = secret_what(&failed.key);
     CoreError::new(
         SECRET_UNREADABLE,
         format!(
-            "Seaquel couldn't read the saved {what} of connection {name:?} from the keychain \
-             ({}). Allow Seaquel to access the keychain when the system asks, or open the \
-             connection in the Seaquel app and save the {what} again.",
-            failed.code
+            "Seaquel couldn't read the saved {what} of connection {name:?} from {} ({}). \
+             {}, or open the connection in the Seaquel app and save the {what} again.",
+            store_name(),
+            failed.code,
+            store_allow_hint(),
+        ),
+    )
+}
+
+#[cfg(feature = "workspace")]
+fn unavailable_error(name: &str, failed: &UnreadableSecret) -> CoreError {
+    let what = secret_what(&failed.key);
+    CoreError::new(
+        SECRET_STORE_UNAVAILABLE,
+        format!(
+            "Seaquel couldn't reach {} to read the saved {what} of connection {name:?}: it \
+             isn't available in this session.",
+            store_name(),
         ),
     )
 }

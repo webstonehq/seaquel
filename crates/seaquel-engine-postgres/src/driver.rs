@@ -124,10 +124,25 @@ seaquel_engine::impl_sqlx_driver!(
             params: Vec<Value>,
             analyze: bool,
         ) -> Result<ExplainResult, DbError> {
-            let r = self
-                .query(&PostgresDialect.explain_sql(sql, analyze), params)
-                .await?;
-            introspect::parse_explain(&r, analyze)
+            // On a connection of its own, as a streamed statement runs:
+            // dropped before it ends (the TUI quitting during an `EXPLAIN
+            // ANALYZE` of a slow statement, phase 7a review I1), it stops
+            // the statement on the server instead of leaving it running.
+            use seaquel_engine::RunningStatement as _;
+            let explain = PostgresDialect.explain_sql(sql, analyze);
+            let conn = self.pool.acquire().await.map_err(DbError::query_error)?;
+            let mut running = stream_start(&self.pool, conn, &explain).await;
+            let result = fetch_capped(
+                &mut **running,
+                &explain,
+                &params,
+                RowCap::fail(seaquel_engine::max_query_rows()),
+            )
+            .await;
+            if result.is_ok() {
+                running.finish();
+            }
+            introspect::parse_explain(&result?.into(), analyze)
         }
     },
     read_only = {

@@ -1,0 +1,24 @@
+┌[1]-Connection─────────● 4┐┌Data - Structure - Indexes - Constraints - DDL────┐
+│✓ prod-analytics → pg · d…││/filter…                                          │
+└──────────────────────────┘│  id       customer           status             ›│
+┌[2]-Tables - Views────────┐│  int8     text               invoice_status      │
+│▾public                  6││+ DEFAULT  New Co             DEFAULT             │
+│  customers          12.4k││    48112  Acme Corp          sent                │
+│  invoices +1 ~2 -1  48.1k││    48111  Initech            paid                │
+│  invoice_line_items  312k││    48110  Umbrella Health    draft               │
+│  items                 86││~   48109  Globex Ltd         overdue             │
+│ ┌ Commit 4 changes ────────────────────────────────────────────────────────┐ │
+│ │ Run on prod-analytics in a single transaction:                           │ │
+│▸│ +1  INSERT  public.invoices                                              │ │
+└─│ ~2  UPDATE  public.invoices                                              │ │
+┌[│ -1  DELETE  public.invoices                                              │ │
+│⇄└──────────────────────────────────────────────────────────────────────────┘ │
+│⇄ top_customers.sql       ││    48102  Cyberdyne          overdue             │
+│  churn_cohorts.sql       ││    48101  Tyrell Corp        paid                │
+└────────────────────1 of 5┘│customer · text  Stark Industrial → Stark Industri│
+┌[4]-Pending Changes───────┐└───────────────────────────────────────────6 of 16┘
+│▾ public.invoices         │┌Command Log───────────────────────────────────────┐
+│ M id 48109  total        ││statements Seaquel runs show here                 │
+│space unstage   u undo   …││                                                  │
+└────────────────────1 of 4┘└──────────────────────────────────────────────────┘
+Execute: enter | Preview SQL: p | Cancel: esc                   seaquel <version>

@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌[Q]-untitled-1 - +───────────────INSERT · modified┐
+│✓ prod-analytics → pg · d…││ 1 SELECT id, customer, total FROM invoices;      │
+└──────────────────────────┘│ 2 SELECT count(*) FROM invoices;                 │
+┌[2]-Tables - Views────────┐│ 3 UPDATE invoices SET total = 0 WHERE id < 3;    │
+│▾public                  6││ 4 SELEC 1                                        │
+│  customers          12.4k││                                                  │
+│  invoices           48.1k│└──────────────────────────────────────────────────┘
+│  invoice_line_items  312k│┌Results - Explain - Messages──────────────────────┐
+│  items                 86││ 1  SELECT id, customer, total FR…  3 rows · 4 ms │
+│  orders             91.7k││ 2  SELECT count(*) FROM invoices  1 row · 4 ms   │
+│  payments           40.2k││ 3  UPDATE invoices SET …  2 rows affected · 4 ms │
+│▸analytics               1││ 4  SELEC 1  SYNTAX_ERROR: syntax error at or near│
+└────────────────────3 of 9┘│"SELEC"                                           │
+┌[3]-Saved - History───────┐│4 statements · not all ran (history records a run │
+│⇄ revenue_by_month.sql    ││only when all succeed)                            │
+│⇄ top_customers.sql       ││                                                  │
+│  churn_cohorts.sql       ││                                                  │
+└────────────────────1 of 5┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Move: h j k l | Open cell: enter | Page: n p | Keybindings: ?   seaquel <version>

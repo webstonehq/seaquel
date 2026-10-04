@@ -1,0 +1,2582 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="./support.js"></script>
+  </head>
+  <body>
+    <x-dc>
+      <helmet data-dc-atomics
+        ><meta name="design_doc_mode" content="canvas" /><link
+          rel="preconnect"
+          href="https://fonts.googleapis.com"
+        /><link
+          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&amp;display=swap"
+          rel="stylesheet"
+        /><style>
+          body {
+            margin: 0;
+            background: #e9e7e2;
+            font-family: system-ui, sans-serif;
+          }
+          a {
+            color: #2a78d6;
+          }
+          a:hover {
+            color: #1a5aa8;
+          }
+          .dv-turn {
+            padding: 40px 44px 32px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            scroll-margin-top: 16px;
+          }
+          .dv-thd {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            margin: 0 0 8px;
+          }
+          .dv-tid {
+            font:
+              600 10px ui-monospace,
+              Menlo,
+              monospace;
+            padding: 3px 7px;
+            background: #1a1a1a;
+            color: #fff;
+            border-radius: 4px;
+            text-decoration: none;
+          }
+          .dv-tname {
+            font:
+              600 13px/1.2 system-ui,
+              sans-serif;
+            color: #1a1a1a;
+          }
+          .dv-note {
+            font:
+              12px/1.5 system-ui,
+              sans-serif;
+            color: rgba(0, 0, 0, 0.6);
+            max-width: 900px;
+            margin: 0 0 24px;
+          }
+          .dv-opts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 36px;
+            align-items: flex-start;
+          }
+          .dv-opt {
+            flex: none;
+            display: flex;
+            flex-direction: column;
+            gap: 9px;
+            scroll-margin-top: 16px;
+          }
+          .dv-oid {
+            font:
+              600 10.5px ui-monospace,
+              Menlo,
+              monospace;
+            padding: 3px 7px;
+            background: rgba(0, 0, 0, 0.08);
+            color: #1a1a1a;
+            border-radius: 5px;
+            text-decoration: none;
+          }
+          .dv-olabel {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            font:
+              400 11px/1.3 system-ui,
+              sans-serif;
+            color: rgba(0, 0, 0, 0.55);
+          }
+          .dv-card {
+            max-width: 100%;
+            background: #0d1117;
+            border: 1px solid rgba(0, 0, 0, 0.25);
+            border-radius: 10px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+            overflow: hidden;
+          }
+          .dv-opt:target .dv-oid {
+            background: #2a78d6;
+            color: #fff;
+          }
+          .dv-next {
+            margin: 26px 0 0;
+            font:
+              12px/1.5 system-ui,
+              sans-serif;
+            color: rgba(0, 0, 0, 0.5);
+          }
+        </style></helmet
+      >
+      <section class="dv-turn" id="t1">
+        <div class="dv-thd">
+          <a class="dv-tid" href="#t1">1</a
+          ><span class="dv-tname">Seaquel TUI — lazygit-style panel layout</span>
+        </div>
+        <p class="dv-note">
+          Assumptions: dark terminal, 148×42 cells, JetBrains Mono. Borrowed from lazygit: numbered
+          panels (1–4 to focus), tabbed panel titles on the border, "n of m" counters, a command log
+          that shows every SQL statement the UI runs, and a context-sensitive keybinding bar.
+          Seaquel's Pending Changes map naturally onto lazygit's staging → commit flow; Git-shared
+          saved queries show file status.
+        </p>
+        <div class="dv-opts">
+          <div class="dv-opt" id="1a">
+            <div class="dv-olabel">
+              <a class="dv-oid" href="#1a">1a</a>Browse — interactive: click the window, then use
+              the keyboard (<b>?</b> for all keys)
+            </div>
+            <div class="dv-card" style="width: 1180px; position: relative">
+              <div
+                style="
+                  height: 28px;
+                  background: #1b1f26;
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  padding: 0 12px;
+                  border-bottom: 1px solid #000;
+                  position: relative;
+                "
+              >
+                <span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"
+                ></span
+                ><span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"
+                ></span
+                ><span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"
+                ></span
+                ><span
+                  style="
+                    position: absolute;
+                    left: 0;
+                    right: 0;
+                    text-align: center;
+                    font:
+                      12px system-ui,
+                      sans-serif;
+                    color: #8b949e;
+                    pointer-events: none;
+                  "
+                  >seaquel — prod-analytics — 148×42</span
+                >
+              </div>
+              <div
+                style="
+                  height: 720px;
+                  background: #0d1117;
+                  color: #c9d1d9;
+                  font:
+                    12.5px/18px &quot;JetBrains Mono&quot;,
+                    ui-monospace,
+                    monospace;
+                  padding: 12px 6px 0;
+                  display: flex;
+                  flex-direction: column;
+                  box-sizing: border-box;
+                  position: relative;
+                  user-select: none;
+                  cursor: default;
+                "
+              >
+                <div
+                  style="
+                    flex: 1;
+                    min-height: 0;
+                    display: grid;
+                    grid-template-columns: 380px minmax(0, 1fr);
+                    gap: 0 4px;
+                  "
+                >
+                  <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+                    <div
+                      onClick="{{ fConn }}"
+                      style="position:relative;border-radius:6px;padding:8px 10px 6px;border:1px solid {{ b1 }}"
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                          display: flex;
+                        "
+                      >
+                        <span style="color:{{ n1 }};font-weight:{{ w1 }}">[1]-Connection</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #7ee787">✓</span
+                        ><span style="font-weight: 700">prod-analytics</span
+                        ><span style="color: #8b949e">→ pg 16.2 · ssh bastion</span
+                        ><span style="margin-left:auto;color:{{ connColor }}"
+                          >{{ connPending }}</span
+                        >
+                      </div>
+                    </div>
+                    <div
+                      onClick="{{ fTables }}"
+                      style="position:relative;border-radius:6px;padding:8px 10px 6px;border:1px solid {{ b2 }};flex:1;min-height:0;overflow:clip;overflow-clip-margin:12px"
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                          display: flex;
+                        "
+                      >
+                        <span style="color:{{ n2 }}">[2]-</span
+                        ><sc-for list="{{ tablesTabs }}" as="tb" hint-placeholder-count="4"
+                          ><span style="color:{{ tb.color }};font-weight:{{ tb.weight }}"
+                            >{{ tb.text }}</span
+                          ></sc-for
+                        >
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #8b949e">▾</span
+                        ><span style="color: #d2a8ff">public</span
+                        ><span style="margin-left: auto; color: #6e7681">14</span>
+                      </div>
+                      <sc-for list="{{ tableItems }}" as="it" hint-placeholder-count="9"
+                        ><div
+                          onClick="{{ it.onClick }}"
+                          style="display:flex;gap:1ch;white-space:pre;margin:0 -10px;padding:0 10px 0 calc(2ch + 10px);background:{{ it.bg }};font-weight:{{ it.weight }}"
+                        >
+                          <span>{{ it.name }}</span
+                          ><span style="color: #e3b341">{{ it.marker }}</span
+                          ><span style="margin-left: auto; color: #6e7681">{{ it.count }}</span>
+                        </div></sc-for
+                      >
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #8b949e">▸</span
+                        ><span style="color: #d2a8ff">analytics</span
+                        ><span style="margin-left: auto; color: #6e7681">6</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #8b949e">▸</span><span style="color: #d2a8ff">auth</span
+                        ><span style="margin-left: auto; color: #6e7681">3</span>
+                      </div>
+                      <div
+                        style="position:absolute;bottom:-10px;right:10px;padding:0 5px;background:#0d1117;white-space:pre;color:{{ n2c }}"
+                      >
+                        {{ tablesCounter }}
+                      </div>
+                    </div>
+                    <div
+                      onClick="{{ fSaved }}"
+                      style="position:relative;border-radius:6px;padding:8px 10px 6px;border:1px solid {{ b3 }};height:112px;box-sizing:border-box;overflow:clip;overflow-clip-margin:12px"
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                          display: flex;
+                        "
+                      >
+                        <span style="color:{{ n3 }}">[3]-</span
+                        ><sc-for list="{{ savedTabs }}" as="tb" hint-placeholder-count="2"
+                          ><span style="color:{{ tb.color }};font-weight:{{ tb.weight }}"
+                            >{{ tb.text }}</span
+                          ></sc-for
+                        >
+                      </div>
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          right: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                          color: #8b949e;
+                        "
+                      >
+                        ⎇ main ↑1
+                      </div>
+                      <sc-for list="{{ savedItems }}" as="it" hint-placeholder-count="4"
+                        ><div
+                          onClick="{{ it.onClick }}"
+                          style="display:flex;gap:1ch;white-space:pre;margin:0 -10px;padding:0 10px;background:{{ it.bg }};font-weight:{{ it.weight }};overflow:hidden"
+                        >
+                          <span style="color:{{ it.sc }};width:2ch;flex:none">{{ it.s }}</span
+                          ><span style="overflow: hidden; text-overflow: ellipsis"
+                            >{{ it.name }}</span
+                          >
+                        </div></sc-for
+                      >
+                      <div
+                        style="position:absolute;bottom:-10px;right:10px;padding:0 5px;background:#0d1117;white-space:pre;color:{{ n3c }}"
+                      >
+                        {{ savedCounter }}
+                      </div>
+                    </div>
+                    <div
+                      onClick="{{ fPending }}"
+                      style="position:relative;border-radius:6px;padding:8px 10px 6px;border:1px solid {{ b4 }}"
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                          display: flex;
+                        "
+                      >
+                        <span style="color:{{ n4 }};font-weight:{{ w4 }}">[4]-Pending Changes</span>
+                      </div>
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          right: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        <span style="color: #7ee787">{{ pIns }}</span>
+                        <span style="color: #e3b341">{{ pUpd }}</span>
+                        <span style="color: #ff7b72">{{ pDel }}</span>
+                      </div>
+                      <sc-if value="{{ noPending }}" hint-placeholder-val="{{ false }}"
+                        ><div style="white-space: pre; color: #6e7681">nothing staged</div></sc-if
+                      >
+                      <sc-for list="{{ pendingItems }}" as="it" hint-placeholder-count="2"
+                        ><div
+                          onClick="{{ it.onClick }}"
+                          style="display:flex;gap:1ch;white-space:pre;margin:0 -10px;padding:0 10px;background:{{ it.bg }};font-weight:{{ it.weight }}"
+                        >
+                          <span style="color:{{ it.sc }};width:2ch">{{ it.s }}</span
+                          ><span>{{ it.label }}</span
+                          ><span style="color: #8b949e">{{ it.sub }}</span>
+                        </div></sc-for
+                      >
+                      <div
+                        style="position:absolute;bottom:-10px;right:10px;padding:0 5px;background:#0d1117;white-space:pre;color:{{ n4c }}"
+                      >
+                        {{ pendingCounter }}
+                      </div>
+                    </div>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+                    <div
+                      onClick="{{ fMain }}"
+                      style="position:relative;border-radius:6px;padding:8px 10px 6px;border:1px solid {{ b0 }};flex:1;min-height:0;overflow:clip;overflow-clip-margin:12px;display:flex;flex-direction:column"
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                          display: flex;
+                        "
+                      >
+                        <sc-for list="{{ mainTabs }}" as="tb" hint-placeholder-count="5"
+                          ><span style="color:{{ tb.color }};font-weight:{{ tb.weight }}"
+                            >{{ tb.text }}</span
+                          ></sc-for
+                        >
+                      </div>
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          right: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                          color: #d2a8ff;
+                        "
+                      >
+                        {{ mainRight }}
+                      </div>
+                      <sc-if value="{{ showGrid }}" hint-placeholder-val="{{ true }}">
+                        <div
+                          style="
+                            display: flex;
+                            gap: 1ch;
+                            white-space: pre;
+                            color: #6e7681;
+                            margin-bottom: 6px;
+                          "
+                        >
+                          <span style="color: #58a6ff">/</span
+                          ><span style="color:{{ filterColor }}">{{ filterText }}</span
+                          ><span style="margin-left: auto">ORDER BY issued_at DESC</span>
+                        </div>
+                        <div
+                          style="
+                            display: grid;
+                            grid-template-columns: 2ch 7ch 19ch 9ch 12ch 12ch 12ch minmax(0, 1fr);
+                            column-gap: 1ch;
+                            white-space: pre;
+                            font-weight: 700;
+                            color: #56d4dd;
+                          "
+                        >
+                          <span></span><span>id</span><span>customer</span><span>status</span
+                          ><span>issued_at</span><span>due_at</span
+                          ><span style="text-align: right">total</span><span>paid_at</span>
+                        </div>
+                        <div
+                          style="
+                            display: grid;
+                            grid-template-columns: 2ch 7ch 19ch 9ch 12ch 12ch 12ch minmax(0, 1fr);
+                            column-gap: 1ch;
+                            white-space: pre;
+                            color: #6e7681;
+                            border-bottom: 1px solid #30363d;
+                            padding-bottom: 3px;
+                            margin-bottom: 3px;
+                          "
+                        >
+                          <span></span><span>int8</span><span>text</span><span>enum</span
+                          ><span>date</span><span>date</span
+                          ><span style="text-align: right">numeric</span><span>timestamptz</span>
+                        </div>
+                        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="15"
+                          ><div
+                            style="display:grid;grid-template-columns:2ch 7ch 19ch 9ch 12ch 12ch 12ch minmax(0,1fr);column-gap:1ch;white-space:pre;margin:0 -10px;padding:0 10px;background:{{ r.bg }};font-weight:{{ r.weight }}"
+                          >
+                            <span style="color:{{ r.markColor }}">{{ r.mark }}</span
+                            ><span
+                              onClick="{{ r.c0.onClick }}"
+                              style="color:{{ r.c0.color }};background:{{ r.c0.bg }};text-align:{{ r.c0.align }};text-decoration:{{ r.c0.deco }};overflow:hidden"
+                              >{{ r.c0.text }}</span
+                            ><span
+                              onClick="{{ r.c1.onClick }}"
+                              style="color:{{ r.c1.color }};background:{{ r.c1.bg }};text-align:{{ r.c1.align }};text-decoration:{{ r.c1.deco }};overflow:hidden"
+                              >{{ r.c1.text }}</span
+                            ><span
+                              onClick="{{ r.c2.onClick }}"
+                              style="color:{{ r.c2.color }};background:{{ r.c2.bg }};text-align:{{ r.c2.align }};text-decoration:{{ r.c2.deco }};overflow:hidden"
+                              >{{ r.c2.text }}</span
+                            ><span
+                              onClick="{{ r.c3.onClick }}"
+                              style="color:{{ r.c3.color }};background:{{ r.c3.bg }};text-align:{{ r.c3.align }};text-decoration:{{ r.c3.deco }};overflow:hidden"
+                              >{{ r.c3.text }}</span
+                            ><span
+                              onClick="{{ r.c4.onClick }}"
+                              style="color:{{ r.c4.color }};background:{{ r.c4.bg }};text-align:{{ r.c4.align }};text-decoration:{{ r.c4.deco }};overflow:hidden"
+                              >{{ r.c4.text }}</span
+                            ><span
+                              onClick="{{ r.c5.onClick }}"
+                              style="color:{{ r.c5.color }};background:{{ r.c5.bg }};text-align:{{ r.c5.align }};text-decoration:{{ r.c5.deco }};overflow:hidden"
+                              >{{ r.c5.text }}</span
+                            ><span
+                              onClick="{{ r.c6.onClick }}"
+                              style="color:{{ r.c6.color }};background:{{ r.c6.bg }};text-align:{{ r.c6.align }};text-decoration:{{ r.c6.deco }};overflow:hidden"
+                              >{{ r.c6.text }}</span
+                            >
+                          </div></sc-for
+                        >
+                        <sc-if value="{{ noRows }}" hint-placeholder-val="{{ false }}"
+                          ><div style="white-space: pre; color: #6e7681; padding: 8px 0">
+                            no rows match the filter · esc to clear
+                          </div></sc-if
+                        >
+                        <div
+                          style="
+                            margin-top: auto;
+                            display: flex;
+                            gap: 2ch;
+                            white-space: pre;
+                            color: #8b949e;
+                            border-top: 1px solid #30363d;
+                            padding-top: 4px;
+                          "
+                        >
+                          <span
+                            >{{ cellInfo }}<span style="color: #e3b341"
+                              >{{ cellChange }}</span
+                            ></span
+                          ><span style="margin-left: auto">{{ gridFooter }}</span>
+                        </div>
+                      </sc-if>
+                      <sc-for list="{{ lines }}" as="l" hint-placeholder-count="0"
+                        ><div
+                          style="white-space:pre;margin:0 -10px;padding:0 10px;color:{{ l.color }};background:{{ l.bg }};font-weight:{{ l.weight }}"
+                        >
+                          {{ l.text }}
+                        </div></sc-for
+                      >
+                      <div
+                        style="position:absolute;bottom:-10px;right:10px;padding:0 5px;background:#0d1117;white-space:pre;color:{{ n0c }}"
+                      >
+                        {{ mainCounter }}
+                      </div>
+                    </div>
+                    <div
+                      style="
+                        position: relative;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                        border: 1px solid #30363d;
+                        height: 104px;
+                        box-sizing: border-box;
+                        overflow: clip;
+                        overflow-clip-margin: 12px;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                          display: flex;
+                        "
+                      >
+                        Command Log
+                      </div>
+                      <sc-for list="{{ log }}" as="l" hint-placeholder-count="4"
+                        ><div
+                          style="
+                            white-space: pre;
+                            color: #6e7681;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                          "
+                        >
+                          {{ l.time }} <span style="color:{{ l.tagColor }}">{{ l.tag }}</span
+                          ><span style="color: #c9d1d9">{{ l.text }}</span>
+                          <span style="color: #7ee787">{{ l.ms }}</span>
+                        </div></sc-for
+                      >
+                    </div>
+                  </div>
+                </div>
+                <div
+                  style="
+                    height: 26px;
+                    display: flex;
+                    align-items: center;
+                    white-space: pre;
+                    padding: 0 4px;
+                    color: #58a6ff;
+                    overflow: hidden;
+                  "
+                >
+                  <sc-for list="{{ keys }}" as="kb" hint-placeholder-count="8"
+                    ><span
+                      ><span style="color: #6e7681">{{ kb.sep }}</span>{{ kb.label }}:
+                      <span style="color: #c9d1d9; font-weight: 700">{{ kb.key }}</span></span
+                    ></sc-for
+                  ><span style="margin-left: auto; color: #6e7681">{{ modeLabel }}</span>
+                </div>
+                <sc-if value="{{ showCommit }}" hint-placeholder-val="{{ false }}"
+                  ><div
+                    style="position: absolute; inset: 0; background: rgba(13, 17, 23, 0.55)"
+                  ></div>
+                  <div
+                    style="
+                      position: absolute;
+                      left: 50%;
+                      top: 44%;
+                      transform: translate(-50%, -50%);
+                      width: 560px;
+                      background: #0d1117;
+                      border: 1px solid #7ee787;
+                      border-radius: 6px;
+                      padding: 14px 14px 10px;
+                      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+                    "
+                  >
+                    <div
+                      style="
+                        position: absolute;
+                        top: -10px;
+                        left: 10px;
+                        padding: 0 5px;
+                        background: #0d1117;
+                        color: #7ee787;
+                        font-weight: 700;
+                        white-space: pre;
+                      "
+                    >
+                      {{ commitTitle }}
+                    </div>
+                    <div style="white-space: pre; margin-bottom: 10px">
+                      Run on <span style="font-weight: 700">prod-analytics</span> in a single
+                      transaction:
+                    </div>
+                    <sc-for list="{{ commitLines }}" as="cl" hint-placeholder-count="2"
+                      ><div style="white-space:pre;color:{{ cl.color }}">{{ cl.text }}</div></sc-for
+                    >
+                    <sc-if value="{{ commitHasDelete }}" hint-placeholder-val="{{ false }}"
+                      ><div style="margin-top: 10px; white-space: pre; color: #e3b341">
+                        ⚠ Includes a DELETE on a connection tagged
+                        <span style="font-weight: 700">production</span>.
+                      </div></sc-if
+                    >
+                    <div
+                      style="
+                        margin-top: 12px;
+                        display: flex;
+                        gap: 3ch;
+                        white-space: pre;
+                        color: #8b949e;
+                      "
+                    >
+                      <span><span style="color: #58a6ff">enter</span> execute</span
+                      ><span><span style="color: #58a6ff">esc</span> cancel</span>
+                    </div>
+                  </div></sc-if
+                >
+                <sc-if value="{{ showHelp }}" hint-placeholder-val="{{ false }}"
+                  ><div
+                    style="position: absolute; inset: 0; background: rgba(13, 17, 23, 0.55)"
+                  ></div>
+                  <div
+                    style="
+                      position: absolute;
+                      left: 50%;
+                      top: 46%;
+                      transform: translate(-50%, -50%);
+                      width: 620px;
+                      background: #0d1117;
+                      border: 1px solid #7ee787;
+                      border-radius: 6px;
+                      padding: 14px 14px 10px;
+                      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+                    "
+                  >
+                    <div
+                      style="
+                        position: absolute;
+                        top: -10px;
+                        left: 10px;
+                        padding: 0 5px;
+                        background: #0d1117;
+                        color: #7ee787;
+                        font-weight: 700;
+                        white-space: pre;
+                      "
+                    >
+                      Keybindings
+                    </div>
+                    <sc-for list="{{ helpLines }}" as="hl" hint-placeholder-count="10"
+                      ><div
+                        style="
+                          display: grid;
+                          grid-template-columns: 16ch minmax(0, 1fr);
+                          white-space: pre;
+                        "
+                      >
+                        <span style="color:{{ hl.kc }};font-weight:{{ hl.kw }}">{{ hl.k }}</span
+                        ><span style="color: #c9d1d9">{{ hl.d }}</span>
+                      </div></sc-for
+                    >
+                    <div style="margin-top: 12px; white-space: pre; color: #8b949e">
+                      <span style="color: #58a6ff">esc</span> close
+                    </div>
+                  </div></sc-if
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="dv-opt" id="1b">
+            <div class="dv-olabel">
+              <a class="dv-oid" href="#1b">1b</a>Query — editor with completion, EXPLAIN ANALYZE as
+              a timing tree
+            </div>
+            <div class="dv-card" style="width: 1180px">
+              <div
+                style="
+                  height: 28px;
+                  background: #1b1f26;
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  padding: 0 12px;
+                  border-bottom: 1px solid #000;
+                  position: relative;
+                "
+              >
+                <span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"
+                ></span
+                ><span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"
+                ></span
+                ><span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"
+                ></span
+                ><span
+                  style="
+                    position: absolute;
+                    left: 0;
+                    right: 0;
+                    text-align: center;
+                    font:
+                      12px system-ui,
+                      sans-serif;
+                    color: #8b949e;
+                    pointer-events: none;
+                  "
+                  >seaquel — prod-analytics — 148×42</span
+                >
+              </div>
+              <div
+                style="
+                  height: 720px;
+                  background: #0d1117;
+                  color: #c9d1d9;
+                  font:
+                    12.5px/18px &quot;JetBrains Mono&quot;,
+                    ui-monospace,
+                    monospace;
+                  padding: 12px 6px 0;
+                  display: flex;
+                  flex-direction: column;
+                  box-sizing: border-box;
+                "
+              >
+                <div
+                  style="
+                    flex: 1;
+                    min-height: 0;
+                    display: grid;
+                    grid-template-columns: 300px minmax(0, 1fr);
+                    gap: 0 4px;
+                  "
+                >
+                  <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #30363d;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        [1]-Connection
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #7ee787">✓</span
+                        ><span style="font-weight: 700">prod-analytics</span
+                        ><span style="color: #8b949e">pg 16.2</span>
+                      </div>
+                    </div>
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #30363d;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                        flex: 1;
+                        min-height: 0;
+                        overflow: clip;
+                        overflow-clip-margin: 12px;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        <span>[2]-</span><span style="font-weight: 700">Tables</span
+                        ><span style="color: #8b949e"> - Views</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #8b949e">▾</span
+                        ><span style="color: #d2a8ff">public</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span>customers</span
+                        ><span style="margin-left: auto; color: #6e7681">12.4k</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span>invoices</span
+                        ><span style="margin-left: auto; color: #6e7681">48.1k</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span>invoice_line_items</span
+                        ><span style="margin-left: auto; color: #6e7681">312k</span>
+                      </div>
+                      <div
+                        style="
+                          display: flex;
+                          gap: 1ch;
+                          white-space: pre;
+                          padding-left: 4ch;
+                          color: #8b949e;
+                        "
+                      >
+                        <span>id</span
+                        ><span style="margin-left: auto; color: #6e7681">int8 pk</span>
+                      </div>
+                      <div
+                        style="
+                          display: flex;
+                          gap: 1ch;
+                          white-space: pre;
+                          padding-left: 4ch;
+                          color: #8b949e;
+                        "
+                      >
+                        <span>invoice_id</span
+                        ><span style="margin-left: auto; color: #ff7b72">no index</span>
+                      </div>
+                      <div
+                        style="
+                          display: flex;
+                          gap: 1ch;
+                          white-space: pre;
+                          padding-left: 4ch;
+                          color: #8b949e;
+                        "
+                      >
+                        <span>item_id</span
+                        ><span style="margin-left: auto; color: #6e7681">int8 fk</span>
+                      </div>
+                      <div
+                        style="
+                          display: flex;
+                          gap: 1ch;
+                          white-space: pre;
+                          padding-left: 4ch;
+                          color: #8b949e;
+                        "
+                      >
+                        <span>quantity</span
+                        ><span style="margin-left: auto; color: #6e7681">int4</span>
+                      </div>
+                      <div
+                        style="
+                          display: flex;
+                          gap: 1ch;
+                          white-space: pre;
+                          padding-left: 4ch;
+                          color: #8b949e;
+                        "
+                      >
+                        <span>unit_price</span
+                        ><span style="margin-left: auto; color: #6e7681">numeric</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span>items</span><span style="margin-left: auto; color: #6e7681">86</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span>orders</span
+                        ><span style="margin-left: auto; color: #6e7681">91.7k</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span>payments</span
+                        ><span style="margin-left: auto; color: #6e7681">40.2k</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #8b949e">▸</span
+                        ><span style="color: #d2a8ff">analytics</span>
+                      </div>
+                    </div>
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #30363d;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                        height: 130px;
+                        box-sizing: border-box;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        <span>[3]-</span><span style="font-weight: 700">Saved</span
+                        ><span style="color: #8b949e"> - History</span>
+                      </div>
+                      <div
+                        style="
+                          display: flex;
+                          gap: 1ch;
+                          white-space: pre;
+                          background: #1f3450;
+                          margin: 0 -10px;
+                          padding: 0 10px;
+                          font-weight: 700;
+                        "
+                      >
+                        <span style="color: #e3b341; width: 2ch">M</span
+                        ><span>revenue_by_month.sql</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #7ee787; width: 2ch">A</span
+                        ><span>top_customers.sql</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="width: 2ch"></span><span>churn_cohorts.sql</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="width: 2ch"></span><span>slow_invoices.sql</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="width: 2ch"></span><span>mrr_rollup.sql</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #7ee787;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                        height: 222px;
+                        box-sizing: border-box;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        <span>[q]-</span
+                        ><span style="color: #7ee787; font-weight: 700">revenue_by_month.sql</span
+                        ><span style="color: #8b949e"> - untitled-2 - +</span>
+                      </div>
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          right: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          color: #e3b341;
+                          white-space: pre;
+                        "
+                      >
+                        INSERT · modified
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: 3ch minmax(0, 1fr);
+                          column-gap: 2ch;
+                          white-space: pre;
+                        "
+                      >
+                        <span style="color: #6e7681; text-align: right">1</span
+                        ><span><span style="color: #ff7b72">SELECT</span> c.name,</span>
+                        <span style="color: #6e7681; text-align: right">2</span
+                        ><span>
+                          <span style="color: #d2a8ff">date_trunc</span>(<span
+                            style="color: #a5d6ff"
+                            >'month'</span
+                          >, i.issued_at) <span style="color: #ff7b72">AS</span> month,</span
+                        >
+                        <span style="color: #6e7681; text-align: right">3</span
+                        ><span>
+                          <span style="color: #d2a8ff">sum</span>(li.quantity * li.unit_price)
+                          <span style="color: #ff7b72">AS</span> revenue</span
+                        >
+                        <span style="color: #6e7681; text-align: right">4</span
+                        ><span><span style="color: #ff7b72">FROM</span> invoices i</span>
+                        <span style="color: #6e7681; text-align: right">5</span
+                        ><span
+                          ><span style="color: #ff7b72">JOIN</span> customers c
+                          <span style="color: #ff7b72">ON</span> c.id = i.customer_id</span
+                        >
+                        <span style="color: #6e7681; text-align: right">6</span
+                        ><span
+                          ><span style="color: #ff7b72">JOIN</span> invoice_line_items li
+                          <span style="color: #ff7b72">ON</span> li.invoice_id = i.id</span
+                        >
+                        <span style="color: #c9d1d9; text-align: right; background: #161b22">7</span
+                        ><span style="background: #161b22"
+                          ><span style="color: #ff7b72">WHERE</span> i.iss<span
+                            style="background: #c9d1d9; color: #0d1117"
+                            >_</span
+                          ></span
+                        >
+                        <span style="color: #6e7681; text-align: right">8</span
+                        ><span
+                          ><span style="color: #ff7b72">GROUP BY</span>
+                          <span style="color: #79c0ff">1</span>,
+                          <span style="color: #79c0ff">2</span></span
+                        >
+                        <span style="color: #6e7681; text-align: right">9</span
+                        ><span
+                          ><span style="color: #ff7b72">ORDER BY</span> revenue
+                          <span style="color: #ff7b72">DESC</span>;</span
+                        >
+                      </div>
+                      <div
+                        style="
+                          position: absolute;
+                          left: calc(10px + 5ch + 12ch);
+                          top: 152px;
+                          border: 1px solid #58a6ff;
+                          border-radius: 4px;
+                          background: #161b22;
+                          padding: 2px 0;
+                          min-width: 30ch;
+                          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+                          z-index: 2;
+                        "
+                      >
+                        <div
+                          style="
+                            display: flex;
+                            gap: 2ch;
+                            white-space: pre;
+                            background: #1f3450;
+                            padding: 0 8px;
+                            font-weight: 700;
+                          "
+                        >
+                          <span>issued_at</span
+                          ><span style="margin-left: auto; color: #8b949e">date</span>
+                        </div>
+                        <div style="display: flex; gap: 2ch; white-space: pre; padding: 0 8px">
+                          <span>issuer_id</span
+                          ><span style="margin-left: auto; color: #8b949e">int8</span>
+                        </div>
+                        <div
+                          style="
+                            display: flex;
+                            gap: 2ch;
+                            white-space: pre;
+                            padding: 0 8px;
+                            color: #8b949e;
+                          "
+                        >
+                          <span>is_subscription</span><span style="margin-left: auto">bool</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #30363d;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                        flex: 1;
+                        min-height: 0;
+                        overflow: clip;
+                        overflow-clip-margin: 12px;
+                        display: flex;
+                        flex-direction: column;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        <span style="color: #8b949e">Results - </span
+                        ><span style="font-weight: 700">Explain</span
+                        ><span style="color: #8b949e"> - Chart - Messages</span>
+                      </div>
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          right: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          color: #8b949e;
+                          white-space: pre;
+                        "
+                      >
+                        ANALYZE ✓ · 412.3 ms
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: minmax(0, 1fr) 10ch 10ch 24ch;
+                          column-gap: 2ch;
+                          white-space: pre;
+                          color: #56d4dd;
+                          font-weight: 700;
+                          border-bottom: 1px solid #30363d;
+                          padding-bottom: 3px;
+                          margin-bottom: 4px;
+                        "
+                      >
+                        <span>node</span><span style="text-align: right">rows</span
+                        ><span style="text-align: right">self ms</span><span>share of total</span>
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: minmax(0, 1fr) 10ch 10ch 24ch;
+                          column-gap: 2ch;
+                          white-space: pre;
+                          align-items: center;
+                        "
+                      >
+                        <span
+                          ><span style="font-weight: 700">Sort</span>
+                          <span style="color: #8b949e">revenue DESC</span></span
+                        ><span style="text-align: right">1,204</span
+                        ><span style="text-align: right">3.1</span
+                        ><span style="display: flex; align-items: center; gap: 1ch"
+                          ><span
+                            style="display: block; height: 10px; width: 2%; background: #7ee787"
+                          ></span
+                          ><span style="color: #8b949e">1%</span></span
+                        >
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: minmax(0, 1fr) 10ch 10ch 24ch;
+                          column-gap: 2ch;
+                          white-space: pre;
+                          align-items: center;
+                        "
+                      >
+                        <span
+                          ><span style="color: #6e7681">└─ </span
+                          ><span style="font-weight: 700">HashAggregate</span>
+                          <span style="color: #8b949e">GROUP BY 1, 2</span></span
+                        ><span style="text-align: right">1,204</span
+                        ><span style="text-align: right">44.8</span
+                        ><span style="display: flex; align-items: center; gap: 1ch"
+                          ><span
+                            style="display: block; height: 10px; width: 16%; background: #7ee787"
+                          ></span
+                          ><span style="color: #8b949e">11%</span></span
+                        >
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: minmax(0, 1fr) 10ch 10ch 24ch;
+                          column-gap: 2ch;
+                          white-space: pre;
+                          align-items: center;
+                        "
+                      >
+                        <span
+                          ><span style="color: #6e7681"> └─ </span
+                          ><span style="font-weight: 700">Hash Join</span>
+                          <span style="color: #8b949e">li.invoice_id = i.id</span></span
+                        ><span style="text-align: right">298,410</span
+                        ><span style="text-align: right">61.0</span
+                        ><span style="display: flex; align-items: center; gap: 1ch"
+                          ><span
+                            style="display: block; height: 10px; width: 22%; background: #e3b341"
+                          ></span
+                          ><span style="color: #8b949e">15%</span></span
+                        >
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: minmax(0, 1fr) 10ch 10ch 24ch;
+                          column-gap: 2ch;
+                          white-space: pre;
+                          align-items: center;
+                          background: #2a1b1b;
+                          margin: 0 -10px;
+                          padding: 0 10px;
+                        "
+                      >
+                        <span
+                          ><span style="color: #6e7681"> ├─ </span
+                          ><span style="font-weight: 700; color: #ff7b72">Seq Scan</span>
+                          invoice_line_items li</span
+                        ><span style="text-align: right">312,006</span
+                        ><span style="text-align: right; color: #ff7b72; font-weight: 700"
+                          >238.9</span
+                        ><span style="display: flex; align-items: center; gap: 1ch"
+                          ><span
+                            style="display: block; height: 10px; width: 78%; background: #ff7b72"
+                          ></span
+                          ><span style="color: #ff7b72">58%</span></span
+                        >
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: minmax(0, 1fr) 10ch 10ch 24ch;
+                          column-gap: 2ch;
+                          white-space: pre;
+                          align-items: center;
+                        "
+                      >
+                        <span
+                          ><span style="color: #6e7681"> └─ </span
+                          ><span style="font-weight: 700">Hash</span></span
+                        ><span style="text-align: right">31,877</span
+                        ><span style="text-align: right">6.2</span
+                        ><span style="display: flex; align-items: center; gap: 1ch"
+                          ><span
+                            style="display: block; height: 10px; width: 3%; background: #7ee787"
+                          ></span
+                          ><span style="color: #8b949e">2%</span></span
+                        >
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: minmax(0, 1fr) 10ch 10ch 24ch;
+                          column-gap: 2ch;
+                          white-space: pre;
+                          align-items: center;
+                        "
+                      >
+                        <span
+                          ><span style="color: #6e7681"> └─ </span
+                          ><span style="font-weight: 700">Hash Join</span>
+                          <span style="color: #8b949e">c.id = i.customer_id</span></span
+                        ><span style="text-align: right">31,877</span
+                        ><span style="text-align: right">19.4</span
+                        ><span style="display: flex; align-items: center; gap: 1ch"
+                          ><span
+                            style="display: block; height: 10px; width: 7%; background: #7ee787"
+                          ></span
+                          ><span style="color: #8b949e">5%</span></span
+                        >
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: minmax(0, 1fr) 10ch 10ch 24ch;
+                          column-gap: 2ch;
+                          white-space: pre;
+                          align-items: center;
+                        "
+                      >
+                        <span
+                          ><span style="color: #6e7681"> ├─ </span
+                          ><span style="font-weight: 700">Index Scan</span>
+                          <span style="color: #8b949e">invoices_issued_at_idx</span></span
+                        ><span style="text-align: right">31,877</span
+                        ><span style="text-align: right">33.6</span
+                        ><span style="display: flex; align-items: center; gap: 1ch"
+                          ><span
+                            style="display: block; height: 10px; width: 12%; background: #7ee787"
+                          ></span
+                          ><span style="color: #8b949e">8%</span></span
+                        >
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: minmax(0, 1fr) 10ch 10ch 24ch;
+                          column-gap: 2ch;
+                          white-space: pre;
+                          align-items: center;
+                        "
+                      >
+                        <span
+                          ><span style="color: #6e7681"> └─ </span
+                          ><span style="font-weight: 700">Seq Scan</span>
+                          <span style="color: #8b949e">customers c</span></span
+                        ><span style="text-align: right">12,418</span
+                        ><span style="text-align: right">5.3</span
+                        ><span style="display: flex; align-items: center; gap: 1ch"
+                          ><span
+                            style="display: block; height: 10px; width: 2%; background: #7ee787"
+                          ></span
+                          ><span style="color: #8b949e">1%</span></span
+                        >
+                      </div>
+                      <div
+                        style="
+                          margin-top: auto;
+                          border-top: 1px solid #30363d;
+                          padding-top: 6px;
+                          display: flex;
+                          flex-direction: column;
+                          gap: 0;
+                        "
+                      >
+                        <div style="white-space: pre">
+                          <span style="color: #e3b341; font-weight: 700">⚠ hint</span> Seq Scan
+                          reads 312k rows to match 31.9k invoices.
+                        </div>
+                        <div style="white-space: pre; color: #8b949e">
+                          <span style="color: #ff7b72">CREATE INDEX</span>
+                          <span style="color: #c9d1d9">ON invoice_line_items (invoice_id);</span>
+                          <span style="color: #58a6ff">i</span> stage index
+                          <span style="color: #58a6ff">y</span> copy
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  style="
+                    height: 26px;
+                    display: flex;
+                    align-items: center;
+                    white-space: pre;
+                    padding: 0 4px;
+                    color: #58a6ff;
+                  "
+                >
+                  <span>Run: <span style="color: #c9d1d9; font-weight: 700">ctrl+enter</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Explain: <span style="color: #c9d1d9; font-weight: 700">ctrl+x</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Format: <span style="color: #c9d1d9; font-weight: 700">ctrl+f</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Save: <span style="color: #c9d1d9; font-weight: 700">ctrl+s</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span
+                    >Open in $EDITOR:
+                    <span style="color: #c9d1d9; font-weight: 700">ctrl+o</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Next tab: <span style="color: #c9d1d9; font-weight: 700">]</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span
+                    >Normal mode: <span style="color: #c9d1d9; font-weight: 700">esc</span></span
+                  ><span style="margin-left: auto; color: #6e7681">Ln 7, Col 13</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dv-opt" id="1c">
+            <div class="dv-olabel">
+              <a class="dv-oid" href="#1c">1c</a>Pending Changes — staged as a diff, "commit" runs
+              them in one transaction
+            </div>
+            <div class="dv-card" style="width: 1180px">
+              <div
+                style="
+                  height: 28px;
+                  background: #1b1f26;
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  padding: 0 12px;
+                  border-bottom: 1px solid #000;
+                  position: relative;
+                "
+              >
+                <span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"
+                ></span
+                ><span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"
+                ></span
+                ><span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"
+                ></span
+                ><span
+                  style="
+                    position: absolute;
+                    left: 0;
+                    right: 0;
+                    text-align: center;
+                    font:
+                      12px system-ui,
+                      sans-serif;
+                    color: #8b949e;
+                    pointer-events: none;
+                  "
+                  >seaquel — prod-analytics — 148×42</span
+                >
+              </div>
+              <div
+                style="
+                  height: 720px;
+                  background: #0d1117;
+                  color: #c9d1d9;
+                  font:
+                    12.5px/18px &quot;JetBrains Mono&quot;,
+                    ui-monospace,
+                    monospace;
+                  padding: 12px 6px 0;
+                  display: flex;
+                  flex-direction: column;
+                  box-sizing: border-box;
+                  position: relative;
+                "
+              >
+                <div
+                  style="
+                    flex: 1;
+                    min-height: 0;
+                    display: grid;
+                    grid-template-columns: 380px minmax(0, 1fr);
+                    gap: 0 4px;
+                  "
+                >
+                  <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #30363d;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        [1]-Connection
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #7ee787">✓</span
+                        ><span style="font-weight: 700">prod-analytics</span
+                        ><span style="color: #8b949e">→ pg 16.2 · ssh bastion</span
+                        ><span style="margin-left: auto; color: #e3b341">● 4</span>
+                      </div>
+                    </div>
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #30363d;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                        height: 150px;
+                        box-sizing: border-box;
+                        overflow: clip;
+                        overflow-clip-margin: 12px;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        <span>[2]-</span><span style="font-weight: 700">Tables</span
+                        ><span style="color: #8b949e"> - Views - Functions</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #8b949e">▾</span
+                        ><span style="color: #d2a8ff">public</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span>customers</span
+                        ><span style="margin-left: auto; color: #6e7681">12.4k</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span>invoices</span><span style="color: #e3b341">~1 -1</span
+                        ><span style="margin-left: auto; color: #6e7681">48.1k</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span>invoice_line_items</span
+                        ><span style="margin-left: auto; color: #6e7681">312k</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span>items</span><span style="color: #e3b341">+1 ~1</span
+                        ><span style="margin-left: auto; color: #6e7681">86</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span>orders</span
+                        ><span style="margin-left: auto; color: #6e7681">91.7k</span>
+                      </div>
+                    </div>
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #7ee787;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                        flex: 1;
+                        min-height: 0;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        <span>[4]-</span
+                        ><span style="color: #7ee787; font-weight: 700">Pending Changes</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #8b949e">▾</span
+                        ><span style="color: #d2a8ff">public.items</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span style="color: #7ee787; width: 2ch">A</span><span>id 87</span
+                        ><span style="color: #8b949e">“Priority support”</span>
+                      </div>
+                      <div
+                        style="
+                          display: flex;
+                          gap: 1ch;
+                          white-space: pre;
+                          padding-left: calc(2ch + 10px);
+                          background: #1f3450;
+                          margin: 0 -10px;
+                          padding-right: 10px;
+                          font-weight: 700;
+                        "
+                      >
+                        <span style="color: #e3b341; width: 2ch">M</span><span>id 12</span
+                        ><span style="color: #8b949e">name</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #8b949e">▾</span
+                        ><span style="color: #d2a8ff">public.invoices</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span style="color: #e3b341; width: 2ch">M</span><span>id 48109</span
+                        ><span style="color: #8b949e">total</span>
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre; padding-left: 2ch">
+                        <span style="color: #ff7b72; width: 2ch">D</span><span>id 48106</span
+                        ><span style="color: #8b949e">Hooli · 540.00</span>
+                      </div>
+                      <div style="margin-top: 14px; white-space: pre; color: #8b949e">
+                        space <span style="color: #6e7681">unstage</span> u
+                        <span style="color: #6e7681">undo</span> c
+                        <span style="color: #6e7681">commit all</span>
+                      </div>
+                      <div
+                        style="
+                          position: absolute;
+                          bottom: -10px;
+                          right: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          color: #7ee787;
+                        "
+                      >
+                        2 of 4
+                      </div>
+                    </div>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #30363d;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                        flex: 1;
+                        min-height: 0;
+                        overflow: clip;
+                        overflow-clip-margin: 12px;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        <span style="font-weight: 700">Diff</span
+                        ><span style="color: #8b949e"> - SQL</span>
+                      </div>
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          right: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          color: #d2a8ff;
+                          white-space: pre;
+                        "
+                      >
+                        public.items · id = 12
+                      </div>
+                      <div style="white-space: pre; color: #56d4dd; margin-bottom: 4px">
+                        @@ public.items WHERE id = 12 (1 column) @@
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: 2ch 16ch minmax(0, 1fr);
+                          white-space: pre;
+                        "
+                      >
+                        <span></span><span style="color: #8b949e">id</span><span>12</span>
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: 2ch 16ch minmax(0, 1fr);
+                          white-space: pre;
+                          background: #2a1b1b;
+                          color: #ff7b72;
+                          margin: 0 -10px;
+                          padding: 0 10px;
+                        "
+                      >
+                        <span>-</span><span>name</span><span>'Standard hosting'</span>
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: 2ch 16ch minmax(0, 1fr);
+                          white-space: pre;
+                          background: #15291c;
+                          color: #7ee787;
+                          margin: 0 -10px;
+                          padding: 0 10px;
+                        "
+                      >
+                        <span>+</span><span>name</span><span>'Managed hosting'</span>
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: 2ch 16ch minmax(0, 1fr);
+                          white-space: pre;
+                        "
+                      >
+                        <span></span><span style="color: #8b949e">service_id</span><span>4</span>
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: 2ch 16ch minmax(0, 1fr);
+                          white-space: pre;
+                        "
+                      >
+                        <span></span><span style="color: #8b949e">unit_price</span
+                        ><span>49.00</span>
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: 2ch 16ch minmax(0, 1fr);
+                          white-space: pre;
+                        "
+                      >
+                        <span></span><span style="color: #8b949e">billing</span
+                        ><span>'monthly'</span>
+                      </div>
+                      <div
+                        style="
+                          display: grid;
+                          grid-template-columns: 2ch 16ch minmax(0, 1fr);
+                          white-space: pre;
+                        "
+                      >
+                        <span></span><span style="color: #8b949e">updated_at</span
+                        ><span>2026-07-02 10:11:45+00</span>
+                      </div>
+                      <div
+                        style="
+                          white-space: pre;
+                          color: #8b949e;
+                          margin-top: 14px;
+                          border-top: 1px solid #30363d;
+                          padding-top: 8px;
+                        "
+                      >
+                        -- generated
+                      </div>
+                      <div style="white-space: pre">
+                        <span style="color: #ff7b72">UPDATE</span> public.items
+                      </div>
+                      <div style="white-space: pre">
+                        <span style="color: #ff7b72"> SET</span> name =
+                        <span style="color: #a5d6ff">'Managed hosting'</span>
+                      </div>
+                      <div style="white-space: pre">
+                        <span style="color: #ff7b72"> WHERE</span> id =
+                        <span style="color: #79c0ff">12</span>;
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  style="
+                    height: 26px;
+                    display: flex;
+                    align-items: center;
+                    white-space: pre;
+                    padding: 0 4px;
+                    color: #58a6ff;
+                  "
+                >
+                  <span>Unstage: <span style="color: #c9d1d9; font-weight: 700">space</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Undo: <span style="color: #c9d1d9; font-weight: 700">u</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Edit value: <span style="color: #c9d1d9; font-weight: 700">e</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Commit: <span style="color: #c9d1d9; font-weight: 700">c</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Discard all: <span style="color: #c9d1d9; font-weight: 700">D</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Keybindings: <span style="color: #c9d1d9; font-weight: 700">?</span></span
+                  ><span style="margin-left: auto; color: #6e7681">seaquel 2026.4.5</span>
+                </div>
+                <div
+                  style="
+                    position: absolute;
+                    left: 50%;
+                    top: 44%;
+                    transform: translate(-50%, -50%);
+                    width: 560px;
+                    background: #0d1117;
+                    border: 1px solid #7ee787;
+                    border-radius: 6px;
+                    padding: 14px 14px 10px;
+                    box-shadow:
+                      0 0 0 9999px rgba(13, 17, 23, 0.45),
+                      0 20px 60px rgba(0, 0, 0, 0.6);
+                  "
+                >
+                  <div
+                    style="
+                      position: absolute;
+                      top: -10px;
+                      left: 10px;
+                      padding: 0 5px;
+                      background: #0d1117;
+                      color: #7ee787;
+                      font-weight: 700;
+                      white-space: pre;
+                    "
+                  >
+                    Commit 4 changes
+                  </div>
+                  <div style="white-space: pre; margin-bottom: 10px">
+                    Run on <span style="font-weight: 700">prod-analytics</span> in a single
+                    transaction:
+                  </div>
+                  <div
+                    style="
+                      display: grid;
+                      grid-template-columns: 4ch 9ch minmax(0, 1fr);
+                      white-space: pre;
+                    "
+                  >
+                    <span style="color: #7ee787">+1</span><span>INSERT</span
+                    ><span style="color: #8b949e">public.items</span>
+                  </div>
+                  <div
+                    style="
+                      display: grid;
+                      grid-template-columns: 4ch 9ch minmax(0, 1fr);
+                      white-space: pre;
+                    "
+                  >
+                    <span style="color: #e3b341">~2</span><span>UPDATE</span
+                    ><span style="color: #8b949e">public.items, public.invoices</span>
+                  </div>
+                  <div
+                    style="
+                      display: grid;
+                      grid-template-columns: 4ch 9ch minmax(0, 1fr);
+                      white-space: pre;
+                    "
+                  >
+                    <span style="color: #ff7b72">-1</span><span>DELETE</span
+                    ><span style="color: #8b949e">public.invoices</span>
+                  </div>
+                  <div style="margin-top: 10px; white-space: pre; color: #e3b341">
+                    ⚠ Includes a DELETE on a connection tagged
+                    <span style="font-weight: 700">production</span>.
+                  </div>
+                  <div
+                    style="
+                      margin-top: 12px;
+                      border: 1px solid #30363d;
+                      border-radius: 4px;
+                      padding: 2px 8px;
+                      white-space: pre;
+                    "
+                  >
+                    <span style="color: #8b949e">type </span
+                    ><span style="font-weight: 700">prod</span
+                    ><span style="color: #8b949e"> to confirm › </span><span>pr</span
+                    ><span style="background: #c9d1d9; color: #0d1117">o</span>
+                  </div>
+                  <div
+                    style="
+                      margin-top: 12px;
+                      display: flex;
+                      gap: 3ch;
+                      white-space: pre;
+                      color: #8b949e;
+                    "
+                  >
+                    <span><span style="color: #58a6ff">enter</span> execute</span
+                    ><span><span style="color: #58a6ff">p</span> preview SQL</span
+                    ><span><span style="color: #58a6ff">esc</span> cancel</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dv-opt" id="1d">
+            <div class="dv-olabel">
+              <a class="dv-oid" href="#1d">1d</a>Ask AI — popup with @-mentions, generated SQL,
+              privacy status in the title
+            </div>
+            <div class="dv-card" style="width: 1180px">
+              <div
+                style="
+                  height: 28px;
+                  background: #1b1f26;
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  padding: 0 12px;
+                  border-bottom: 1px solid #000;
+                  position: relative;
+                "
+              >
+                <span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"
+                ></span
+                ><span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"
+                ></span
+                ><span
+                  style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"
+                ></span
+                ><span
+                  style="
+                    position: absolute;
+                    left: 0;
+                    right: 0;
+                    text-align: center;
+                    font:
+                      12px system-ui,
+                      sans-serif;
+                    color: #8b949e;
+                    pointer-events: none;
+                  "
+                  >seaquel — prod-analytics — 148×42</span
+                >
+              </div>
+              <div
+                style="
+                  height: 720px;
+                  background: #0d1117;
+                  color: #c9d1d9;
+                  font:
+                    12.5px/18px &quot;JetBrains Mono&quot;,
+                    ui-monospace,
+                    monospace;
+                  padding: 12px 6px 0;
+                  display: flex;
+                  flex-direction: column;
+                  box-sizing: border-box;
+                  position: relative;
+                "
+              >
+                <div
+                  style="
+                    flex: 1;
+                    min-height: 0;
+                    display: grid;
+                    grid-template-columns: 300px minmax(0, 1fr);
+                    gap: 0 4px;
+                    opacity: 0.45;
+                  "
+                >
+                  <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #30363d;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        [1]-Connection
+                      </div>
+                      <div style="display: flex; gap: 1ch; white-space: pre">
+                        <span style="color: #7ee787">✓</span
+                        ><span style="font-weight: 700">prod-analytics</span>
+                      </div>
+                    </div>
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #30363d;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                        flex: 1;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        [2]-Tables
+                      </div>
+                      <div style="white-space: pre; color: #d2a8ff">▾ public</div>
+                      <div style="white-space: pre; padding-left: 2ch">customers</div>
+                      <div style="white-space: pre; padding-left: 2ch">invoices</div>
+                      <div style="white-space: pre; padding-left: 2ch">invoice_line_items</div>
+                      <div style="white-space: pre; padding-left: 2ch">items</div>
+                      <div style="white-space: pre; padding-left: 2ch">orders</div>
+                      <div style="white-space: pre; padding-left: 2ch">payments</div>
+                    </div>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #30363d;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                        height: 222px;
+                        box-sizing: border-box;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        [q]-untitled-3
+                      </div>
+                      <div style="white-space: pre; color: #6e7681">1</div>
+                    </div>
+                    <div
+                      style="
+                        position: relative;
+                        border: 1px solid #30363d;
+                        border-radius: 6px;
+                        padding: 8px 10px 6px;
+                        flex: 1;
+                      "
+                    >
+                      <div
+                        style="
+                          position: absolute;
+                          top: -10px;
+                          left: 10px;
+                          padding: 0 5px;
+                          background: #0d1117;
+                          white-space: pre;
+                        "
+                      >
+                        Results
+                      </div>
+                      <div style="white-space: pre; color: #6e7681">no results yet</div>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  style="
+                    height: 26px;
+                    display: flex;
+                    align-items: center;
+                    white-space: pre;
+                    padding: 0 4px;
+                    color: #58a6ff;
+                  "
+                >
+                  <span>Insert: <span style="color: #c9d1d9; font-weight: 700">enter</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Run: <span style="color: #c9d1d9; font-weight: 700">ctrl+r</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Refine: <span style="color: #c9d1d9; font-weight: 700">tab</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Mention: <span style="color: #c9d1d9; font-weight: 700">@</span></span
+                  ><span style="color: #6e7681"> | </span
+                  ><span>Close: <span style="color: #c9d1d9; font-weight: 700">esc</span></span
+                  ><span style="margin-left: auto; color: #6e7681">seaquel 2026.4.5</span>
+                </div>
+                <div
+                  style="
+                    position: absolute;
+                    left: 50%;
+                    top: 46%;
+                    transform: translate(-50%, -50%);
+                    width: 760px;
+                    background: #0d1117;
+                    border: 1px solid #7ee787;
+                    border-radius: 6px;
+                    padding: 14px 14px 10px;
+                    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+                  "
+                >
+                  <div
+                    style="
+                      position: absolute;
+                      top: -10px;
+                      left: 10px;
+                      padding: 0 5px;
+                      background: #0d1117;
+                      color: #7ee787;
+                      font-weight: 700;
+                      white-space: pre;
+                    "
+                  >
+                    Ask AI
+                  </div>
+                  <div
+                    style="
+                      position: absolute;
+                      top: -10px;
+                      right: 10px;
+                      padding: 0 5px;
+                      background: #0d1117;
+                      white-space: pre;
+                      color: #8b949e;
+                    "
+                  >
+                    schema <span style="color: #7ee787">shared</span> · data
+                    <span style="color: #ff7b72">not shared</span> · read-only
+                  </div>
+                  <div
+                    style="
+                      border: 1px solid #30363d;
+                      border-radius: 4px;
+                      padding: 4px 8px;
+                      white-space: pre-wrap;
+                    "
+                  >
+                    <span style="color: #7ee787">› </span>top 10 customers by revenue this quarter,
+                    only <span style="color: #d2a8ff; background: #231a33">@invoices</span> with
+                    status paid, include
+                    <span style="color: #d2a8ff; background: #231a33">@customers</span>.country<span
+                      style="background: #c9d1d9; color: #0d1117"
+                    >
+                    </span>
+                  </div>
+                  <div
+                    style="
+                      display: flex;
+                      gap: 2ch;
+                      white-space: pre;
+                      color: #8b949e;
+                      margin: 10px 0 6px;
+                    "
+                  >
+                    <span style="color: #7ee787">✓</span
+                    ><span
+                      >generated in 1.8s · 3 tables in context ·
+                      <span style="color: #c9d1d9">claude-sonnet</span></span
+                    >
+                  </div>
+                  <div
+                    style="
+                      background: #161b22;
+                      border-radius: 4px;
+                      padding: 8px 10px;
+                      display: grid;
+                      grid-template-columns: 3ch minmax(0, 1fr);
+                      column-gap: 2ch;
+                      white-space: pre;
+                    "
+                  >
+                    <span style="color: #6e7681; text-align: right">1</span
+                    ><span
+                      ><span style="color: #ff7b72">SELECT</span> c.name, c.country,
+                      <span style="color: #d2a8ff">sum</span>(li.quantity * li.unit_price)
+                      <span style="color: #ff7b72">AS</span> revenue</span
+                    >
+                    <span style="color: #6e7681; text-align: right">2</span
+                    ><span><span style="color: #ff7b72">FROM</span> invoices i</span>
+                    <span style="color: #6e7681; text-align: right">3</span
+                    ><span
+                      ><span style="color: #ff7b72">JOIN</span> customers c
+                      <span style="color: #ff7b72">ON</span> c.id = i.customer_id</span
+                    >
+                    <span style="color: #6e7681; text-align: right">4</span
+                    ><span
+                      ><span style="color: #ff7b72">JOIN</span> invoice_line_items li
+                      <span style="color: #ff7b72">ON</span> li.invoice_id = i.id</span
+                    >
+                    <span style="color: #6e7681; text-align: right">5</span
+                    ><span
+                      ><span style="color: #ff7b72">WHERE</span> i.status =
+                      <span style="color: #a5d6ff">'paid'</span></span
+                    >
+                    <span style="color: #6e7681; text-align: right">6</span
+                    ><span>
+                      <span style="color: #ff7b72">AND</span> i.issued_at &gt;=
+                      <span style="color: #d2a8ff">date_trunc</span>(<span style="color: #a5d6ff"
+                        >'quarter'</span
+                      >, <span style="color: #d2a8ff">now</span>())</span
+                    >
+                    <span style="color: #6e7681; text-align: right">7</span
+                    ><span
+                      ><span style="color: #ff7b72">GROUP BY</span> c.id, c.name, c.country</span
+                    >
+                    <span style="color: #6e7681; text-align: right">8</span
+                    ><span
+                      ><span style="color: #ff7b72">ORDER BY</span> revenue
+                      <span style="color: #ff7b72">DESC LIMIT</span>
+                      <span style="color: #79c0ff">10</span>;</span
+                    >
+                  </div>
+                  <div style="margin-top: 10px; white-space: pre; color: #8b949e">
+                    Joins through <span style="color: #c9d1d9">invoice_line_items</span> because
+                    <span style="color: #c9d1d9">invoices.total</span> excludes refunds.
+                  </div>
+                  <div
+                    style="
+                      margin-top: 12px;
+                      display: flex;
+                      gap: 3ch;
+                      white-space: pre;
+                      color: #8b949e;
+                    "
+                  >
+                    <span><span style="color: #58a6ff">enter</span> insert into editor</span
+                    ><span><span style="color: #58a6ff">ctrl+r</span> run</span
+                    ><span><span style="color: #58a6ff">tab</span> refine</span
+                    ><span><span style="color: #58a6ff">ctrl+s</span> save as…</span
+                    ><span style="margin-left: auto"
+                      ><span style="color: #58a6ff">esc</span> close</span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="dv-next">
+          Try next: "wire <a class="dv-oid" href="#1b">1b</a> query editor to the same keys" · "add
+          a launch/connection picker and the ? keybindings menu" · "try a light theme and a
+          single-panel mobile/SSH-narrow layout"
+        </p>
+      </section>
+    </x-dc>
+    <script type="text/x-dc" data-dc-script>
+      class Component extends DCLogic {
+        static COLS = [['id','int8'],['customer','text'],['status','enum'],['issued_at','date'],['due_at','date'],['total','numeric'],['paid_at','timestamptz']];
+        static ROWS = [
+          ['48112','Acme Corp','sent','2026-09-24','2026-10-24','4210.00',null],
+          ['48111','Initech','paid','2026-09-24','2026-10-24','860.50','2026-09-25 09:12'],
+          ['48110','Umbrella Health','draft','2026-09-23',null,'12400.00',null],
+          ['48109','Globex Ltd','overdue','2026-08-22','2026-09-21','2975.00',null],
+          ['48108','Stark Industrial','paid','2026-09-21','2026-10-21','1025.00','2026-09-22 14:40'],
+          ['48107','Wayne Logistics','sent','2026-09-20','2026-10-20','7880.00',null],
+          ['48106','Hooli','overdue','2026-08-18','2026-09-17','540.00',null],
+          ['48105','Soylent Foods','paid','2026-09-18','2026-10-18','2300.00','2026-09-19 08:03'],
+          ['48104','Vandelay Imports','sent','2026-09-17','2026-10-17','615.75',null],
+          ['48103','Pied Piper','paid','2026-09-16','2026-10-16','9999.00','2026-09-16 17:21'],
+          ['48102','Cyberdyne','overdue','2026-08-14','2026-09-13','3410.20',null],
+          ['48101','Tyrell Corp','paid','2026-09-14','2026-10-14','18250.00','2026-09-15 11:48'],
+          ['48100','Massive Dynamic','sent','2026-09-13','2026-10-13','1190.00',null],
+          ['48099','Oscorp','paid','2026-09-12','2026-10-12','4475.00','2026-09-12 16:30'],
+          ['48098','Aperture Labs','sent','2026-09-11','2026-10-11','730.00',null]
+        ];
+        static TABS2 = {
+          Tables: [['customers','12.4k'],['invoices','48.1k'],['invoice_line_items','312k'],['items','86'],['orders','91.7k'],['payments','40.2k'],['refunds','1.3k'],['services','12'],['subscriptions','8.8k']],
+          Views: [['active_customers','view'],['mrr_monthly','matview'],['overdue_invoices','view']],
+          Functions: [['recalc_totals(int8)','plpgsql'],['set_updated_at()','trigger'],['next_invoice_no()','sql']],
+          Enums: [['invoice_status','4 values'],['billing_period','3 values']]
+        };
+        static SAVED = [
+          ['M','revenue_by_month.sql',["SELECT c.name,","       date_trunc('month', i.issued_at) AS month,","       sum(li.quantity * li.unit_price) AS revenue","FROM   invoices i","JOIN   customers c ON c.id = i.customer_id","JOIN   invoice_line_items li ON li.invoice_id = i.id","GROUP BY 1, 2","ORDER BY revenue DESC;"]],
+          ['A','top_customers.sql',["SELECT c.name, sum(i.total) AS lifetime","FROM   customers c","JOIN   invoices i ON i.customer_id = c.id","WHERE  i.status = 'paid'","GROUP BY c.name","ORDER BY lifetime DESC","LIMIT  25;"]],
+          ['','churn_cohorts.sql',["WITH cohorts AS (","  SELECT customer_id, date_trunc('month', min(started_at)) AS cohort","  FROM subscriptions GROUP BY 1",")","SELECT cohort, count(*) FILTER (WHERE canceled_at IS NULL) AS retained","FROM cohorts JOIN subscriptions USING (customer_id)","GROUP BY cohort ORDER BY cohort;"]],
+          ['','slow_invoices.sql',["SELECT id, customer_id, issued_at, now() - due_at AS late_by","FROM   invoices","WHERE  status = 'overdue'","ORDER BY late_by DESC;"]]
+        ];
+        static HIST = [
+          ['12:03:51','SELECT * FROM public.invoices ORDER BY issued_at DESC LIMIT 40;'],
+          ['12:01:10','SELECT count(*) FROM public.customers;'],
+          ['11:58:42',"SELECT * FROM items WHERE name ILIKE '%hosting%';"],
+          ['11:52:09','EXPLAIN ANALYZE SELECT … FROM invoice_line_items …']
+        ];
+        static STATUS = { sent:'#79c0ff', paid:'#7ee787', draft:'#8b949e', overdue:'#ff7b72' };
+        static P = ['conn','tables','saved','pending','main'];
+
+        state = {
+          focus: 'tables', ctx: 'tables', ti: 1, oi: 0, si: 0, pi: 0, row: 3, col: 5,
+          mainTab: 0, tablesTab: 0, savedTab: 0,
+          base: Component.ROWS.map(r => Object.fromEntries(Component.COLS.map(([k], i) => [k, r[i]]))),
+          edits: { '48109.total': '3150.00' }, dels: ['48106'],
+          hist: [{ t: 'edit', key: '48109.total', prev: undefined }, { t: 'del', id: '48106' }],
+          editing: null, filter: '', filtering: false, modal: null, clock: 43467,
+          log: [
+            { time: '12:04:02', tag: '', tagColor: '', text: 'SELECT count(*) FROM public.invoices;', ms: '4 ms' },
+            { time: '12:04:02', tag: '', tagColor: '', text: 'SELECT * FROM public.invoices ORDER BY issued_at DESC LIMIT 40;', ms: '18 ms' },
+            { time: '12:04:19', tag: 'staged ', tagColor: '#e3b341', text: 'UPDATE invoices SET total = 3150.00 WHERE id = 48109', ms: '' },
+            { time: '12:04:27', tag: 'staged ', tagColor: '#ff7b72', text: 'DELETE FROM invoices WHERE id = 48106', ms: '' }
+          ]
+        };
+
+        componentDidMount() { this._k = e => this.onKey(e); window.addEventListener('keydown', this._k); }
+        componentWillUnmount() { window.removeEventListener('keydown', this._k); }
+
+        fmtTime(sec) { const p = n => String(n).padStart(2, '0'); return `${p(Math.floor(sec / 3600) % 24)}:${p(Math.floor(sec / 60) % 60)}:${p(sec % 60)}`; }
+        addLog(s, entries) {
+          let clock = s.clock + 3 + Math.floor(Math.random() * 6);
+          const log = [...s.log, ...entries.map(e => ({ tag: '', tagColor: '', ms: '', ...e, time: this.fmtTime(clock) }))].slice(-4);
+          return { log, clock };
+        }
+        sqlVal(v, k) { if (v === null) return 'NULL'; return (k === 'id' || k === 'total') ? v : `'${v}'`; }
+        fmt(v, k) { if (v === null || v === undefined) return 'NULL'; if (k === 'total' && !isNaN(+v) && v !== '') return (+v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return v; }
+        visRows(s = this.state) { const f = s.filter.toLowerCase(); return s.base.filter(r => !f || [r.id, r.customer, r.status].some(v => String(v).toLowerCase().includes(f))); }
+        val(s, r, k) { const key = r.id + '.' + k; return key in s.edits ? s.edits[key] : r[k]; }
+        pend(s = this.state) {
+          return [...Object.keys(s.edits).map(key => { const [id, col] = key.split('.'); return { t: 'M', key, id, col }; }), ...s.dels.map(id => ({ t: 'D', id }))];
+        }
+        tableName(s = this.state) { return Component.TABS2.Tables[s.ti][0]; }
+        isGrid(s = this.state) { return s.ctx === 'tables' && s.tablesTab === 0 && this.tableName(s) === 'invoices' && s.mainTab === 0; }
+
+        focus(p) { this.setState(s => ({ focus: p, ctx: p === 'main' ? s.ctx : (p === 'conn' ? s.ctx : p), editing: null, filtering: false })); }
+        clamp(v, n) { return Math.max(0, Math.min(n - 1, v)); }
+
+        startEdit() {
+          const s = this.state, r = this.visRows()[s.row]; if (!r) return;
+          const k = Component.COLS[s.col][0];
+          if (k === 'id') { this.setState(s => this.addLog(s, [{ tag: 'read-only ', tagColor: '#ff7b72', text: 'id is the primary key' }])); return; }
+          if (s.dels.includes(r.id)) return;
+          const v = this.val(s, r, k);
+          this.setState({ editing: { id: r.id, k, v: v === null ? 'NULL' : v } });
+        }
+        applyEdit() {
+          this.setState(s => {
+            const ed = s.editing, r = s.base.find(x => x.id === ed.id), key = ed.id + '.' + ed.k;
+            const nv = ed.v === 'NULL' ? null : ed.v, edits = { ...s.edits }, prev = s.edits[key];
+            if (nv === r[ed.k]) delete edits[key]; else edits[key] = nv;
+            if (edits[key] === prev) return { editing: null };
+            return { editing: null, edits, hist: [...s.hist, { t: 'edit', key, prev }],
+              ...this.addLog(s, [{ tag: 'staged ', tagColor: '#e3b341', text: `UPDATE invoices SET ${ed.k} = ${this.sqlVal(nv, ed.k)} WHERE id = ${ed.id}` }]) };
+          });
+        }
+        toggleDel(id) {
+          this.setState(s => {
+            const has = s.dels.includes(id);
+            return { dels: has ? s.dels.filter(x => x !== id) : [...s.dels, id], hist: [...s.hist, { t: has ? 'undel' : 'del', id }],
+              ...this.addLog(s, [has ? { tag: 'unstaged ', tagColor: '#8b949e', text: `DELETE FROM invoices WHERE id = ${id}` } : { tag: 'staged ', tagColor: '#ff7b72', text: `DELETE FROM invoices WHERE id = ${id}` }]) };
+          });
+        }
+        unstage(item) {
+          this.setState(s => {
+            if (item.t === 'M') { const edits = { ...s.edits }; const prev = edits[item.key]; delete edits[item.key]; return { edits, hist: [...s.hist, { t: 'edit', key: item.key, prev }], ...this.addLog(s, [{ tag: 'unstaged ', tagColor: '#8b949e', text: `UPDATE invoices … WHERE id = ${item.id}` }]) }; }
+            return { dels: s.dels.filter(x => x !== item.id), hist: [...s.hist, { t: 'undel', id: item.id }], ...this.addLog(s, [{ tag: 'unstaged ', tagColor: '#8b949e', text: `DELETE FROM invoices WHERE id = ${item.id}` }]) };
+          });
+        }
+        undo() {
+          this.setState(s => {
+            const h = s.hist[s.hist.length - 1]; if (!h) return null;
+            const out = { hist: s.hist.slice(0, -1) };
+            if (h.t === 'edit') { const edits = { ...s.edits }; if (h.prev === undefined) delete edits[h.key]; else edits[h.key] = h.prev; out.edits = edits; }
+            if (h.t === 'del') out.dels = s.dels.filter(x => x !== h.id);
+            if (h.t === 'undel') out.dels = [...s.dels, h.id];
+            return { ...out, ...this.addLog(s, [{ tag: 'undo ', tagColor: '#d2a8ff', text: h.t === 'edit' ? `edit ${h.key.replace('.', ' · ')}` : `${h.t === 'del' ? 'delete' : 'unstage'} id ${h.id}` }]) };
+          });
+        }
+        commit() {
+          this.setState(s => {
+            const p = this.pend(s);
+            const base = s.base.filter(r => !s.dels.includes(r.id)).map(r => { const n = { ...r }; Component.COLS.forEach(([k]) => { const key = r.id + '.' + k; if (key in s.edits) n[k] = s.edits[key]; }); return n; });
+            const lg = this.addLog(s, [
+              { tag: '', text: 'BEGIN;', ms: '1 ms' },
+              ...p.map(i => i.t === 'M' ? { text: `UPDATE invoices SET ${i.col} = ${this.sqlVal(s.edits[i.key], i.col)} WHERE id = ${i.id};`, ms: '3 ms' } : { text: `DELETE FROM invoices WHERE id = ${i.id};`, ms: '2 ms' }),
+              { tag: 'committed ', tagColor: '#7ee787', text: `COMMIT; ${p.length} statement${p.length === 1 ? '' : 's'}`, ms: '6 ms' }
+            ]);
+            const n = base.filter(r => !s.filter || this.visRows({ ...s, base }).includes(r)).length;
+            return { base, edits: {}, dels: [], hist: [], modal: null, pi: 0, row: this.clamp(s.row, Math.max(1, n)), ...lg };
+          });
+        }
+        cycleTab(d) {
+          this.setState(s => {
+            const f = s.focus === 'main' ? s.ctx : s.focus;
+            if (s.focus === 'main' && s.ctx === 'tables' && s.tablesTab === 0) return { mainTab: (s.mainTab + d + 5) % 5 };
+            if (f === 'tables') return { tablesTab: (s.tablesTab + d + 4) % 4, oi: 0 };
+            if (f === 'saved') return { savedTab: (s.savedTab + 1) % 2, si: 0 };
+            return null;
+          });
+        }
+
+        onKey(e) {
+          const tg = e.target; if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.isContentEditable)) return;
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
+          const k = e.key, s = this.state, done = () => e.preventDefault(), P = Component.P;
+          if (s.modal === 'help') { if (['Escape', '?', 'q', 'Enter'].includes(k)) this.setState({ modal: null }); return done(); }
+          if (s.modal === 'commit') { if (k === 'Enter') this.commit(); else if (k === 'Escape' || k === 'q') this.setState({ modal: null }); return done(); }
+          if (s.editing) {
+            const ed = s.editing;
+            if (k === 'Escape') this.setState({ editing: null });
+            else if (k === 'Enter') this.applyEdit();
+            else if (k === 'Backspace') this.setState({ editing: { ...ed, v: ed.v.slice(0, -1) } });
+            else if (k.length === 1) this.setState({ editing: { ...ed, v: ed.v + k } });
+            else return;
+            return done();
+          }
+          if (s.filtering) {
+            if (k === 'Escape') this.setState({ filtering: false, filter: '', row: 0 });
+            else if (k === 'Enter') this.setState({ filtering: false });
+            else if (k === 'Backspace') this.setState({ filter: s.filter.slice(0, -1), row: 0 });
+            else if (k.length === 1) this.setState({ filter: s.filter + k, row: 0 });
+            else return;
+            return done();
+          }
+          if (k >= '0' && k <= '4') { this.focus(k === '0' ? 'main' : P[+k - 1]); return done(); }
+          if (k === 'Tab') { const i = P.indexOf(s.focus); this.focus(P[(i + (e.shiftKey ? P.length - 1 : 1)) % P.length]); return done(); }
+          if (k === '?') { this.setState({ modal: 'help' }); return done(); }
+          if (k === 'c') { if (this.pend().length) this.setState({ modal: 'commit' }); return done(); }
+          if (k === 'u') { this.undo(); return done(); }
+          if (k === '[' || k === ']') { this.cycleTab(k === ']' ? 1 : -1); return done(); }
+          const down = k === 'j' || k === 'ArrowDown', up = k === 'k' || k === 'ArrowUp', left = k === 'h' || k === 'ArrowLeft', right = k === 'l' || k === 'ArrowRight';
+          const dy = down ? 1 : up ? -1 : 0, f = s.focus;
+          if (f === 'main') {
+            if (k === 'Escape') { if (s.filter) this.setState({ filter: '', row: 0 }); else this.focus(s.ctx); return done(); }
+            if (!this.isGrid()) return;
+            const n = this.visRows().length;
+            if (dy) this.setState({ row: this.clamp(s.row + dy, n) });
+            else if (left || right) this.setState({ col: this.clamp(s.col + (right ? 1 : -1), 7) });
+            else if (k === 'g') this.setState({ row: 0 });
+            else if (k === 'G') this.setState({ row: n - 1 });
+            else if (k === 'e' || k === 'Enter') this.startEdit();
+            else if (k === 'd') { const r = this.visRows()[s.row]; if (r) this.toggleDel(r.id); }
+            else if (k === '/') this.setState({ filtering: true });
+            else return;
+            return done();
+          }
+          if (left || right) { const i = P.indexOf(f); this.focus(P[(i + (right ? 1 : 3)) % 4]); return done(); }
+          if (f === 'tables') {
+            const tab = Object.keys(Component.TABS2)[s.tablesTab], n = Component.TABS2[tab].length;
+            if (dy) this.setState(s.tablesTab === 0 ? { ti: this.clamp(s.ti + dy, n), mainTab: 0, row: 0, filter: '' } : { oi: this.clamp(s.oi + dy, n) });
+            else if (k === 'Enter') this.focus('main');
+            else return;
+            return done();
+          }
+          if (f === 'saved') {
+            const n = s.savedTab === 0 ? Component.SAVED.length : Component.HIST.length;
+            if (dy) this.setState({ si: this.clamp(s.si + dy, n) });
+            else if (k === 'Enter') this.focus('main');
+            else return;
+            return done();
+          }
+          if (f === 'pending') {
+            const p = this.pend();
+            if (dy) this.setState({ pi: this.clamp(s.pi + dy, p.length) });
+            else if ((k === ' ' || k === 'd') && p[s.pi]) { this.unstage(p[s.pi]); this.setState({ pi: this.clamp(s.pi, p.length - 1) }); }
+            else if (k === 'Enter') this.focus('main');
+            else return;
+            return done();
+          }
+        }
+
+        renderVals() {
+          const s = this.state, C = Component, P = C.P;
+          const G = '#7ee787', dim = '#30363d';
+          const on = p => s.focus === p, bd = p => on(p) ? G : dim, nc = p => on(p) ? G : '#8b949e';
+          const selBg = (sel, p) => sel ? (on(p) ? '#1f3450' : '#161b22') : 'transparent';
+          const selW = (sel, p) => sel && on(p) ? 700 : 400;
+          const tabs = (names, active, p) => names.map((n, i) => ({ text: (i ? ' - ' : '') + n, color: i === active ? (on(p) ? G : '#c9d1d9') : '#8b949e', weight: i === active ? 700 : 400 }));
+          const p = this.pend(), nUpd = Object.keys(s.edits).length, nDel = s.dels.length;
+          const invMarker = [nUpd ? `~${nUpd}` : '', nDel ? `-${nDel}` : ''].filter(Boolean).join(' ');
+
+          const tabName = Object.keys(C.TABS2)[s.tablesTab], list = C.TABS2[tabName];
+          const idx2 = s.tablesTab === 0 ? s.ti : s.oi;
+          const tableItems = list.map(([name, count], i) => ({ name, count, marker: name === 'invoices' && s.tablesTab === 0 ? invMarker : '', bg: selBg(i === idx2, 'tables'), weight: selW(i === idx2, 'tables'),
+            onClick: e => { e.stopPropagation(); this.setState(s.tablesTab === 0 ? { ti: i, focus: 'tables', ctx: 'tables', mainTab: 0, row: 0, filter: '' } : { oi: i, focus: 'tables', ctx: 'tables' }); } }));
+
+          const savedList = s.savedTab === 0 ? C.SAVED.map(([st, n]) => ({ s: st, name: n, sc: st === 'M' ? '#e3b341' : '#7ee787' })) : C.HIST.map(([t, q]) => ({ s: '', name: `${t} ${q}`, sc: '' }));
+          const savedItems = savedList.map((it, i) => ({ ...it, s: it.s || ' ', bg: selBg(i === s.si, 'saved'), weight: selW(i === s.si, 'saved'), onClick: e => { e.stopPropagation(); this.setState({ si: i, focus: 'saved', ctx: 'saved' }); } }));
+
+          const pendingItems = p.map((it, i) => ({ s: it.t, sc: it.t === 'M' ? '#e3b341' : '#ff7b72', label: `id ${it.id}`, sub: it.t === 'M' ? it.col : (s.base.find(r => r.id === it.id) || {}).customer,
+            bg: selBg(i === s.pi, 'pending'), weight: selW(i === s.pi, 'pending'), onClick: e => { e.stopPropagation(); this.setState({ pi: i, focus: 'pending', ctx: 'pending' }); } }));
+
+          // main panel
+          let mainTabs, mainRight = '', lines = [], showGrid = false, mainCounter = '';
+          const L = (text, color = '#c9d1d9', bg = 'transparent', weight = 400) => ({ text, color, bg, weight });
+          if (s.ctx === 'tables' && s.tablesTab === 0) {
+            const tn = this.tableName();
+            mainTabs = tabs(['Data', 'Structure', 'Indexes', 'Constraints', 'DDL'], s.mainTab, 'main');
+            mainRight = 'public.' + tn;
+            if (tn !== 'invoices') lines = [L(''), L(`  public.${tn}`, '#d2a8ff'), L('  Mockup data is only wired up for public.invoices.', '#8b949e'), L('  Press k/j in [2] to go back to it.', '#6e7681')];
+            else if (s.mainTab === 0) showGrid = true;
+            else if (s.mainTab === 1) lines = [L('column        type          null   default', '#56d4dd', 'transparent', 700), L('─'.repeat(64), dim),
+              L('id            int8          no     nextval(\'invoices_id_seq\')'), L('customer_id   int8          no     —'), L('status        invoice_status no    \'draft\''),
+              L('issued_at     date          no     current_date'), L('due_at        date          yes    —'), L('total         numeric(12,2) no     0'), L('paid_at       timestamptz   yes    —')];
+            else if (s.mainTab === 2) lines = [L('name                          columns        type', '#56d4dd', 'transparent', 700), L('─'.repeat(64), dim),
+              L('invoices_pkey                 (id)           btree · unique'), L('invoices_issued_at_idx        (issued_at)    btree'), L('invoices_customer_id_idx      (customer_id)  btree'), L('invoices_status_idx           (status)       btree · partial')];
+            else if (s.mainTab === 3) lines = [L('name                       definition', '#56d4dd', 'transparent', 700), L('─'.repeat(64), dim),
+              L('invoices_pkey              PRIMARY KEY (id)'), L('invoices_customer_id_fkey  FOREIGN KEY (customer_id) → customers(id)'), L('invoices_total_check       CHECK (total >= 0)')];
+            else lines = ['CREATE TABLE public.invoices (', "  id          int8 PRIMARY KEY DEFAULT nextval('invoices_id_seq'),", '  customer_id int8 NOT NULL REFERENCES customers(id),', "  status      invoice_status NOT NULL DEFAULT 'draft',",
+              '  issued_at   date NOT NULL DEFAULT current_date,', '  due_at      date,', '  total       numeric(12,2) NOT NULL DEFAULT 0 CHECK (total >= 0),', '  paid_at     timestamptz', ');'].map(t => L(t));
+          } else if (s.ctx === 'tables') {
+            const [n, kind] = list[s.oi];
+            mainTabs = tabs(['Definition'], 0, 'main'); mainRight = 'public.' + n;
+            lines = [L(`-- ${tabName.slice(0, -1).toLowerCase()} · ${kind}`, '#6e7681'), L(`public.${n}`, '#d2a8ff'), L(''), L('Definitions are stubbed in this mockup.', '#8b949e')];
+          } else if (s.ctx === 'saved') {
+            mainTabs = tabs(['SQL'], 0, 'main');
+            if (s.savedTab === 0) { const [st, n, sql] = C.SAVED[s.si]; mainRight = n + (st ? `  ${st === 'M' ? 'modified' : 'added'}` : ''); lines = sql.map((t, i) => L(`${String(i + 1).padStart(3)}  ${t}`)); }
+            else { const [t, q] = C.HIST[s.si]; mainRight = 'ran ' + t; lines = [L(`  1  ${q}`)]; }
+          } else {
+            mainTabs = tabs(['Diff', 'SQL'], 0, 'main');
+            const it = p[s.pi];
+            if (!it) lines = [L('nothing staged — edit a cell with e or stage a delete with d', '#6e7681')];
+            else {
+              const r = s.base.find(x => x.id === it.id); mainRight = `public.invoices · id = ${it.id}`;
+              lines.push(L(`@@ public.invoices  WHERE id = ${it.id} @@`, '#56d4dd'));
+              C.COLS.forEach(([k]) => {
+                const pad = k.padEnd(14);
+                if (it.t === 'D') lines.push(L(`- ${pad}${this.fmt(r[k], k)}`, '#ff7b72', '#2a1b1b'));
+                else if (k === it.col) { lines.push(L(`- ${pad}${this.sqlVal(r[k], k)}`, '#ff7b72', '#2a1b1b')); lines.push(L(`+ ${pad}${this.sqlVal(s.edits[it.key], k)}`, G, '#15291c')); }
+                else lines.push(L(`  ${pad}${this.fmt(r[k], k)}`, '#8b949e'));
+              });
+              lines.push(L(''), L('-- generated', '#6e7681'));
+              if (it.t === 'D') lines.push(L(`DELETE FROM public.invoices WHERE id = ${it.id};`));
+              else lines.push(L('UPDATE public.invoices'), L(`   SET ${it.col} = ${this.sqlVal(s.edits[it.key], it.col)}`), L(` WHERE id = ${it.id};`));
+            }
+          }
+
+          // grid
+          const vr = this.visRows(), row = this.clamp(s.row, vr.length);
+          const rows = vr.map((r, ri) => {
+            const sel = ri === row, del = s.dels.includes(r.id);
+            const edited = C.COLS.some(([k]) => (r.id + '.' + k) in s.edits);
+            const cells = {};
+            C.COLS.forEach(([k], ci) => {
+              const key = r.id + '.' + k, v = this.val(s, r, k), isEd = s.editing && s.editing.id === r.id && s.editing.k === k;
+              let color = v === null ? '#6e7681' : k === 'id' ? '#8b949e' : k === 'status' ? (C.STATUS[v] || '#c9d1d9') : '#c9d1d9';
+              if (key in s.edits) color = '#e3b341';
+              let bg = 'transparent', text = this.fmt(v, k);
+              if (del) color = '#ff7b72';
+              if (sel && ci === s.col && on('main')) { bg = key in s.edits ? '#e3b341' : '#58a6ff'; color = '#0d1117'; }
+              if (isEd) { bg = '#30363d'; color = '#ffffff'; text = s.editing.v + '▌'; }
+              cells['c' + ci] = { text, color, bg, align: k === 'total' && !isEd ? 'right' : 'left', deco: del ? 'line-through' : 'none',
+                onClick: e => { e.stopPropagation(); this.setState({ focus: 'main', row: ri, col: ci }); } };
+            });
+            return { ...cells, bg: selBg(sel, 'main'), weight: selW(sel, 'main'), mark: del ? '-' : edited ? '~' : '', markColor: del ? '#ff7b72' : '#e3b341' };
+          });
+          const cr = vr[row], ck = C.COLS[s.col];
+          let cellInfo = '', cellChange = '';
+          if (cr) { cellInfo = `${ck[0]} · ${ck[1]}  `; const key = cr.id + '.' + ck[0]; if (key in s.edits) cellChange = `${this.fmt(cr[ck[0]], ck[0])} → ${this.fmt(s.edits[key], ck[0])}`; }
+          if (showGrid) mainCounter = vr.length ? `${row + 1} of ${vr.length}` : '0 of 0';
+          else if (s.ctx === 'pending') mainCounter = '';
+
+          // key bar
+          const K = arr => arr.map(([label, key], i) => ({ label, key, sep: i ? ' | ' : '' }));
+          let keys, modeLabel = 'seaquel 2026.4.5';
+          if (s.modal === 'commit') keys = K([['Execute', 'enter'], ['Cancel', 'esc']]);
+          else if (s.modal === 'help') keys = K([['Close', 'esc']]);
+          else if (s.editing) { keys = K([['Save', 'enter'], ['Cancel', 'esc'], ['Set NULL', 'type NULL']]); modeLabel = 'EDIT'; }
+          else if (s.filtering) { keys = K([['Apply', 'enter'], ['Clear', 'esc']]); modeLabel = 'FILTER'; }
+          else if (on('main') && showGrid) keys = K([['Move', 'hjkl'], ['Edit', 'e'], ['Stage delete', 'd'], ['Filter', '/'], ['Tabs', '[ ]'], ['Undo', 'u'], ['Commit', 'c'], ['Back', 'esc'], ['Keybindings', '?']]);
+          else if (on('main')) keys = K([['Tabs', '[ ]'], ['Back', 'esc'], ['Commit', 'c'], ['Keybindings', '?']]);
+          else if (on('tables')) keys = K([['Select', 'j/k'], ['Open', 'enter'], ['Tabs', '[ ]'], ['Next panel', 'tab'], ['Undo', 'u'], ['Commit', 'c'], ['Keybindings', '?']]);
+          else if (on('saved')) keys = K([['Select', 'j/k'], ['Open', 'enter'], ['Saved/History', '[ ]'], ['Next panel', 'tab'], ['Keybindings', '?']]);
+          else if (on('pending')) keys = K([['Select', 'j/k'], ['Unstage', 'space'], ['Undo', 'u'], ['Commit', 'c'], ['View diff', 'enter'], ['Keybindings', '?']]);
+          else keys = K([['Next panel', 'tab'], ['Focus panel', '1-4'], ['Main', '0'], ['Keybindings', '?']]);
+
+          const nIns = 0;
+          const commitLines = [];
+          if (nUpd) commitLines.push({ text: `~${nUpd}  UPDATE   public.invoices`, color: '#e3b341' });
+          if (nDel) commitLines.push({ text: `-${nDel}  DELETE   public.invoices`, color: '#ff7b72' });
+
+          const H = (k, d, head) => ({ k, d, kc: head ? G : '#58a6ff', kw: head ? 700 : 400 });
+          const helpLines = [H('Global', '', 1), H('1 2 3 4 / 0', 'focus panel / main view'), H('tab  shift+tab', 'next / previous panel'), H('[  ]', 'previous / next tab'), H('u', 'undo last staged change'), H('c', 'commit pending changes'),
+            H('Data grid', '', 1), H('h j k l  arrows', 'move cell cursor'), H('g  G', 'first / last row'), H('e  enter', 'edit cell (type NULL for null)'), H('d', 'stage / unstage row delete'), H('/', 'filter rows · esc clears'),
+            H('Pending changes', '', 1), H('space', 'unstage selected change'), H('enter', 'view diff in main')];
+
+          const f = fn => e => { fn(); };
+          return {
+            b0: bd('main'), b1: bd('conn'), b2: bd('tables'), b3: bd('saved'), b4: bd('pending'),
+            n1: nc('conn'), n2: nc('tables'), n3: nc('saved'), n4: nc('pending'), w1: on('conn') ? 700 : 400, w4: on('pending') ? 700 : 400,
+            n2c: nc('tables'), n3c: nc('saved'), n4c: nc('pending'), n0c: nc('main'),
+            fConn: f(() => this.focus('conn')), fTables: f(() => this.focus('tables')), fSaved: f(() => this.focus('saved')), fPending: f(() => this.focus('pending')), fMain: f(() => s.focus !== 'main' && this.focus('main')),
+            connPending: p.length ? `● ${p.length}` : '○ 0', connColor: p.length ? '#e3b341' : '#6e7681',
+            tablesTabs: tabs(Object.keys(C.TABS2), s.tablesTab, 'tables'), tableItems, tablesCounter: `${idx2 + 1} of ${list.length}`,
+            savedTabs: tabs(['Saved', 'History'], s.savedTab, 'saved'), savedItems, savedCounter: `${s.si + 1} of ${savedList.length}`,
+            pendingItems, noPending: !p.length, pendingCounter: p.length ? `${this.clamp(s.pi, p.length) + 1} of ${p.length}` : '',
+            pIns: `+${nIns}`, pUpd: `~${nUpd}`, pDel: `-${nDel}`,
+            mainTabs, mainRight, showGrid, lines: showGrid ? [] : lines, rows, noRows: showGrid && !vr.length,
+            filterText: s.filtering ? s.filter + '▌' : (s.filter || 'filter…'), filterColor: s.filtering || s.filter ? '#c9d1d9' : '#6e7681',
+            cellInfo, cellChange, gridFooter: s.filter ? `${vr.length} match${vr.length === 1 ? '' : 'es'} · 18 ms` : `rows 1–${vr.length} of 48,112 · 18 ms`, mainCounter,
+            log: s.log, keys, modeLabel,
+            showCommit: s.modal === 'commit', commitTitle: `Commit ${p.length} change${p.length === 1 ? '' : 's'}`, commitLines, commitHasDelete: nDel > 0,
+            showHelp: s.modal === 'help', helpLines
+          };
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -50,6 +50,8 @@ struct Fixture {
 struct FailingStore {
     inner: Arc<MemoryStore>,
     fail: Vec<String>,
+    /// These fail as a store that isn't there (no Secret Service) does.
+    unavailable: Vec<String>,
 }
 
 #[seaquel_runtime::async_trait]
@@ -60,6 +62,13 @@ impl SecretStore for FailingStore {
                 op: SecretOp::Get,
                 key: key.to_string(),
                 message: "the user denied access".to_string(),
+            });
+        }
+        if self.unavailable.iter().any(|k| k == key) {
+            return Err(SecretError::Unavailable {
+                op: SecretOp::Get,
+                key: key.to_string(),
+                message: "no Secret Service".to_string(),
             });
         }
         self.inner.get(key).await
@@ -76,6 +85,8 @@ impl SecretStore for FailingStore {
 enum Store {
     Memory,
     FailingOn(&'static [&'static str]),
+    /// Reads of the first keys are refused, of the second unavailable.
+    Unavailable(&'static [&'static str], &'static [&'static str]),
     None,
 }
 
@@ -97,6 +108,12 @@ async fn fixture_with(kind: Store) -> Fixture {
         Store::FailingOn(keys) => spec.with_secrets(Arc::new(FailingStore {
             inner: store.clone(),
             fail: keys.iter().map(|k| k.to_string()).collect(),
+            unavailable: Vec::new(),
+        })),
+        Store::Unavailable(refused, missing) => spec.with_secrets(Arc::new(FailingStore {
+            inner: store.clone(),
+            fail: refused.iter().map(|k| k.to_string()).collect(),
+            unavailable: missing.iter().map(|k| k.to_string()).collect(),
         })),
         Store::None => spec,
     };
@@ -372,6 +389,58 @@ async fn an_unreadable_db_password_fails_before_connecting() {
     );
     assert!(err.message.contains("keychain"), "{}", err.message);
     assert_eq!(f.core.connection_count(), 0);
+}
+
+/// Phase 7a probe F4: a store that isn't there (a headless Linux host with
+/// no Secret Service) isn't a refusal: the connect fails with its own code,
+/// before anything opens, so the interface asks for the password instead.
+/// A refusal among the reads still wins.
+#[tokio::test]
+async fn an_unavailable_store_is_its_own_code() {
+    let f = fixture_with(Store::Unavailable(&[], &["db:c-db-nostore"])).await;
+    f.save(
+        "c-db-nostore",
+        json!({ "connectionString": "postgresql://alice@127.0.0.1:1/app" }),
+    )
+    .await;
+    let err = f
+        .connect("c-db-nostore", HostKeyPolicy::KnownOnly)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "SECRET_STORE_UNAVAILABLE", "{err}");
+    assert!(
+        err.message.contains("Saved c-db-nostore"),
+        "{}",
+        err.message
+    );
+    assert_eq!(f.core.connection_count(), 0);
+    // Supplied, the password wins and the store isn't read.
+    let mut req = ConnectRequest::saved("c-db-nostore");
+    req.secrets = SuppliedSecrets {
+        db: Some("typed".into()),
+        ..SuppliedSecrets::default()
+    };
+    let err = f.ws.connect(&f.core, req).await.unwrap_err();
+    assert_ne!(err.code, "SECRET_STORE_UNAVAILABLE", "{err}");
+    assert_ne!(err.code, "SECRET_UNREADABLE", "{err}");
+
+    let f = fixture_with(Store::Unavailable(&["ssh-key:c-mixed"], &["db:c-mixed"])).await;
+    f.save(
+        "c-mixed",
+        json!({
+            "connectionString": "postgresql://alice@db.internal:5432/app",
+            "saveSshKeyPassphrase": true,
+            "sshTunnel": { "enabled": true, "host": "127.0.0.1", "port": 1,
+                           "username": "u", "authMethod": "key",
+                           "keyPath": "/nonexistent/id_ed25519" },
+        }),
+    )
+    .await;
+    let err = f
+        .connect("c-mixed", HostKeyPolicy::KnownOnly)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "SECRET_UNREADABLE", "{err}");
 }
 
 #[tokio::test]
@@ -970,8 +1039,10 @@ fn host_port(url: &str) -> (String, u16) {
     (host.to_string(), port.parse().unwrap())
 }
 
-/// A row whose tunnel opens but whose database never answers: the SSH
-/// server's connect to a blackholed address hangs.
+/// A row whose tunnel opens but whose database never answers: the compose
+/// file's `blackhole` service (and CI's) accepts the bastion's connection
+/// and sends nothing. (A blackholed address such as `10.255.255.1` is
+/// refused at once on some Docker networks.)
 async fn save_hanging_ssh_row(f: &Fixture, id: &str, ssh: &Ssh) {
     save_ssh_row(f, id, ssh, "postgres").await;
     let mut row = connections::load_all(f.ws.storage())
@@ -981,8 +1052,8 @@ async fn save_hanging_ssh_row(f: &Fixture, id: &str, ssh: &Ssh) {
         .find(|c| c.id == id)
         .unwrap();
     // The tunnel forwards to where the string points (row 7c).
-    row.host = "10.255.255.1".into();
-    row.connection_string = Some("postgresql://postgres@10.255.255.1:5432/postgres".into());
+    row.host = "blackhole".into();
+    row.connection_string = Some("postgresql://postgres@blackhole:5432/postgres".into());
     connections::save(f.ws.storage(), &row).await.unwrap();
 }
 

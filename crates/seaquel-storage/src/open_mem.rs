@@ -74,7 +74,12 @@ impl Storage {
                 other => other,
             });
         }
-        Ok(Self::new(pool, path, false))
+        Ok(Self::new(
+            pool,
+            path,
+            false,
+            crate::write::Writer::default(),
+        ))
     }
 
     /// The whole file as it stands (`sqlite3_serialize`), for the page to

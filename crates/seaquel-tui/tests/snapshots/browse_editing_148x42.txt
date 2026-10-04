@@ -1,0 +1,42 @@
+┌[1]-Connection──────────────────────────────○ 0┐┌Data - Structure - Indexes - Constraints - DDL────────────────────────────────────public.invoices┐
+│✓ prod-analytics → pg · db.internal            ││/filter…                                                                                         │
+└───────────────────────────────────────────────┘│  id     customer          status          issued_at   due_at      total                        ›│
+┌[2]-Tables - Views─────────────────────────────┐│  int8   text              invoice_status  date        date        numeric(12,2)                 │
+│▾public                                       6││  48112  Acme Corp         sent            2026-09-24  2026-10-24        4210.00                 │
+│  customers                               12.4k││  48111  Initech▌          paid            2026-09-24  2026-10-24         860.50                 │
+│  invoices                                48.1k││  48110  Umbrella Health   draft           2026-09-23  NULL             12400.00                 │
+│  invoice_line_items                       312k││  48109  Globex Ltd        overdue         2026-08-22  2026-09-21        2975.00                 │
+│  items                                      86││  48108  Stark Industrial  paid            2026-09-21  2026-10-21        1025.00                 │
+│  orders                                  91.7k││  48107  Wayne Logistics   sent            2026-09-20  2026-10-20        7880.00                 │
+│  payments                                40.2k││  48106  Hooli             overdue         2026-08-18  2026-09-17         540.00                 │
+│▸analytics                                    1││  48105  Soylent Foods     paid            2026-09-18  2026-10-18        2300.00                 │
+│▸auth                                         1││  48104  Vandelay Imports  sent            2026-09-17  2026-10-17         615.75                 │
+│                                               ││  48103  Pied Piper        paid            2026-09-16  2026-10-16        9999.00                 │
+│                                               ││  48102  Cyberdyne         overdue         2026-08-14  2026-09-13        3410.20                 │
+│                                               ││  48101  Tyrell Corp       paid            2026-09-14  2026-10-14       18250.00                 │
+│                                               ││  48100  Massive Dynamic   sent            2026-09-13  2026-10-13        1190.00                 │
+│                                               ││  48099  Oscorp            paid            2026-09-12  2026-10-12        4475.00                 │
+│                                               ││  48098  Aperture Labs     sent            2026-09-11  2026-10-11         730.00                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└─────────────────────────────────────────3 of 9┘│                                                                                                 │
+┌[3]-Saved - History────────────────────────────┐│                                                                                                 │
+│⇄ revenue_by_month.sql                         ││                                                                                                 │
+│⇄ top_customers.sql                            ││                                                                                                 │
+│  churn_cohorts.sql                            ││                                                                                                 │
+│▾perf                                         1││                                                                                                 │
+│  slow_invoices.sql                            ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└─────────────────────────────────────────1 of 5┘│                                                                                                 │
+┌[4]-Pending Changes────────────────────+0 ~0 -0┐│                                                                                                 │
+│nothing staged                                 ││customer · text                                                       rows 1–15 of 48,112 · 18 ms│
+│                                               │└──────────────────────────────────────────────────────────────────────────────────────────2 of 15┘
+│                                               │┌Command Log──────────────────────────────────────────────────────────────────────────────────────┐
+│                                               ││statements Seaquel runs show here                                                                │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└───────────────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+Save: enter | Cancel: esc                                                                                                                       EDIT

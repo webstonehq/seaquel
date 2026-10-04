@@ -26,6 +26,7 @@ import { errorCode } from "$lib/core/client";
 import { getLibrary, rowKey, NEW, WORKFLOW_NOT_FOUND } from "./library/index.js";
 import { workflowSummaryFromWire } from "./library/convert.js";
 import { libraryErrorMessage, limitMessage, limitOf } from "./library/messages.js";
+import { keepSame } from "./library/same-data.js";
 
 const DEFAULT_NODE_WIDTH = 320;
 
@@ -976,7 +977,14 @@ export class WorkflowManager {
         continue;
       }
       if (!seqs.take(rowKey("workflow", id), seq)) continue;
-      const workflow = stored.get(id);
+      const read = stored.get(id);
+      // An unchanged row keeps its object (an `external` reload reads them all).
+      const workflow =
+        read &&
+        keepSame(
+          next.find((w) => w.id === id),
+          read,
+        );
       if (workflow) {
         next = next.some((w) => w.id === id)
           ? next.map((w) => (w.id === id ? workflow : w))

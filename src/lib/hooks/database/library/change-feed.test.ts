@@ -163,6 +163,36 @@ describe("ChangeFeed", () => {
     expect(reload).toHaveBeenNthCalledWith(2, { reason: "resubscribed", initial: false });
   });
 
+  it("another process's write (external) is one reload, grouped within 100 ms", async () => {
+    const reload = vi.fn();
+    const handler = vi.fn();
+    feed.onReload(reload);
+    feed.subscribe("external", handler);
+    fake.emit(changed("external", { origin: null, seq: { epoch: "e1", n: 4 } }));
+    fake.emit(changed("external", { origin: null, seq: { epoch: "e1", n: 5 } }));
+    await vi.advanceTimersByTimeAsync(99);
+    expect(reload).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(reload).toHaveBeenCalledWith({ reason: "external" });
+    // A reload, not a refetch of the kind.
+    expect(handler).not.toHaveBeenCalled();
+
+    // The next one after the group is its own reload.
+    fake.emit(changed("external", { origin: null, seq: { epoch: "e1", n: 6 } }));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(reload).toHaveBeenCalledTimes(2);
+  });
+
+  it("an external event needs no subscriber of its kind, and stop drops it", async () => {
+    const reload = vi.fn();
+    feed.onReload(reload);
+    fake.emit(changed("external", { origin: null }));
+    feed.stop();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it("says when updates stop, and when they're back", () => {
     const status = vi.fn();
     feed.onStatus(status);

@@ -3,7 +3,7 @@
 use crate::db;
 use seaquel_types::storage::TutorialProgress;
 
-use super::codec::{opt_text, text, Result};
+use super::codec::{begin, opt_text, text, Result};
 use crate::{Reader, Storage, WriteTx};
 
 /// Every row, in rowid order (an overwritten pair moves to the end, since
@@ -31,29 +31,35 @@ pub async fn save(
     challenge_id: &str,
     state: Option<&str>,
 ) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("INSERT OR REPLACE INTO tutorial_progress (lesson_id, challenge_id, state) VALUES (?, ?, ?)")
         .bind(lesson_id)
         .bind(challenge_id)
         .bind(state)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 
 /// Deletes one lesson's rows.
 pub async fn remove_lesson(st: &Storage, lesson_id: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM tutorial_progress WHERE lesson_id = ?")
         .bind(lesson_id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 
 /// Deletes every row.
 pub async fn remove_all(st: &Storage) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM tutorial_progress")
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 

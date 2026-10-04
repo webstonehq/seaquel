@@ -1,0 +1,170 @@
+
+1Seaquel TUI — lazygit-style panel layout
+Assumptions: dark terminal, 148×42 cells, JetBrains Mono. Borrowed from lazygit: numbered panels (1–4 to focus), tabbed panel titles on the border, "n of m" counters, a command log that shows every SQL statement the UI runs, and a context-sensitive keybinding bar. Seaquel's Pending Changes map naturally onto lazygit's staging → commit flow; Git-shared saved queries show file status.
+1aBrowse — interactive: click the window, then use the keyboard (? for all keys)
+seaquel — prod-analytics — 148×42
+[1]-Connection
+✓prod-analytics→ pg 16.2 · ssh bastion{{ connPending }}
+[2]-{{ tb.text }}
+▾public14
+{{ it.name }}{{ it.marker }}{{ it.count }}
+▸analytics6
+▸auth3
+{{ tablesCounter }}
+[3]-{{ tb.text }}
+⎇ main ↑1
+{{ it.s }}{{ it.name }}
+{{ savedCounter }}
+[4]-Pending Changes
+{{ pIns }} {{ pUpd }} {{ pDel }}
+nothing staged
+{{ it.s }}{{ it.label }}{{ it.sub }}
+{{ pendingCounter }}
+{{ tb.text }}
+{{ mainRight }}
+/{{ filterText }}ORDER BY issued_at DESC
+idcustomerstatusissued_atdue_attotalpaid_at
+int8textenumdatedatenumerictimestamptz
+{{ r.mark }}{{ r.c0.text }}{{ r.c1.text }}{{ r.c2.text }}{{ r.c3.text }}{{ r.c4.text }}{{ r.c5.text }}{{ r.c6.text }}
+no rows match the filter · esc to clear
+{{ cellInfo }}{{ cellChange }}{{ gridFooter }}
+{{ l.text }}
+{{ mainCounter }}
+Command Log
+{{ l.time }}  {{ l.tag }}{{ l.text }}  {{ l.ms }}
+{{ kb.sep }}{{ kb.label }}: {{ kb.key }}{{ modeLabel }}
+{{ commitTitle }}
+Run on prod-analytics in a single transaction:
+{{ cl.text }}
+⚠ Includes a DELETE on a connection tagged production.
+enter executeesc cancel
+Keybindings
+{{ hl.k }}{{ hl.d }}
+esc close
+1bQuery — editor with completion, EXPLAIN ANALYZE as a timing tree
+seaquel — prod-analytics — 148×42
+[1]-Connection
+✓prod-analyticspg 16.2
+[2]-Tables - Views
+▾public
+customers12.4k
+invoices48.1k
+invoice_line_items312k
+idint8 pk
+invoice_idno index
+item_idint8 fk
+quantityint4
+unit_pricenumeric
+items86
+orders91.7k
+payments40.2k
+▸analytics
+[3]-Saved - History
+Mrevenue_by_month.sql
+Atop_customers.sql
+churn_cohorts.sql
+slow_invoices.sql
+mrr_rollup.sql
+[q]-revenue_by_month.sql - untitled-2 - +
+INSERT · modified
+1SELECT c.name,
+2       date_trunc('month', i.issued_at) AS month,
+3       sum(li.quantity * li.unit_price) AS revenue
+4FROM   invoices i
+5JOIN   customers c ON c.id = i.customer_id
+6JOIN   invoice_line_items li ON li.invoice_id = i.id
+7WHERE  i.iss_
+8GROUP BY 1, 2
+9ORDER BY revenue DESC;
+issued_atdate
+issuer_idint8
+is_subscriptionbool
+Results - Explain - Chart - Messages
+ANALYZE ✓ · 412.3 ms
+noderowsself msshare of total
+Sort revenue DESC1,2043.11%
+└─ HashAggregate GROUP BY 1, 21,20444.811%
+   └─ Hash Join li.invoice_id = i.id298,41061.015%
+      ├─ Seq Scan invoice_line_items li312,006238.958%
+      └─ Hash31,8776.22%
+         └─ Hash Join c.id = i.customer_id31,87719.45%
+            ├─ Index Scan invoices_issued_at_idx31,87733.68%
+            └─ Seq Scan customers c12,4185.31%
+⚠ hint  Seq Scan reads 312k rows to match 31.9k invoices.
+         CREATE INDEX ON invoice_line_items (invoice_id);   i stage index  y copy
+Run: ctrl+enter | Explain: ctrl+x | Format: ctrl+f | Save: ctrl+s | Open in $EDITOR: ctrl+o | Next tab: ] | Normal mode: escLn 7, Col 13
+1cPending Changes — staged as a diff, "commit" runs them in one transaction
+seaquel — prod-analytics — 148×42
+[1]-Connection
+✓prod-analytics→ pg 16.2 · ssh bastion● 4
+[2]-Tables - Views - Functions
+▾public
+customers12.4k
+invoices~1 -148.1k
+invoice_line_items312k
+items+1 ~186
+orders91.7k
+[4]-Pending Changes
+▾public.items
+Aid 87“Priority support”
+Mid 12name
+▾public.invoices
+Mid 48109total
+Did 48106Hooli · 540.00
+space unstage   u undo   c commit all
+2 of 4
+Diff - SQL
+public.items · id = 12
+@@ public.items  WHERE id = 12  (1 column) @@
+id12
+-name'Standard hosting'
++name'Managed hosting'
+service_id4
+unit_price49.00
+billing'monthly'
+updated_at2026-07-02 10:11:45+00
+-- generated
+UPDATE public.items
+   SET name = 'Managed hosting'
+ WHERE id = 12;
+Unstage: space | Undo: u | Edit value: e | Commit: c | Discard all: D | Keybindings: ?seaquel 2026.4.5
+Commit 4 changes
+Run on prod-analytics in a single transaction:
++1INSERTpublic.items
+~2UPDATEpublic.items, public.invoices
+-1DELETEpublic.invoices
+⚠ Includes a DELETE on a connection tagged production.
+type prod to confirm › pro
+enter executep preview SQLesc cancel
+1dAsk AI — popup with @-mentions, generated SQL, privacy status in the title
+seaquel — prod-analytics — 148×42
+[1]-Connection
+✓prod-analytics
+[2]-Tables
+▾ public
+customers
+invoices
+invoice_line_items
+items
+orders
+payments
+[q]-untitled-3
+1  
+Results
+no results yet
+Insert: enter | Run: ctrl+r | Refine: tab | Mention: @ | Close: escseaquel 2026.4.5
+Ask AI
+schema shared · data not shared · read-only
+› top 10 customers by revenue this quarter, only @invoices with status paid, include @customers.country 
+✓generated in 1.8s · 3 tables in context · claude-sonnet
+1SELECT c.name, c.country, sum(li.quantity * li.unit_price) AS revenue
+2FROM   invoices i
+3JOIN   customers c ON c.id = i.customer_id
+4JOIN   invoice_line_items li ON li.invoice_id = i.id
+5WHERE  i.status = 'paid'
+6  AND  i.issued_at >= date_trunc('quarter', now())
+7GROUP BY c.id, c.name, c.country
+8ORDER BY revenue DESC LIMIT 10;
+Joins through invoice_line_items because invoices.total excludes refunds.
+enter insert into editorctrl+r runtab refinectrl+s save as…esc close
+Try next: "wire 1b query editor to the same keys" · "add a launch/connection picker and the ? keybindings menu" · "try a light theme and a single-panel mobile/SSH-narrow layout"

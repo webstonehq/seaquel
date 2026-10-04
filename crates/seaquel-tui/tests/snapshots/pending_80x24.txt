@@ -1,0 +1,24 @@
+┌[1]-Connection─────────● 4┐┌Diff - SQL──────────────public.invoices · id 48106┐
+│✓ prod-analytics → pg · d…││@@ public.invoices · id 48106 (delete) @@         │
+└──────────────────────────┘│- id         48106                                │
+┌[2]-Tables - Views────────┐│- customer   Hooli                                │
+│▾public                  6││- status     overdue                              │
+│  customers          12.4k││- issued_at  2026-08-18                           │
+│  invoices +1 ~2 -1  48.1k││- due_at     2026-09-17                           │
+└────────────────────3 of 9┘│- total      540.00                               │
+┌[3]-Saved - History───────┐│- paid_at    NULL                                 │
+│⇄ revenue_by_month.sql    ││                                                  │
+│⇄ top_customers.sql       ││                                                  │
+│  churn_cohorts.sql       ││                                                  │
+└────────────────────1 of 5┘│                                                  │
+┌[4]-Pending Changes───────┐│                                                  │
+│▾ public.invoices         ││                                                  │
+│ M id 48109  total        ││                                                  │
+│ D id 48106  Hooli · over…││                                                  │
+│ A customer New Co        ││                                                  │
+│ M id 48108  customer     │└──────────────────────────────────────────────────┘
+│                          │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│space unstage   u undo   …││                                                  │
+└────────────────────2 of 4┘└──────────────────────────────────────────────────┘
+Unstage: space | Undo: u | Edit value: e | Keybindings: ?       seaquel <version>

@@ -4,7 +4,7 @@ use crate::db;
 use crate::db::SqliteRow;
 use seaquel_types::storage::PersistedDashboard;
 
-use super::codec::{bit, flag, insert_sql, opt_text, select_sql, text, upsert_sql, Result};
+use super::codec::{begin, bit, flag, insert_sql, opt_text, select_sql, text, upsert_sql, Result};
 use super::{IdName, RowLink, SharedLink};
 use crate::{Reader, Storage, WriteTx};
 
@@ -253,6 +253,7 @@ pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
 
 /// Upserts a dashboard.
 pub async fn save(st: &Storage, d: &PersistedDashboard) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query(&upsert_sql(TABLE, &COLUMNS, "id"))
         .bind(&d.id)
         .bind(&d.project_id)
@@ -265,25 +266,30 @@ pub async fn save(st: &Storage, d: &PersistedDashboard) -> Result<()> {
         .bind(&d.description)
         .bind(&d.created_at)
         .bind(&d.updated_at)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 
 /// Deletes a dashboard. Its versions cascade.
 pub async fn remove(st: &Storage, id: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM dashboards WHERE id = ?")
         .bind(id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 
 /// Deletes a project's dashboards.
 pub async fn remove_by_project(st: &Storage, project_id: &str) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query("DELETE FROM dashboards WHERE project_id = ?")
         .bind(project_id)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }

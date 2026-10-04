@@ -543,6 +543,13 @@ pub(crate) fn wire_fail(e: &WireError) -> Fail {
     Fail::new(e.code(), message)
 }
 
+/// Whether `ai.generate` resolves `request`'s mentions (and so reads the
+/// project's saved queries and dashboards): only with an `@` and schema
+/// sharing on, since without it a mention goes as typed (phase 7a).
+fn resolves_mentions(request: &str, schema: bool) -> bool {
+    schema && request.contains('@')
+}
+
 /// The first fenced block of `content` (```` ``` ```` or ```` ```sql ````
 /// then a newline, up to the next ```` ``` ````), trimmed, else all of it
 /// trimmed: the TypeScript's `/```(?:sql)?\n([\s\S]*?)```/`.
@@ -637,17 +644,23 @@ impl Workspace {
         };
         let context = prompt::schema_context(&tables, limits::SCHEMA_CONTEXT_BYTES);
         let system = prompt::system(r.engine, Some(&context), r.sharing, false, false);
+        // `@mentions` resolve as in a turn (phase 7a Decision 24: the TUI
+        // completes them); without one, or without schema sharing, the
+        // request goes as typed and nothing is read for it.
+        let request = if resolves_mentions(&params.request, r.sharing.schema) {
+            let (queries, boards) = turn::mention_sources(self, &r.row.project_id).await;
+            prompt::mentions(&params.request, true, &tables, &queries, &boards)
+        } else {
+            params.request.clone()
+        };
         let existing = &params.existing_query;
         let message = if existing
             .trim_matches(seaquel_ai::tools::saved::is_js_space)
             .is_empty()
         {
-            params.request.clone()
+            request
         } else {
-            format!(
-                "{}\n\nExisting query for context:\n```sql\n{existing}\n```",
-                params.request
-            )
+            format!("{request}\n\nExisting query for context:\n```sql\n{existing}\n```")
         };
         let req = wire::generate_request(
             &r.provider,
@@ -804,7 +817,15 @@ async fn call_once(
 
 #[cfg(test)]
 mod tests {
-    use super::extract_sql;
+    use super::{extract_sql, resolves_mentions};
+
+    // Review M3: nothing is read for mentions that can't be used.
+    #[test]
+    fn mentions_are_read_only_with_an_at_and_schema_sharing() {
+        assert!(resolves_mentions("join @invoices", true));
+        assert!(!resolves_mentions("join @invoices", false));
+        assert!(!resolves_mentions("join invoices", true));
+    }
 
     #[test]
     fn the_first_fenced_block_is_the_sql() {

@@ -354,6 +354,8 @@ The AI code logs activity, ids, provider kind, model id, status, codes, round an
 
 `ai.generate { connectionId (saved), request, existingQuery }` answers `{ sql }` (Core extracts the fenced block, as `index.ts:320` does). The page inserts it and doesn't run it.
 
+*Changed in phase 7a (its Decision 24):* `ai.generate` now resolves the request's `@mentions` as a turn does; with schema sharing off the request goes as typed. The GUI's inline prompt gets it too.
+
 #### 19. The desktop CSP
 
 With no model calls in the page, `connect-src` becomes `'self' ipc: http://ipc.localhost https://duckdb.org`. Task 7 checks every other path that could need more: the updater and licensing are Rust, and `tauri dev`'s HMR socket (`ws://localhost:1420`) must still connect.
@@ -1247,5 +1249,5 @@ Known issues:
 - A schema cache in Core per connection, so a turn doesn't introspect each time.
 - Fill the schema context's columns from that cache, in one catalog query per connection rather than one `table_metadata` per table (probe F3: today the context lists table names only, and Decision 13's cap assumes columns).
 - Token usage shown per chat, from the `usage` numbers Core already logs.
-- `seaquel-cli`'s log filter should hold `rmcp` at WARN whatever `--log-level` says: at DEBUG rmcp's "received request" line writes each tool call's arguments, SQL included, to stderr (found at Checkpoint 6a; older than phase 6).
+- `seaquel-cli`'s log filter should hold `rmcp` at WARN whatever `--log-level` says: at DEBUG rmcp's "received request" line writes each tool call's arguments, SQL included, to stderr (found at Checkpoint 6a; older than phase 6). **Closed in phase 7a (Task 2 review, Decision 17):** `seaquel-cli` builds its filter with `seaquel_terminal::log_filter_holding(level, &["rmcp"])` (`mcp.rs`, test `rmcp_is_held_at_warn`).
 - A graceful shutdown for `seaquel-server` (`main.rs`'s `axum::serve` has none): on SIGTERM, cancel every turn, wait briefly for their reply writes, then exit. Today a SIGTERM loses the unfinished reply of each turn in flight (the user's message is already stored), which Q8 accepts.

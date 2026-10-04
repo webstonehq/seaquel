@@ -217,12 +217,14 @@ pub(crate) async fn load_singleton_json(
 /// Stores `data` in `table`'s one row as the JSON given (`null` is stored
 /// as `'null'`).
 pub(crate) async fn save_singleton_json(st: &Storage, table: &str, data: &RawValue) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query(&format!(
         "INSERT OR REPLACE INTO {table} (id, data) VALUES (1, ?)"
     ))
     .bind(data.get())
-    .execute(st.pool())
+    .execute(tx.conn())
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 

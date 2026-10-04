@@ -160,6 +160,22 @@ inserts what it generates. The demo has the assistant again, with the
 visitor's key in page memory. Found on the way and fixed here: web kept
 every closed tab's database connections. Its measured cost is in "Phase 6
 cost" below.
+Phase 7a: built; manual checks pending (see
+2026-10-09-rust-core-phase-7a-tui-plan.md). `seaquel-tui` is a
+lazygit-style terminal client in a binary and release asset of its own,
+beside an unchanged `seaquel-cli`, with the code both share in
+`seaquel-terminal`. It opens the app's `seaquel.db` as a second, writing
+process: storage writes through one dedicated writer connection, a
+second process opens without doing any schema work (`RequireCurrent`),
+and Core polls `PRAGMA data_version` on the writer connection, so a
+commit from any other connection becomes one `external` event and the
+desktop app reloads what the TUI wrote. The TUI browses and stages edits,
+commits them through Core, runs and explains SQL, saves queries, saves a
+typed password through `connectionUpdate`, trusts SSH host keys, and asks
+the assistant for SQL. Fixed on the way: the inline AI prompt didn't
+resolve `@mentions`, Postgres's Explain couldn't be cancelled, and
+(phase 6's follow-up) the CLI's debug log carried MCP tool calls' SQL.
+Its measured cost is in "Phase 7a cost" below.
 
 ## Problem
 
@@ -209,14 +225,14 @@ web, CLI, TUI and MCP in the same release.
 | 5 | GUI hot paths | The Svelte app loads pure crates as a WASM module for synchronous, keystroke-rate work (quoting, statement splitting, query builder sync). Everything else goes through IPC/HTTP |
 | 6 | One API for GUIs | A single RPC surface (`seaquel-rpc`) served over Tauri IPC and over HTTP/WebSocket. TS types are generated from Rust |
 | 7 | Multi-tenancy | Core has a process-wide `Core` and per-user `Workspace`s. Web gets one workspace per user; desktop, CLI, TUI and MCP get one each |
-| 8 | GUI state | Tabs, panes and layout stay in the interface. Core persists them as opaque per-interface blobs and never parses them |
+| 8 | GUI state | Tabs, panes and layout stay in the interface. Core persists them as opaque per-interface blobs and never parses them (as built: per window since 5d-2; the TUI keeps its own in `tui/state.json` beside the data, phase 7a's Q4) |
 | 9 | Web auth | Better Auth, signup, team and account routes stay in the SvelteKit/Node layer. They're web-specific. Replacing Node with an axum auth layer is out of scope |
-| 10 | Terminal binaries | One `seaquel` binary: `seaquel <cmd>` for CLI, `seaquel tui`, `seaquel mcp` |
+| 10 | Terminal binaries | One `seaquel` binary: `seaquel <cmd>` for CLI, `seaquel tui`, `seaquel mcp` (as built: two, `seaquel-cli` with `mcp` and `seaquel-tui`, each a release asset; see "Terminal binaries") |
 | 11 | Migration | Strangler pattern, one engine or subsystem at a time. The app ships working at every step |
 | 12 | Demo | Core compiles to WASM for the browser, with a JS-bridged DuckDB-WASM engine and an in-browser storage backend. The demo becomes a third RPC transport |
 | 13 | Web licensing | Licensing and air-gap logic move to `seaquel-license`. Node's gate calls `seaquel-server` over loopback |
 | 14 | Terminal binary licensing | Honour system. `seaquel` doesn't check for a license key |
-| 15 | CLI distribution | Bundled with the desktop app as a sidecar. Standalone distribution can be added later without design changes |
+| 15 | CLI distribution | Bundled with the desktop app as a sidecar. Standalone distribution can be added later without design changes (as built: no longer a sidecar; the app downloads the version-matched release asset on request, and the TUI is downloaded by hand) |
 | 16 | Legacy JSON storage | Dropped. Core doesn't import the pre-SQLite JSON files from versions before 2026.4.5 |
 
 ### Why compile-time plugins
@@ -604,6 +620,45 @@ As built in phase 5e (details in that plan's Decisions 29–53):
   `seaquel conn import` waits for phase 7 and writable storage there, and
   `data_version` polling with it.
 
+As built in phase 7a (details in that plan's Decisions 3, 5 and 6, and
+Task 1's notes):
+
+- **`data_version` polling exists at last.** Native storage writes through
+  one dedicated writer connection behind the write mutex, outside the pool
+  (which gets one connection less), so `PRAGMA data_version` on that
+  connection changes only when another connection, in this process or any
+  other, commits. `Storage::external_version()` answers a counter over it
+  (`None` while a write holds the turn). Core's
+  `WorkspaceSpec::with_external_changes(1 s)` polls it on the executor
+  and emits `StorageChanged { kind: External }` with no scope or ids,
+  after taking a change-sequence number so the GUI's refetch counts as
+  newer. The desktop app and the TUI poll; web, the demo and the MCP
+  server don't. A poll costs about 13 µs; the app sees the TUI's commits in
+  0.3–1.0 s at 1 s polling.
+- **Every write moved onto that connection.** 25 single-statement writes
+  (app state, history favourites, the web vault, the license, tutorial and
+  import state, theme preferences) went straight to the pool and would
+  have looked external; each is now a `WriteTx`. `VACUUM` and checkpoints
+  run there too. On web a user's two connections are now one reader and
+  the writer, so their reads queue on one connection.
+- **A second process does no schema work.** `SchemaPolicy::RequireCurrent`
+  opens writable but refuses, like the read-only open, any file with
+  baseline, migration or data-step work pending (`STORAGE_NEEDS_UPGRADE`),
+  never creates the file or changes its journal mode, and
+  `WorkspaceSpec::second_process()` skips the open's maintenance writes
+  (the string-secrets upgrade, whose keychain items the app's binary
+  wouldn't own on macOS, and both refills).
+- **The other process reloads everything.** One `external` event says
+  only that something changed, so the GUI reloads every list, as on a
+  resubscribe, but keeps the objects of rows that read back unchanged and
+  skips `git status`. Measured with 2,000 saved queries and the TUI
+  running a query every second: a reload of 83 ms p50 and 9% of a debug
+  stand-in's CPU, so the change journal (exact kinds and ids across
+  processes) wasn't needed.
+- **Known gap:** another connection's `wal_checkpoint(TRUNCATE)` moves
+  `data_version` with no commit, so it counts as one change: one reload
+  too many. Core checkpoints only in the app's open.
+
 ### Secrets
 
 `SecretStore` has two implementations:
@@ -720,7 +775,7 @@ feature. Completion ranking is still `monaco-sql-languages`.)
 | SvelteKit/Node (web) | Better Auth, signup, team, account routes, the gate in `hooks.server.ts` (now a loopback call), static serving, loopback proxy | `/api/storage/*`, connection scoping, licensing and air-gap logic |
 | `seaquel-server` | axum routing, WS, `X-Seaquel-User` handling, `/internal/license/*` | `/api/db/*` handlers (replaced by `/rpc`) |
 | `seaquel` CLI | `clap` commands, table/CSV/JSON output, exit codes | — |
-| `seaquel tui` | ratatui views | — |
+| `seaquel-tui` (phase 7a) | ratatui views, the keymap, the editor's modes, its state file | — |
 | `seaquel mcp` | rmcp server, tool schemas, stdio/HTTP transport | — |
 
 ### MCP tool set (first cut)
@@ -765,6 +820,10 @@ seaquel export -c <conn> "<sql>" --format csv > out.csv
 seaquel tui
 seaquel mcp [--connection <name>…]
 ```
+
+(As built in phase 7a: the TUI is a binary of its own, `seaquel-tui
+[--project …] [--connection …]`, not a subcommand, and `seaquel-cli`
+still has only `mcp`. The commands above are phase 7b's.)
 
 ## Web licensing over loopback
 
@@ -870,6 +929,49 @@ As built in phase 4:
   (`codesign -dv --verbose=4`, `signtool verify /pa`).
 - **The CLI doesn't enable `git` or either `license-*` feature**, and
   `--version` and `--help` print the terms line.
+
+As built by phase 7a (the sidecar went earlier, with the on-demand
+download):
+
+- **No sidecar.** The app bundles no terminal binary. `release.yml`
+  builds, signs and uploads `seaquel-cli-<triple>` and
+  `seaquel-tui-<triple>` (`.exe` on Windows) per target, and the app's
+  "Install Command Line Tool…" downloads the `seaquel-cli` that matches
+  its version, checks its size and SHA-256 against the release, and links
+  it onto `PATH` (macOS `/usr/local/bin`, Linux `~/.local/bin`, nothing on
+  Windows). The CLI no longer updates with the app: an update needs
+  another install. The bare binaries are codesigned but not notarized, so
+  a browser download on macOS needs its quarantine flag cleared.
+- **Decision 10 is two binaries.** `seaquel-tui` is its own binary and
+  asset (phase 7a's Q1), not `seaquel tui`; `seaquel-cli` keeps `mcp` and
+  will get phase 7b's commands. The code they share is
+  `seaquel-terminal`: the data dir, the Core builder, the debug-only test
+  hooks, the log filter, signals and the version text. Each links only its
+  own extras: the CLI `imports` and rmcp, the TUI `ai-native` (a CI step
+  checks both lists). The app doesn't install the TUI yet (Q13 A); the
+  README gives the `curl` steps.
+- **Sizes** (macOS arm64): with the plain release profile `seaquel-tui`
+  was 70.3 MB raw, 57.6 MB stripped, 23.8 MB gzip -9; `seaquel-cli` 63.1
+  MB, 51.5 MB and 21.0 MB. Linux aarch64's TUI was 73.9 MB raw in the
+  probe. Both now ship from the `terminal-release` profile (fat LTO, one
+  codegen unit, stripped; the owner's choice of variant B, 2026-10-03):
+  `seaquel-tui` 50.1 MB, 18.9 MB gzip -9, `seaquel-cli` 46.2 MB and 17.2
+  MB, so a user who wants both downloads about 36 MB gzipped. DuckDB is
+  most of what's left; see "Binary size" in the phase 7a plan.
+- **A terminal binary writes the keychain.** The TUI saves a typed
+  password only when the user ticks "Save password" and the connect
+  succeeded, through Core's `connectionUpdate`, which writes the keychain
+  before the row. On macOS a new item then trusts only the TUI's binary,
+  so the app asks once ("Always Allow") the first time it reads it; an item
+  the app created makes the TUI ask before it updates it. Every keychain
+  call, reads and writes, goes through `SecretWait`, so the TUI says it's
+  waiting for the dialog. Where there is no store at all (Linux over SSH
+  without a Secret Service), Core says `SECRET_STORE_UNAVAILABLE` and the
+  TUI asks for the password each session without saving it. Checking the
+  dialogs on a signed build is the owner's manual check.
+- **Host keys.** Unlike the MCP server, the TUI writes `known_hosts`: an
+  unknown key shows its fingerprint, and Trust records exactly that key,
+  as the GUI does.
 
 ## The demo: Core in the browser
 
@@ -1091,6 +1193,14 @@ that's fine.
 **Phase 7: CLI, then TUI**
 - By this point they're mostly presentation code.
 - They ship in the same sidecar binary as `seaquel mcp`.
+- (As built: the TUI came first, as phase 7a, in a binary of its own,
+  `seaquel-tui`, with the code it shares with the CLI in
+  `seaquel-terminal`, and neither binary is a sidecar any more. It forced
+  what the CLI's writing commands need: a second process that writes
+  storage, `data_version` polling, `SecretWait` counting writes, and the
+  rules for typed passwords and host keys. The CLI's commands are phase
+  7b. See "As built in phase 7a" under "Storage ownership" and "Terminal
+  binaries".)
 
 **Phase 8: demo on Core**
 - Build `seaquel-browser`, `seaquel-engine-duckdb-wasm` and the browser storage
@@ -3757,6 +3867,214 @@ the first replay, the MCP suite passed unchanged on the registry, no key
 or marker reached any log in the probe, and the egress guard refused
 every loopback and private form the probe tried.
 
+## Phase 7a cost
+
+Source: `2026-10-09-phase-7a-effort.md` and the phase 7a plan's notes,
+plus line counts measured against `60f44da` (Phase 6, committed); phase
+7a is uncommitted on top of it. Times are agent wall time as logged,
+review and probe fixes included, but not the plan, the spikes, the review
+passes themselves or the owner's answers. Tasks 1 and 2 overlapped, as
+did 4, 5 and 6, and about a third of most rows was builds and test runs.
+Checkpoint 7a-2 isn't in it yet.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes | Logged |
+|---|---|---|---|---|
+| 1. Second-process storage, polling, `external`, `SecretWait` | 1.2–1.8 h | ~1.0 h | ~0.6 h | ~1.6 h |
+| 2. `seaquel-terminal`, the TUI's skeleton, build and release | 1.8–2.7 h | ~1.5 h | ~0.6 h | ~2.1 h |
+| 3. Startup, connecting, panels 1–3 | 1.9–2.8 h | ~2.0 h | ~0.5 h | ~2.5 h |
+| Checkpoint 7a-1 | (in Task 9) | ~0.6 h | — | ~0.6 h |
+| 4. Browse | 1.5–2.2 h | ~1.6 h | ~1.1 h | ~2.7 h |
+| 5. Pending Changes and commit | 1.0–1.5 h | ~1.3 h | ~0.5 h | ~1.8 h |
+| 6. Query | 2.5–3.5 h | ~3.0 h | ~1.3 h | ~4.3 h |
+| 7. Ask AI | 0.8–1.2 h | ~1.4 h | ~0.5 h | ~1.9 h |
+| 8. Probe | 1.4–2.0 h | ~1.9 h | ~3.4 h (F1–F9 ~2.6 h, their review ~0.8 h) | ~5.3 h |
+| 9. Docs and measurement | 0.9–1.2 h | ~0.7 h | — | ~0.7 h |
+| Review fixes (the plan's row) | 6.4–9.4 h | | | |
+| Probe fixes (the plan's row) | 2–3 h | | | |
+| **Total** | **~21.4–31.3 h** (expect ~25.5 h) | **~15.0 h** | **~8.5 h** | **~23.5 h** |
+
+**The phase came in at about 92% of its expectation**, inside its range.
+Calendar time from the first task to Task 9 was about one long day.
+
+- **First passes ran near their estimates** (~14.4 h for Tasks 1–9
+  against 13.0–18.9 h), as the plan expected, and unlike phases 6 and 8,
+  where they ran at half. The spikes had settled the event loop, cancel,
+  polling and `$EDITOR`, but the screens were new presentation code with
+  many small states and nothing recorded to replay. Task 6 (the editor,
+  completion, runs and Explain) was the largest at 3 h; Task 7 ran over
+  (1.4 h against 0.8–1.2 h) because Core's `ai_generate` had to learn
+  `@mentions`.
+- **Review fixes were ~5.1 h, about 43% of Tasks 1–7's first passes**,
+  below the 60% budgeted (phase 6: 64%). The reviews found many small
+  things (68, below) and nothing that reopened a design; the largest
+  rounds were Browse's (undo as inverse steps, the queue bound to its
+  connection) and Query's (bracketed paste, `$EDITOR` as its own job, the
+  state file's ordering).
+- **Probe fixes were ~3.4 h**, over their 2–3 h budget, as in phase 6:
+  four Important findings (`alias.` completion with no columns, Esc and a
+  key merged by tmux, a mouse that only focused, no keyring over SSH), and
+  the review of the fixes found the exit unbounded behind an
+  uncancellable Postgres Explain.
+- **Checkpoint 7a-1 found nothing to fix**; it found six orphaned pty-test
+  TUIs from earlier tasks, three spinning, which led to the harness
+  reaping its process tree.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~23,260 | ~530 |
+| Rust, tests (test files, `testing/` modules, `*_tests.rs` and inline `#[cfg(test)]`) | ~18,140 | ~90 |
+| Fixtures (the TUI's render snapshots and Explain recording; `changes.json`) | ~1,680 | 0 |
+| TypeScript/JS, production (the GUI's `external` reload and `same-data.ts`; `build-cli.mjs`, `check-crate-deps.mjs`) | ~320 | ~140 |
+| TypeScript/JS, tests | ~290 | ~10 |
+| Generated TS types | 1 | 1 |
+
+Measured with `git diff -U0` against `60f44da` plus the untracked files,
+leaving out `Cargo.lock`, `Cargo.toml` files, Markdown outside the
+fixtures and snapshots, `.github/`, the docs and the compose file;
+inline test modules counted from their `#[cfg(test)] mod` line (a
+`#[cfg(test)]` on an item doesn't count); files under `tests/` and
+`testing/` and `*_tests.rs`/`tests.rs` counted as tests. Against
+`ef5014a`, phases 6 and 7a together come to +34,070 −2,170 (Rust
+production), +30,250 −580 (Rust tests), +2,590 −2,060 (TS production)
+and +5,160 −1,200 (TS tests); phase 6's own figures subtracted from those
+agree with the direct count within 0.3% for Rust production, and the
+fixture totals don't compare (the two counts treat `changes.json` and the
+binary `wasm-made` fixture differently).
+
+Where the production Rust went: `seaquel-tui` ~21,380 (the model and
+`update` about half, the views, the runtime and the keymap the rest),
+`seaquel-storage` +610 −130 (the writer connection, `RequireCurrent`,
+`external_version`, the 25 writes into `WriteTx`), `seaquel-terminal`
+~500, `seaquel-secrets` ~360 (`SecretWait` moved, `Unavailable`), Core
++320 −70 (the poll, `second_process`, mentions in `ai_generate`,
+`SECRET_STORE_UNAVAILABLE`), the Postgres engine ~20 (Explain's cancel),
+`src-tauri` ~15. `seaquel-cli` lost ~190 lines and `seaquel-mcp` ~140 to
+`seaquel-terminal` and `seaquel-secrets`. The TUI's tests are the bulk of
+the test column: update tests per key path, live tests on SQLite, the
+compose engines and the mock provider, and pty tests of the real binary.
+
+### Measured
+
+- **Sizes** (macOS arm64, release, `build-cli.mjs --release`):
+
+  | Binary | Raw | Stripped | gzip -9 | gzip -9, stripped |
+  |---|---|---|---|---|
+  | `seaquel-tui` | 70,260,752 | 57,637,896 | 23,807,506 | 21,288,033 |
+  | `seaquel-cli` | 63,134,688 | 51,466,408 | 20,953,099 | 18,735,867 |
+
+  The TUI is about what spike S1 predicted for a standalone binary (68.4
+  MB raw); Tasks 4–7's run, page, edit and AI paths account for the last
+  8 MB over Task 3's 62.2 MB. The CLI is 19 KB over Task 2's figure
+  after the move to `seaquel-terminal` (63,115,744) and 147 KB over S1's
+  `base` (62,987,424).
+  No Linux x86_64 build was at hand; the probe's Linux aarch64 TUI was
+  73.9 MB raw.
+- **Size study (2026-10-03).** The figures above are the plain release
+  profile. The owner chose variant B, the `terminal-release` profile
+  (`lto = "fat"`, `codegen-units = 1`, `strip = true`, unwinding kept),
+  which `build-cli.mjs --release` now uses. MB, macOS arm64, gzip -9 of the
+  stripped binary:
+
+  | Variant | TUI raw | TUI gzip | CLI raw | CLI gzip |
+  |---|---|---|---|---|
+  | A (old release) | 70.26 | 21.28 | 63.13 | 18.73 |
+  | **B (shipped)** | 50.12 | 18.89 | 46.17 | 17.15 |
+  | B2 (B with `opt-level = "s"`) | 37.17 | 13.89 | 34.34 | 12.58 |
+  | D (no DuckDB + B) | 16.21 | 7.76 | 12.25 | 6.02 |
+  | E (no DuckDB + B2) | 11.62 | 5.75 | 8.76 | 4.44 |
+
+  B costs nothing measurable at run time (startup about 180 ms, key
+  latency about 7 ms, query speed unchanged) and about 60 s more per clean
+  build. The phase 7a plan's "Binary size" note has the decision and the
+  follow-ups (a build without DuckDB, D).
+- **Startup to the first frame**, the release binary with `--project` on
+  the probe's synthetic data dir (no connect): 112–178 ms, p50 175 ms,
+  over ten runs, polled every 50 ms by the pty driver, so the true figure
+  is up to 50 ms lower.
+- **Memory** (RSS, the same build with debug assertions on so the test
+  keychain applies, Postgres): 25.1 MiB connected, 27.4 MiB with a
+  100-row page, 53.9 MiB holding 100,000 rows of four columns (an integer, an md5
+  text, a numeric and a timestamptz; `:all`, 2.1 s, stopped at the TUI's
+  cap). About 280 bytes a row.
+- **Key latency**, from writing a key to the pty to the first byte of the
+  redraw: p50 10.4 ms, p95 14.5 ms, max 16.6 ms moving through panel 2;
+  10.2/13.4/14.8 ms typing in the editor; 9.9/13.9/15.3 ms moving through
+  the results grid while it holds 100,000 rows. The 16 ms tick, which
+  draws only when something changed, is most of it. Task 6 measured a
+  frame at 0.18 ms and a key at 2.9 ms in a 2 MB editor text.
+- **Between processes:** the app saw the TUI's saved query in 0.32–0.98 s
+  and the TUI the app's in 0.41–1.02 s, at 1 s polling (probe); the storage
+  test's 20 ms poll saw another process's commits in 11–23 ms. An app
+  reload with 2,003 saved queries and 50 connections, once a second for
+  30 s: p50 83 ms, max 90 ms, 9% of a debug stand-in's CPU.
+
+### Bugs found
+
+By who found them first, counted from the effort log and the plan's
+notes; a judgment call where one fix covers several. The bracketed number
+is how many were older than phase 7a.
+
+| Area | Implementer | Review | Probe |
+|---|---|---|---|
+| Storage and Core (Task 1) | 2 | 5 | — |
+| The skeleton: lifecycle, keys, theme, mouse, logs (Task 2) | 1 | 9 | 5 [1] |
+| Startup, connecting, keychain, SSH (Task 3) | 2 | 10 | 1 [1] |
+| Browse and the queue (Tasks 4, 5) | — | 17 | 1 |
+| Query (Task 6) | — | 12 | 2 |
+| Ask AI (Task 7) | 1 [1] | 8 | — |
+| The probe's fixes | — | 7 [1] | — |
+| **Total** | **6 [1]** | **68 [1]** | **9 [2]** |
+
+The serious ones:
+
+- **25 storage writes bypassed the write path** (Task 1, implementer):
+  single statements that took any pool connection. They worked, but with
+  the polled writer connection they would have looked like another
+  process's writes, and on read-only storage they failed with SQLite's
+  error rather than `STORAGE_READ_ONLY`.
+- **Closing the terminal aborted the TUI** (probe F5): `eprintln!` panics
+  on a dead tty, and the panic hook's own `eprintln!` then aborted, so the
+  state file wasn't written and a streaming Postgres statement ran on.
+  The fix's review then found the exit unbounded: an `EXPLAIN ANALYZE` was
+  a plain Core call nothing could cancel, older than the TUI (the GUI's
+  Explain had it too).
+- **No keyring, no connection** (probe F4, older): on Linux over SSH a row
+  with a saved password couldn't connect at all, from the TUI or the MCP
+  server. Now Core says the store is unavailable and the TUI asks.
+- **`@mentions` went to the model as plain text** from the inline prompt
+  (Task 7, older): only a chat turn resolved them.
+- **Undo could resurrect a refused edit** (Task 4 review): snapshot undo
+  restored an edit Core had refused under a later one; undo steps are now
+  inverse operations.
+- **Esc and the next key lost together** under tmux's default
+  `escape-time` (probe F2), in an editor with vim's modes.
+
+### What was harder than expected
+
+- **The terminal's lifecycle.** Every way out had its own trap: crossterm
+  spinning at 100% on macOS when stdin isn't the terminal, a closed
+  terminal aborting through `eprintln!`, Ctrl+Z inside `$EDITOR` needing
+  the editor to run as its own foreground job, ratatui's `clear()` hanging
+  on a cursor query after a resume, and a pty test harness that could
+  leave a TUI stuck in exit. Each cost a pty test of the real binary.
+- **Keys real terminals don't send.** Ctrl+Enter only with the kitty
+  protocol, Option typing characters on macOS, Esc merged with the next
+  key by tmux. The bar ended up naming only keys every terminal sends.
+- **The keychain from a second binary.** What macOS asks, and which
+  binary an item trusts, can't be tested without a signed build and the
+  real login keychain, so the wording hedges ("may ask once") and the
+  owner's manual checks carry it.
+
+What went to plan: the event loop and cancel behaved as spike S2 measured,
+polling caught every commit from another process with no false positive
+from its own writes, the app's coarse reload was cheap enough that the
+change journal wasn't needed, every engine and SSH passed in the probe,
+and no marker reached the log.
+
 ## Risks
 
 - **Port size.** About 5k lines of dialect code and 14k lines of state
@@ -3801,6 +4119,9 @@ every loopback and private form the probe tried.
     also need a shared keychain access group, or the first read from the CLI
     still shows an access prompt. Verify this on a signed build in phase 4,
     because that's the first time a second binary reads the keychain.
+    (Phase 4 settled on one prompt per item. Phase 7a adds the other
+    direction: a password the TUI saves makes the app ask once. Both are
+    manual checks on a signed build.)
 - **AI on web.** Moving LLM calls server-side means the tenant container makes
   outbound calls to `api.anthropic.com` or a custom base URL. Air-gapped
   installs need that to be off or configurable. It also means API keys transit
@@ -3818,7 +4139,13 @@ every loopback and private form the probe tried.
 - **Concurrent writers.** The desktop app and `seaquel mcp` writing the same
   SQLite file is new. WAL and busy timeouts handle correctness. Stale GUI state
   is handled by `StorageChanged` events, but only for data Core knows was
-  written by another process.
+  written by another process. (Phase 7a: the TUI is the first second
+  writer. Each storage writes through one connection and polls
+  `data_version` on it, so any other connection's commit is seen within
+  the poll interval, as one coarse `external` event; the GUI reloads every
+  list on it. The probe had the app and the TUI apply edits to one table,
+  migrate under an open TUI and reload 2,000 saved queries every second
+  without a problem.)
 - **Build times and binary size.** Bundled DuckDB, vendored libgit2 and OpenSSL
   are slow to compile and large. Feature flags per engine help, and CI needs
   good caching.

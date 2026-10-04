@@ -29,6 +29,7 @@ pub async fn load(st: &Storage) -> Result<Option<PersistedVaultState>> {
 }
 
 pub async fn save(st: &Storage, s: &PersistedVaultState) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query(
         "INSERT OR REPLACE INTO vault_state (id, salt, kdf_params, verifier, verifier_nonce, created_at) \
          VALUES (1, ?, ?, ?, ?, ?)",
@@ -38,8 +39,9 @@ pub async fn save(st: &Storage, s: &PersistedVaultState) -> Result<()> {
     .bind(&s.verifier)
     .bind(&s.verifier_nonce)
     .bind(&s.created_at)
-    .execute(st.pool())
+    .execute(tx.conn())
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 

@@ -225,3 +225,18 @@ async fn eviction_ends_a_run() {
     assert_eq!(env.calls.execute.load(Ordering::SeqCst), 0);
     assert_eq!(env.state.core.running_stream_count(), 0);
 }
+
+/// Phase 7a Decision 6: a web user's workspace doesn't poll its `meta.db`
+/// for other connections' commits (nothing else writes it, and a poll per
+/// open user would cost the server for nothing).
+#[tokio::test]
+async fn a_web_workspace_doesnt_poll_for_external_changes() {
+    let env = Env::new(2);
+    let held = env
+        .state
+        .workspaces
+        .get(&env.state.core, "u1")
+        .await
+        .unwrap();
+    assert!(!held.workspace().polls_external_changes());
+}

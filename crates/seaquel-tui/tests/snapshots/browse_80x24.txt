@@ -1,0 +1,24 @@
+┌[1]-Connection─────────● 2┐┌Data - Structure - Indexes - Constraints - DDL────┐
+│✓ prod-analytics → pg · d…││/filter…                                          │
+└──────────────────────────┘│‹ issued_at   due_at      total                  ›│
+┌[2]-Tables - Views────────┐│  date        date        numeric(12,2)           │
+│▾public                  6││  2026-09-24  2026-10-24        4210.00           │
+│  customers          12.4k││  2026-09-24  2026-10-24         860.50           │
+│  invoices    ~1 -1  48.1k││  2026-09-23  NULL             12400.00           │
+│  invoice_line_items  312k││~ 2026-08-22  2026-09-21        3150.00           │
+│  items                 86││  2026-09-21  2026-10-21        1025.00           │
+│  orders             91.7k││  2026-09-20  2026-10-20        7880.00           │
+│  payments           40.2k││- 2026-08-18  2026-09-17         540.00           │
+│▸analytics               1││  2026-09-18  2026-10-18        2300.00           │
+└────────────────────3 of 9┘│  2026-09-17  2026-10-17         615.75           │
+┌[3]-Saved - History───────┐│  2026-09-16  2026-10-16        9999.00           │
+│⇄ revenue_by_month.sql    ││  2026-08-14  2026-09-13        3410.20           │
+│⇄ top_customers.sql       ││  2026-09-14  2026-10-14       18250.00           │
+│  churn_cohorts.sql       ││  2026-09-13  2026-10-13        1190.00           │
+└────────────────────1 of 5┘│total · numeric(12,2)  2975.00 → 3150.00          │
+┌[4]-Pending Changes───────┐└───────────────────────────────────────────4 of 15┘
+│▾ public.invoices         │┌Command Log───────────────────────────────────────┐
+│ M id 48109  total        ││12:04:19  staged UPDATE "public"."invoices" SET "t│
+│space unstage   u undo   …││12:04:19  staged DELETE FROM "public"."invoices" W│
+└────────────────────1 of 2┘└──────────────────────────────────────────────────┘
+Move: h j k l | Edit: e | Stage delete: d | Keybindings: ?      seaquel <version>

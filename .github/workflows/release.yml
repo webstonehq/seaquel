@@ -134,6 +134,31 @@ jobs:
           path: src-tauri/binaries/seaquel-cli-${{ matrix.target }}*
           if-no-files-found: error
 
+      # The TUI (phase 7a) is a release asset of its own, built, signed and
+      # uploaded exactly as the CLI is.
+      - name: Build seaquel-tui
+        shell: bash
+        run: node scripts/build-cli.mjs --release --bin seaquel-tui --target ${{ matrix.target }}
+
+      - name: Sign macOS TUI
+        if: runner.os == 'macOS'
+        run: codesign --force --sign "$CERT_ID" --options runtime --entitlements src-tauri/macos/entitlements.plist src-tauri/binaries/seaquel-tui-${{ matrix.target }}
+
+      - name: Sign Windows TUI
+        if: runner.os == 'Windows'
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        shell: bash
+        run: trusted-signing-cli -e https://eus.codesigning.azure.net -a Seaquel -c Seaquel -d Seaquel src-tauri/binaries/seaquel-tui-${{ matrix.target }}.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seaquel-tui-${{ matrix.target }}
+          path: src-tauri/binaries/seaquel-tui-${{ matrix.target }}*
+          if-no-files-found: error
+
       - name: build and publish
         uses: tauri-apps/tauri-action@v0
         env:
@@ -172,7 +197,12 @@ jobs:
           pattern: seaquel-cli-*
           path: cli-assets
           merge-multiple: true
-      - name: Add standalone CLI binaries to the release
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: seaquel-tui-*
+          path: cli-assets
+          merge-multiple: true
+      - name: Add standalone CLI and TUI binaries to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}

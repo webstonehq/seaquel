@@ -34,9 +34,18 @@ const CORE = new Set(["seaquel-core"]);
 
 /**
  * Thin shells over Core. `seaquel` is the Tauri app in src-tauri/;
- * `seaquel-mcp` is the MCP server library behind `seaquel-cli mcp`.
+ * `seaquel-mcp` is the MCP server library behind `seaquel-cli mcp`;
+ * `seaquel-terminal` is what the terminal binaries `seaquel-cli` and
+ * `seaquel-tui` share (phase 7a).
  */
-const INTERFACES = new Set(["seaquel", "seaquel-server", "seaquel-mcp", "seaquel-cli"]);
+const INTERFACES = new Set([
+  "seaquel",
+  "seaquel-server",
+  "seaquel-mcp",
+  "seaquel-cli",
+  "seaquel-terminal",
+  "seaquel-tui",
+]);
 
 /**
  * The browser demo's module (phase 8): an interface like the others, except
@@ -92,10 +101,27 @@ const ENGINE_MAY_USE = new Set([
 ]);
 /**
  * Interface crates that other interfaces may build on: `seaquel-cli` serves
- * the MCP server from `seaquel-mcp`. They follow the interface rules
- * themselves.
+ * the MCP server from `seaquel-mcp`, and both terminal binaries build on
+ * `seaquel-terminal`. They follow the interface rules themselves.
  */
-const INTERFACE_LIBS = new Set(["seaquel-mcp"]);
+const INTERFACE_LIBS = new Set(["seaquel-mcp", "seaquel-terminal"]);
+
+/**
+ * Narrower rules for some interfaces (phase 7a, Decisions 2 and 22): the TUI
+ * doesn't link the MCP server (and so rmcp), and seaquel-terminal holds
+ * policy over Core only, so neither binary picks up the other's extras
+ * through it.
+ */
+const INTERFACE_LIMITS = {
+  "seaquel-tui": {
+    forbids: new Set(["seaquel-mcp"]),
+    why: "seaquel-tui doesn't link the MCP server (rmcp); only seaquel-cli does",
+  },
+  "seaquel-terminal": {
+    only: new Set(["seaquel-core", "seaquel-runtime", "seaquel-types"]),
+    why: "seaquel-terminal may use only seaquel-core, seaquel-runtime and seaquel-types",
+  },
+};
 
 const INTERFACE_MAY_USE = new Set([
   "seaquel-core",
@@ -166,7 +192,14 @@ export function checkCrateDeps(packages) {
         break;
       case "interface":
         for (const dep of deps) {
-          if (DOMAIN_AND_INFRA.has(dep)) {
+          const limit = INTERFACE_LIMITS[pkg.name];
+          if (
+            limit &&
+            (limit.forbids?.has(dep) || (limit.only && !limit.only.has(dep))) &&
+            !DOMAIN_AND_INFRA.has(dep)
+          ) {
+            errors.push(`${pkg.name} -> ${dep}: ${limit.why}`);
+          } else if (DOMAIN_AND_INFRA.has(dep)) {
             errors.push(
               `${pkg.name} -> ${dep}: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())`,
             );

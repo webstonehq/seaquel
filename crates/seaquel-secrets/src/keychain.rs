@@ -109,11 +109,66 @@ fn store_error(op: SecretOp, key: &str, err: &keyring::Error) -> SecretError {
         E::Ambiguous(items) => format!("the key matches {} keychain entries", items.len()),
         _ => "unexpected keychain error".to_string(),
     };
+    if unavailable(err) {
+        return SecretError::Unavailable {
+            op,
+            key: key.to_string(),
+            message,
+        };
+    }
     SecretError::Store {
         op,
         key: key.to_string(),
         message,
     }
+}
+
+/// D-Bus errors that mean there's no Secret Service to talk to: no session
+/// bus (none running, or none it may autolaunch), no provider for
+/// `org.freedesktop.secrets`, or a bus that went away.
+const DBUS_UNAVAILABLE: [&str; 7] = [
+    "org.freedesktop.DBus.Error.ServiceUnknown",
+    "org.freedesktop.DBus.Error.NoServer",
+    "org.freedesktop.DBus.Error.NotSupported",
+    "org.freedesktop.DBus.Error.FileNotFound",
+    "org.freedesktop.DBus.Error.Spawn.",
+    "org.freedesktop.DBus.Error.NameHasNoOwner",
+    "org.freedesktop.DBus.Error.Disconnected",
+];
+
+/// `dbus-secret-service`'s own "nothing there" (`Error::Unavailable`).
+const SECRET_SERVICE_UNAVAILABLE: &str = "No DBus session or Secret Service provider found";
+
+/// macOS: `errSecNotAvailable`, `errSecNoSuchKeychain` and
+/// `errSecInteractionNotAllowed` (no GUI session to ask in, as over SSH).
+const MACOS_UNAVAILABLE: [i32; 3] = [-25291, -25294, -25308];
+
+/// Whether `err` says the store isn't there, rather than that it refused
+/// (probe F4). keyring hands the platform's error over boxed, so it's read
+/// from how dbus and security-framework format theirs: the D-Bus error
+/// name, which dbus's `Debug` ends with, and security-framework's
+/// `Error { code: … }`. Neither holds a secret, and neither text is kept.
+fn unavailable(err: &keyring::Error) -> bool {
+    use keyring::Error as E;
+    let inner = match err {
+        E::PlatformFailure(inner) | E::NoStorageAccess(inner) => inner,
+        _ => return false,
+    };
+    let debug = format!("{inner:?}");
+    if DBUS_UNAVAILABLE.iter().any(|name| debug.contains(name))
+        || inner.to_string().contains(SECRET_SERVICE_UNAVAILABLE)
+    {
+        return true;
+    }
+    MACOS_UNAVAILABLE.iter().any(|code| {
+        let field = format!("code: {code}");
+        debug.match_indices(&field).any(|(at, _)| {
+            !debug[at + field.len()..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_digit())
+        })
+    })
 }
 
 #[cfg(test)]
@@ -135,6 +190,115 @@ mod tests {
             assert!(!text.contains("104, 117"), "{text}"); // "hu" as bytes
         }
         assert_eq!(err.code(), "SECRET_STORE_ERROR");
+    }
+
+    /// An error that formats as the platform's own does (dbus's and
+    /// security-framework's `Debug` and `Display`).
+    struct Platform(&'static str, &'static str);
+    impl std::fmt::Debug for Platform {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+    impl std::fmt::Display for Platform {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.1)
+        }
+    }
+    impl std::error::Error for Platform {}
+
+    fn failure(debug: &'static str, display: &'static str) -> SecretError {
+        store_error(
+            SecretOp::Get,
+            "db:conn-1",
+            &keyring::Error::PlatformFailure(Box::new(Platform(debug, display))),
+        )
+    }
+
+    /// Probe F4: a store that isn't there (no D-Bus session or Secret
+    /// Service provider on a headless Linux host; no login keychain, as
+    /// over SSH on macOS) is told from one that refused. Both keep the
+    /// wire code `SECRET_STORE_ERROR`.
+    #[test]
+    fn an_unavailable_store_is_told_from_a_refusal() {
+        for (debug, display) in [
+            (
+                "Dbus(D-Bus error: The name org.freedesktop.secrets was not provided by any \
+                 .service files (org.freedesktop.DBus.Error.ServiceUnknown))",
+                "DBus error: The name org.freedesktop.secrets was not provided",
+            ),
+            (
+                "Dbus(D-Bus error: Unable to autolaunch a dbus-daemon without a $DISPLAY for \
+                 X11 (org.freedesktop.DBus.Error.NotSupported))",
+                "DBus error: Unable to autolaunch a dbus-daemon",
+            ),
+            (
+                "Dbus(D-Bus error: Failed to connect to socket /run/user/1000/bus: No such \
+                 file or directory (org.freedesktop.DBus.Error.FileNotFound))",
+                "DBus error: Failed to connect to socket",
+            ),
+            (
+                "Dbus(D-Bus error: x (org.freedesktop.DBus.Error.NoServer))",
+                "DBus error: x",
+            ),
+            (
+                "Unavailable",
+                "No DBus session or Secret Service provider found",
+            ),
+            (
+                "Error { code: -25308, message: \"User interaction is not allowed.\" }",
+                "User interaction is not allowed.",
+            ),
+            (
+                "Error { code: -25291, message: \"No keychain is available.\" }",
+                "No keychain is available.",
+            ),
+            (
+                "Error { code: -25294 }",
+                "The specified keychain could not be found.",
+            ),
+        ] {
+            let err = failure(debug, display);
+            assert!(err.unavailable(), "{debug}");
+            assert_eq!(err.code(), "SECRET_STORE_ERROR");
+            assert_eq!(err.key(), "db:conn-1");
+        }
+        for (debug, display) in [
+            ("Locked", "Secret Service: object locked"),
+            ("Prompt", "Secret Service: unlock prompt was dismissed"),
+            (
+                "Error { code: -25293, message: \"The user name or passphrase you entered is \
+                 not correct.\" }",
+                "The user name or passphrase you entered is not correct.",
+            ),
+            (
+                "Error { code: -128, message: \"User canceled the operation.\" }",
+                "User canceled the operation.",
+            ),
+            // Only the whole code counts.
+            ("Error { code: -253080 }", "error code -253080"),
+            (
+                "Dbus(D-Bus error: Access denied (org.freedesktop.DBus.Error.AccessDenied))",
+                "DBus error: Access denied",
+            ),
+        ] {
+            assert!(!failure(debug, display).unavailable(), "{debug}");
+        }
+        let locked = store_error(
+            SecretOp::Get,
+            "db:conn-1",
+            &keyring::Error::NoStorageAccess(Box::new(Platform("Locked", "locked"))),
+        );
+        assert!(!locked.unavailable());
+        let missing = store_error(
+            SecretOp::Get,
+            "db:conn-1",
+            &keyring::Error::NoStorageAccess(Box::new(Platform(
+                "Error { code: -25294 }",
+                "no such keychain",
+            ))),
+        );
+        assert!(missing.unavailable());
     }
 
     #[test]

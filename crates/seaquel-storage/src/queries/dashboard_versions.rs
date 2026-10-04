@@ -171,14 +171,16 @@ pub async fn list_by_project(
 
 /// Inserts a version; (dashboard, version) is unique.
 pub async fn insert(st: &Storage, v: &PersistedDashboardVersion) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query(&insert_sql("dashboard_versions", &COLUMNS))
         .bind(&v.id)
         .bind(&v.dashboard_id)
         .bind(v.version)
         .bind(&v.snapshot)
         .bind(&v.created_at)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 

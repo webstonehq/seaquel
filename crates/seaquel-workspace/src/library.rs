@@ -272,6 +272,10 @@ pub enum StoredKind {
     /// or a publish wrote (ids: the repo id), so each window refreshes that
     /// repo's git status.
     SharedRepo,
+    /// Phase 7a (Decision 6): another connection to the file (another
+    /// process, such as the TUI beside the app) committed something; which
+    /// rows isn't known (no scope, no ids). Reload every list and setting.
+    External,
 }
 
 impl StoredKind {
@@ -295,6 +299,7 @@ impl StoredKind {
             StoredKind::Tutorial => "tutorial",
             StoredKind::ImportState => "importState",
             StoredKind::SharedRepo => "sharedRepo",
+            StoredKind::External => "external",
         }
     }
 }

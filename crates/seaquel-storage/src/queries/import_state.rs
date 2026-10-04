@@ -3,7 +3,7 @@
 use crate::db;
 use seaquel_types::storage::ImportState;
 
-use super::codec::{bit, flag, opt_text, Result};
+use super::codec::{begin, bit, flag, opt_text, Result};
 use crate::{Reader, Storage, WriteTx};
 
 /// The state for one source, or `None` before it's first saved.
@@ -35,6 +35,7 @@ pub async fn save(
     has_offered_import: bool,
     last_check_timestamp: Option<&str>,
 ) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query(
         "INSERT OR REPLACE INTO import_state (source, has_offered_import, last_check_timestamp) \
          VALUES (?, ?, ?)",
@@ -42,8 +43,9 @@ pub async fn save(
     .bind(source)
     .bind(bit(has_offered_import))
     .bind(last_check_timestamp)
-    .execute(st.pool())
+    .execute(tx.conn())
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 

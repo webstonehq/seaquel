@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌[Q]-untitled-1 - +───────────────INSERT · modified┐
+│✓ prod-analytics → pg · d…││ 1 DELETE FROM invoices                           │
+└──────────────────────────┘│                                                  │
+┌[2]-Tables - Views────────┐│                                                  │
+│▾public                  6││                                                  │
+│  customers          12.4k││                                                  │
+│  invoices           48.1k│└──────────────────────────────────────────────────┘
+│  invoice_line_items  312k│┌Results - Explain - Messages──────────────────────┐
+│┌ Run it? ───────────────────────────────────────────────────────────────────┐│
+││                                                                            ││
+││ This run holds 1 destructive statement:                                    ││
+││  DELETE FROM invoices  DELETE without WHERE                                ││
+└│                                                                            ││
+┌│ ⚠ This connection is tagged production.                                    ││
+││ type prod to confirm › pr▌                                                 ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+│  churn_cohorts.sql       ││                                                  │
+└────────────────────1 of 5┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Run: enter | Cancel: esc                                        seaquel <version>

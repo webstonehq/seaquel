@@ -267,6 +267,54 @@ describe("other windows' changes", () => {
     expect(page.state.connections.map((c) => c.id)).toEqual(["c1"]);
   });
 
+  it("another process's write reloads every list, and the repos without git status", async () => {
+    const page = await openPage();
+    library.seedConnection("c1");
+    library.calls.length = 0;
+    page.emit({
+      type: "storageChanged",
+      kind: "external",
+      scope: null,
+      ids: null,
+      origin: null,
+      seq: library.seq(),
+    });
+    await settle();
+    expect(library.calls.map((c) => c.method)).toEqual(
+      expect.arrayContaining(["listProjects", "listConnections"]),
+    );
+    expect(page.state.connections.map((c) => c.id)).toEqual(["c1"]);
+    expect(page.sharedRepos.refreshRepos).toHaveBeenCalledWith(null, { status: false });
+  });
+
+  it("a reconnect's reload still reads the repos' git status", async () => {
+    const page = await openPage();
+    page.resubscribe(false);
+    await settle();
+    expect(page.sharedRepos.refreshRepos).toHaveBeenCalledWith(null, { status: true });
+  });
+
+  it("a full reload keeps unchanged connections, projects and saved queries", async () => {
+    const page = await openPage();
+    library.seedConnection("c1");
+    library.seedSavedQuery("q1", { projectId: "p1", name: "Q" });
+    page.resubscribe(false);
+    await settle();
+    page.state.queriesByProject = { ...page.state.queriesByProject };
+    await page.savedQueries.refreshFromLibrary("p1", null);
+    const conn = page.state.connections[0];
+    const project = page.state.projects[0];
+    const query = page.state.queriesByProject.p1?.[0];
+    expect(query?.id).toBe("q1");
+    // Another process wrote something else: the reload's answers are newer.
+    library.n += 1;
+    page.resubscribe(false);
+    await settle();
+    expect(page.state.connections[0]).toBe(conn);
+    expect(page.state.projects[0]).toBe(project);
+    expect(page.state.queriesByProject.p1?.[0]).toBe(query);
+  });
+
   it("a resubscription during the first load reloads once the load is done", async () => {
     const channel = fakeClient();
     const state = new DatabaseState();

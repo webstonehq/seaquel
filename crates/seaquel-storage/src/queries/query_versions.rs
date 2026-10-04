@@ -65,6 +65,7 @@ pub async fn load_by_project(st: &Storage, project_id: &str) -> Result<Vec<Persi
 /// Inserts a version. The table's CHECK wants exactly one of `snapshot`
 /// and `diff`, and (query, version) is unique.
 pub async fn insert(st: &Storage, v: &PersistedQueryVersion) -> Result<()> {
+    let mut tx = begin(st).await?;
     db::query(&insert_sql("query_versions", &COLUMNS))
         .bind(&v.id)
         .bind(&v.query_id)
@@ -72,8 +73,9 @@ pub async fn insert(st: &Storage, v: &PersistedQueryVersion) -> Result<()> {
         .bind(&v.snapshot)
         .bind(&v.diff)
         .bind(&v.created_at)
-        .execute(st.pool())
+        .execute(tx.conn())
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 

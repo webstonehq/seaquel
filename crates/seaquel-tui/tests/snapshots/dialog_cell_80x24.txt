@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌[Q]-untitled-1 - +───────────────INSERT · modified┐
+│✓ prod-┌ doc ─────────────────────────────────────────────────────────┐;      │
+└───────│{                                                             │       │
+┌[2]-Tab│  "invoice": 48112,                                           │ 3;    │
+│▾public│  "lines": [                                                  │       │
+│  custo│    1,                                                        │       │
+│  invoi│    2,                                                        │───────┘
+│  invoi│    3                                                         │ 1 of 2┐
+│  items│  ],                                                          │       │
+│  order│  "note": "paid in full"                                      │       │
+│  payme│}                                                             │       │
+│▸analyt│                                                              │       │
+└───────│                                                              │       │
+┌[3]-Sav│                                                              │       │
+│⇄ reven│                                                              │       │
+│⇄ top_c│                                                              │       │
+│  churn│                                                              │       │
+└───────│                                                              │ · 4 ms│
+┌[4]-Pen│                                                              │─1 of 3┘
+│nothing│                                                              │───────┐
+│       │                                                              │       │
+│       │                                                              │       │
+└───────└──────────────────────────────────────────────────────────────┘───────┘
+Scroll: j/k | Close: esc                                        seaquel <version>

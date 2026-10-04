@@ -26,6 +26,11 @@ mod cli_info;
 mod cli_install;
 mod logging;
 
+/// How often the desktop's workspace polls for commits another process made
+/// to `seaquel.db` (phase 7a Decision 6; the S4 spike: about 0.6 s p50,
+/// 0.9 s max, 13 µs a poll).
+const EXTERNAL_CHANGES_POLL: std::time::Duration = std::time::Duration::from_secs(1);
+
 #[derive(Debug, Clone, serde::Serialize)]
 struct UpdateInfo {
     version: String,
@@ -315,7 +320,12 @@ impl DesktopWorkspace {
         let opened = self
             .workspace
             .get_or_try_init(|| async {
-                let spec = WorkspaceSpec::new(data_dir).with_secrets(self.secrets.clone());
+                // Phase 7a Decision 6: hear what another process (the TUI)
+                // commits to the file. The stand-in workspace doesn't poll:
+                // nothing else writes its scratch file.
+                let spec = WorkspaceSpec::new(data_dir)
+                    .with_secrets(self.secrets.clone())
+                    .with_external_changes(EXTERNAL_CHANGES_POLL);
                 match core.open_workspace(spec).await {
                     Ok(ws) => {
                         info!(activity = "workspace.open", data_dir = data_dir.display().to_string().as_str(); "Workspace open");
@@ -951,6 +961,10 @@ pub fn run() {
         // sqlparser (Core's table and column refs for a run) logs the
         // tokens it parses, literals included, at DEBUG.
         .level_for("sqlparser", log::LevelFilter::Off)
+        // russh names the SSH bastion's host and port and prints its host
+        // keys below WARN (phase 7a probe F6).
+        .level_for("russh", log::LevelFilter::Warn)
+        .level_for("russh_keys", log::LevelFilter::Warn)
         .max_file_size(5_000_000)
         .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll);
     // Workspace calls log their method names at debug; dev builds show them.

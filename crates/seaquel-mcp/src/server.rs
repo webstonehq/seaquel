@@ -20,8 +20,8 @@ use tokio::sync::OnceCell;
 
 use crate::error::{ToolError, TIMEOUT};
 use crate::exposed::{self, Exposed, Found, Selection, Sharing, AMBIGUOUS_CONNECTION};
-use crate::secret_wait::SecretWait;
 use crate::tools;
+use seaquel_core::secrets::SecretWait;
 
 /// How long one tool call may take by default: connecting, then the query
 /// or introspection call, less any time spent waiting on the secret store
@@ -282,7 +282,7 @@ impl Inner {
     }
 
     /// Run `work` under the per-call timeout, which leaves out the time a
-    /// secret read was pending (see `secret_wait.rs`).
+    /// secret read was pending (see `SecretWait`).
     ///
     /// On timeout `work` is dropped, and that is what cancels it: the
     /// registry's query stream ([`Workspace::query_stream`]) owned by `work`

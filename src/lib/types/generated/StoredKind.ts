@@ -3,4 +3,4 @@
 /**
  * What a `StorageChanged` event is about (Decision 16).
  */
-export type StoredKind = "connection" | "project" | "label" | "savedQuery" | "history" | "storage" | "projectState" | "workflow" | "setting" | "aiSettings" | "theme" | "dashboard" | "chat" | "chatMessages" | "onboarding" | "tutorial" | "importState" | "sharedRepo";
+export type StoredKind = "connection" | "project" | "label" | "savedQuery" | "history" | "storage" | "projectState" | "workflow" | "setting" | "aiSettings" | "theme" | "dashboard" | "chat" | "chatMessages" | "onboarding" | "tutorial" | "importState" | "sharedRepo" | "external";

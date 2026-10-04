@@ -1,0 +1,42 @@
+┌[1]-Connection──────────────────────────────○ 0┐┌Data - Structure - Indexes - Constraints - DDL────────────────────────────────────public.invoices┐
+│✓ prod-analytics → pg · db.internal            ││-- approximate: built by Core from the table's columns, keys and indexes                         │
+└───────────────────────────────────────────────┘│CREATE TABLE "public"."invoices" (                                                               │
+┌[2]-Tables - Views─────────────────────────────┐│  "id" int8 NOT NULL DEFAULT nextval('invoices_id_seq'::regclass),                               │
+│▾public                                       6││  "customer" text NOT NULL,                                                                      │
+│  customers                               12.4k││  "status" invoice_status NOT NULL DEFAULT 'draft'::invoice_status,                              │
+│  invoices                                48.1k││  "issued_at" date NOT NULL DEFAULT CURRENT_DATE,                                                │
+│  invoice_line_items                       312k││  "due_at" date,                                                                                 │
+│  items                                      86││  "total" numeric(12,2) NOT NULL DEFAULT 0,                                                      │
+│  orders                                  91.7k││  "paid_at" timestamptz,                                                                         │
+│  payments                                40.2k││  PRIMARY KEY ("id"),                                                                            │
+│▸analytics                                    1││  FOREIGN KEY ("customer") REFERENCES "public"."customers" ("id")                                │
+│▸auth                                         1││);                                                                                               │
+│                                               ││                                                                                                 │
+│                                               ││CREATE INDEX "invoices_issued_at_idx" ON "public"."invoices" ("issued_at");                      │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└─────────────────────────────────────────3 of 9┘│                                                                                                 │
+┌[3]-Saved - History────────────────────────────┐│                                                                                                 │
+│⇄ revenue_by_month.sql                         ││                                                                                                 │
+│⇄ top_customers.sql                            ││                                                                                                 │
+│  churn_cohorts.sql                            ││                                                                                                 │
+│▾perf                                         1││                                                                                                 │
+│  slow_invoices.sql                            ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└─────────────────────────────────────────1 of 5┘│                                                                                                 │
+┌[4]-Pending Changes────────────────────+0 ~0 -0┐│                                                                                                 │
+│nothing staged                                 ││                                                                                                 │
+│                                               │└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+│                                               │┌Command Log──────────────────────────────────────────────────────────────────────────────────────┐
+│                                               ││statements Seaquel runs show here                                                                │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└───────────────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+Tabs: [ ] | Back: esc | Commit: c | Keybindings: ?                                                                                  seaquel <version>

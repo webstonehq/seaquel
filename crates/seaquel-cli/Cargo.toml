@@ -2,7 +2,7 @@
 name = "seaquel-cli"
 version = "0.1.0"
 edition = "2021"
-description = "The `seaquel-cli` binary bundled with the desktop app. Its one subcommand, `mcp`, serves Seaquel's MCP server over stdio."
+description = "The `seaquel-cli` binary, a release asset the desktop app can download and install. Its one subcommand, `mcp`, serves Seaquel's MCP server over stdio."
 
 [[bin]]
 name = "seaquel-cli"
@@ -16,11 +16,13 @@ path = "src/main.rs"
 # no command uses them yet (Q26).
 seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace", "imports"] }
 seaquel-mcp = { path = "../seaquel-mcp" }
-# `TokioExecutor`, Core's clock (phase 5b).
-seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }
+# What the terminal binaries share (phase 7a, Decision 22): the data dir,
+# the Core builder (every engine, `TokioExecutor`), the test hooks, the log
+# filter, the shutdown signals and the version (its `build.rs` reads the
+# app's).
+seaquel-terminal = { path = "../seaquel-terminal" }
 clap = { workspace = true }
 rmcp = { workspace = true }
-serde_json = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-std", "signal"] }
 # Logs, rmcp's `tracing` events and Core's `log` records alike, go to stderr
@@ -30,6 +32,7 @@ tracing-subscriber = { workspace = true }
 [dev-dependencies]
 rmcp = { workspace = true, features = ["client", "transport-child-process"] }
 seaquel-types = { path = "../seaquel-types" }
+serde_json = { workspace = true }
 sqlx = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true, features = ["process", "io-util", "time"] }

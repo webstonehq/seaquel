@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌Data - Structure - Indexes - Constraints - DDL────┐
+│not connected · enter to …││nothing selected                                  │
+└──────────────────────────┘│                                                  │
+┌[2]-Tables - Views────────┐│                                                  │
+│no connection             ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│       ┌ Unknown SSH host ────────────────────────────────────────────┐       │
+│       │ bastion.example:22                                           │       │
+│       │                                                              │       │
+│       │ This host's key isn't in known_hosts. Check the fingerprint  │       │
+└───────│ with the server's administrator before you trust it:         │       │
+┌[3]-Sav│                                                              │       │
+│no save│ SHA256:k3yF1ngerpr1nt                                        │       │
+│       └──────────────────────────────────────────────────────────────┘       │
+│                          ││                                                  │
+└──────────────────────────┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Trust and connect: t | Cancel: esc                              seaquel <version>

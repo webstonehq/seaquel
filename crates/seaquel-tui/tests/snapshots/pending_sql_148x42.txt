@@ -1,0 +1,42 @@
+┌[1]-Connection──────────────────────────────● 4┐┌Diff - SQL─────────────────────────────────────────────────────────────public.invoices · id 48109┐
+│✓ prod-analytics → pg · db.internal            ││-- planned by Core                                                                               │
+└───────────────────────────────────────────────┘│UPDATE "public"."invoices" SET "total" = $1 WHERE "id" = $2                                      │
+┌[2]-Tables - Views─────────────────────────────┐│                                                                                                 │
+│▾public                                       6││$1 = 3150.00                                                                                     │
+│  customers                               12.4k││$2 = 48109                                                                                       │
+│  invoices                      +1 ~2 -1  48.1k││                                                                                                 │
+│  invoice_line_items                       312k││                                                                                                 │
+│  items                                      86││                                                                                                 │
+│  orders                                  91.7k││                                                                                                 │
+│  payments                                40.2k││                                                                                                 │
+└─────────────────────────────────────────3 of 9┘│                                                                                                 │
+┌[3]-Saved - History────────────────────────────┐│                                                                                                 │
+│⇄ revenue_by_month.sql                         ││                                                                                                 │
+│⇄ top_customers.sql                            ││                                                                                                 │
+│  churn_cohorts.sql                            ││                                                                                                 │
+│▾perf                                         1││                                                                                                 │
+│  slow_invoices.sql                            ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+└─────────────────────────────────────────1 of 5┘│                                                                                                 │
+┌[4]-Pending Changes────────────────────+1 ~2 -1┐│                                                                                                 │
+│▾ public.invoices                              ││                                                                                                 │
+│ M id 48109  total                             ││                                                                                                 │
+│ D id 48106  Hooli · overdue                   ││                                                                                                 │
+│ A customer New Co                             ││                                                                                                 │
+│ M id 48108  customer                          ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│                                               │└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+│                                               │┌Command Log──────────────────────────────────────────────────────────────────────────────────────┐
+│                                               ││statements Seaquel runs show here                                                                │
+│                                               ││                                                                                                 │
+│                                               ││                                                                                                 │
+│space unstage   u undo   c commit              ││                                                                                                 │
+└─────────────────────────────────────────1 of 4┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+Unstage: space | Undo: u | Edit value: e | Commit: c | Discard all: D | Keybindings: ?                                              seaquel <version>

@@ -76,6 +76,37 @@ jobs:
           cargo clippy -p seaquel-cli -- -D warnings
           cargo clippy -p seaquel-server -- -D warnings
           cargo clippy -p seaquel-mcp -- -D warnings
+          cargo clippy -p seaquel-terminal -- -D warnings
+          cargo clippy -p seaquel-tui -- -D warnings
+
+      # Phase 7a, Decisions 2 and 22: each terminal binary links only its own
+      # extras. The TUI has no MCP server (rmcp), git, imports (plist) or
+      # license client; the CLI has no model HTTP client (reqwest, which only
+      # `ai-native` brings). Normal dependencies, as each binary builds.
+      - name: Terminal binaries' dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          # One list per binary, built the same way; a failing `cargo tree`
+          # fails the step (pipefail, and `set -e` on the assignment).
+          deps() { cargo tree -p "$1" -e normal --prefix none | sed 's/ .*//' | sort -u; }
+          tui=$(deps seaquel-tui)
+          cli=$(deps seaquel-cli)
+          test -n "$tui" && test -n "$cli"
+          found=0
+          for name in rmcp git2 libgit2-sys plist seaquel-mcp seaquel-rpc seaquel-license; do
+            if grep -qx -- "$name" <<<"$tui"; then
+              echo "::error::seaquel-tui depends on $name"
+              found=1
+            fi
+          done
+          for name in reqwest; do
+            if grep -qx -- "$name" <<<"$cli"; then
+              echo "::error::seaquel-cli depends on $name"
+              found=1
+            fi
+          done
+          exit "$found"
 
       - name: Pure crates build for wasm32
         run: cargo clippy --target wasm32-unknown-unknown -p seaquel-types -p seaquel-runtime -p seaquel-engine -p seaquel-sql -p seaquel-wasm -- -D warnings
@@ -244,6 +275,14 @@ jobs:
           done
           docker logs seaquel-ssh
           exit 1
+      # The compose file's `blackhole`: accepts on 5432 and never answers, for
+      # Core's `a_dropped_connect_closes_its_tunnel` (a database that hangs
+      # behind a working tunnel). The bastion reaches it by that name.
+      - name: Blackhole server
+        run: |
+          docker run -d --name seaquel-blackhole \
+            --network "${{ job.services.postgres.network }}" --network-alias blackhole \
+            alpine/socat:1.8.0.3 TCP-LISTEN:5432,fork,reuseaddr "SYSTEM:sleep 3600"
       # seaquel-core's tests build seaquel-secrets (keyring links libdbus).
       - name: D-Bus headers
         run: |
@@ -265,7 +304,7 @@ jobs:
           -p seaquel-engine-sqlite -p seaquel-engine-duckdb
           -p seaquel-ssh
       - name: SSH tunnels through Core
-        run: cargo test -p seaquel-core --test ssh
+        run: cargo test -p seaquel-core --test ssh --test connect
 
   desktop:
     name: Desktop app compiles
@@ -282,12 +321,6 @@ jobs:
       - name: Placeholder frontend
         # tauri::generate_context! requires frontendDist (../build) to exist.
         run: mkdir -p build && touch build/index.html
-      - name: Placeholder seaquel-cli sidecar
-        # tauri-build copies bundle.externalBin (src-tauri/binaries/seaquel-cli-<triple>)
-        # even for `cargo check`; the real one comes from scripts/build-cli.mjs.
-        run: |
-          mkdir -p src-tauri/binaries
-          touch "src-tauri/binaries/seaquel-cli-$(rustc -vV | sed -n 's/^host: //p')"
       - run: cargo check -p seaquel
 
   frontend:

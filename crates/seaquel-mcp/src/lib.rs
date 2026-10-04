@@ -45,13 +45,14 @@
 
 pub mod error;
 pub mod exposed;
-pub mod secret_wait;
 mod server;
 mod tools;
 pub mod transport;
 
 pub use error::ToolError;
 pub use exposed::{Exposed, Selection, Sharing};
-pub use secret_wait::SecretWait;
+/// The keychain wait the call timeout leaves out; it lives in
+/// `seaquel-secrets` since phase 7a (Decision 7), where the TUI uses it too.
+pub use seaquel_core::secrets::SecretWait;
 pub use server::{McpServer, ServerOptions, DEFAULT_CALL_TIMEOUT, INSTRUCTIONS};
 pub use tools::NO_CONNECTIONS_HINT;
