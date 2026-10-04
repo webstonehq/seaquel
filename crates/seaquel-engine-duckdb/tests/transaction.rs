@@ -1,6 +1,9 @@
 //! `Driver::transaction` on an in-memory database: all or nothing, and a
 //! failure names the statement that failed.
 
+#[path = "common/engine.rs"]
+mod engine_switch;
+
 use seaquel_engine::{BatchStatement, ConnectConfig, Value};
 use seaquel_engine_testkit::{run_transaction_case, SmokeSpec, TransactionCase};
 
@@ -10,7 +13,7 @@ fn memory() -> ConnectConfig {
 
 async fn case(case: TransactionCase) {
     run_transaction_case(
-        &*seaquel_engine_duckdb::engine(),
+        &*engine_switch::engine(),
         &memory(),
         &SmokeSpec::QUESTION_MARK,
         case,
@@ -38,10 +41,7 @@ async fn all_statements_commit() {
 /// refusal belongs to no statement, and the user's COMMIT keeps their row.
 #[tokio::test]
 async fn a_hand_opened_transaction_refuses_the_batch() {
-    let driver = seaquel_engine_duckdb::engine()
-        .open(&memory())
-        .await
-        .expect("open");
+    let driver = engine_switch::engine().open(&memory()).await.expect("open");
     driver
         .execute("CREATE TABLE t (n BIGINT)", vec![])
         .await

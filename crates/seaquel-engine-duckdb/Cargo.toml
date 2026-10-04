@@ -2,7 +2,7 @@
 name = "seaquel-engine-duckdb"
 version = "0.1.0"
 edition = "2021"
-description = "DuckDB engine for Seaquel: the native driver (duckdb-rs) and, for the browser demo, a driver over DuckDB-WASM."
+description = "DuckDB engine for Seaquel: the native driver (duckdb-rs), the DuckDB helper's two halves, and, for the browser demo, a driver over DuckDB-WASM."
 
 [features]
 default = ["native"]
@@ -20,6 +20,28 @@ browser = [
     "dep:wasm-bindgen",
     "dep:wasm-bindgen-futures",
 ]
+# The DuckDB helper (the DuckDB helper plan): `remote` is the client half, a
+# `Driver` over a `seaquel-duckdb` child process, with no `duckdb` crate;
+# `helper` is the server half the helper binary runs, on the native session
+# code. Both share the frames (`wire.rs`) and the IPC reader (`ipc.rs`).
+# The helper's loop is `helper.rs` (`serve`, run by `crates/seaquel-duckdb`);
+# the remote driver is `remote/` (`remote_engine`). Native only: it spawns
+# a process.
+remote = [
+    "dep:arrow-buffer",
+    "dep:arrow-ipc",
+    "dep:libc",
+    "dep:serde",
+    "dep:tokio",
+    "tokio/io-util",
+    "tokio/macros",
+    "tokio/process",
+    "tokio/sync",
+    "tokio/time",
+]
+# `tokio/time`: the end's wait for DuckDB's close is measured on tokio's
+# clock (std's `Instant` is kept out of the engine crates).
+helper = ["native", "dep:arrow-buffer", "dep:arrow-ipc", "dep:serde", "tokio/time"]
 
 [dependencies]
 seaquel-engine = { path = "../seaquel-engine" }
@@ -42,7 +64,7 @@ duckdb = { workspace = true, optional = true }
 # `rt` for spawn_blocking: duckdb-rs is synchronous.
 tokio = { workspace = true, features = ["rt"], optional = true }
 
-# browser
+# browser, remote and helper (the helper writes IPC, the others read it)
 arrow-buffer = { version = "58.4", optional = true }
 arrow-ipc = { version = "58.4", default-features = false, optional = true }
 futures = { workspace = true, optional = true }
@@ -50,13 +72,22 @@ js-sys = { version = "0.3", optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 
+# remote and helper: the control messages (`wire.rs`)
+serde = { workspace = true, optional = true }
+
+# remote: `geteuid` for the check of the helper's folders (Unix).
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", optional = true }
+
 [dev-dependencies]
 serde = { workspace = true }
 seaquel-engine-testkit = { path = "../seaquel-engine-testkit" }
 serde_json = { workspace = true }
-tokio = { version = "1", features = ["macros", "rt", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "rt", "time"] }
 futures = { workspace = true }
 # `decode_from_ipc_matches_decode_from_duckdb`: native DuckDB's Arrow written
 # as IPC and read back the way the browser driver reads DuckDB-WASM's.
 arrow-buffer = "58.4"
 arrow-ipc = { version = "58.4", default-features = false }
+# tests/remote.rs installs the built helper into folders of its own.
+tempfile = "3"

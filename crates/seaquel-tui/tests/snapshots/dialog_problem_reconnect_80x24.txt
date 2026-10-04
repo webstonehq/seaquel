@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌Data - Structure - Indexes - Constraints - DDL────┐
+│not connected · enter to …││nothing selected                                  │
+└──────────────────────────┘│                                                  │
+┌[2]-Tables - Views────────┐│                                                  │
+│no connection             ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│       ┌ DuckDB didn't start ─────────────────────────────────────────┐       │
+│       │ The DuckDB helper didn't start in time.                      │       │
+│       │                                                              │       │
+└───────│ ENGINE_UNAVAILABLE                                           │       │
+┌[3]-Sav└──────────────────────────────────────────────────────────────┘       │
+│no saved queries          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+└──────────────────────────┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Connect again: r | Close: esc                                   seaquel <version>

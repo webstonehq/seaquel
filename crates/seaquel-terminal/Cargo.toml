@@ -7,9 +7,21 @@ description = "What the terminal binaries (`seaquel-cli`, `seaquel-tui`) share: 
 [dependencies]
 # The union of what both binaries need through this crate. `imports` (the
 # CLI) and `ai-native` (the TUI) stay on each binary's own `seaquel-core`
-# dependency, so neither links the other's extras (Decision 22). Core's
-# default features are every engine.
-seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace"] }
+# dependency, so neither links the other's extras (Decision 22). Every
+# engine but native DuckDB (the DuckDB helper plan, Decision 11): DuckDB
+# runs in the `seaquel-duckdb` helper process (`engine-duckdb-remote`), so
+# neither binary links duckdb-rs or libduckdb-sys.
+seaquel-core = { path = "../seaquel-core", default-features = false, features = [
+    "engine-postgres",
+    "engine-mysql",
+    "engine-sqlite",
+    "engine-mssql",
+    "engine-duckdb-remote",
+    "storage",
+    "secrets",
+    "ssh",
+    "workspace",
+] }
 # `TokioExecutor`, Core's clock.
 seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }
 clap = { workspace = true }
@@ -18,8 +30,23 @@ log = { workspace = true }
 tokio = { workspace = true, features = ["signal", "macros"] }
 tracing-subscriber = { workspace = true }
 
+[features]
+# Downloading the DuckDB helper (Core's `duckdb_helper_asset` and
+# `duckdb_helper_install`, and the debug builds' `_DUCKDB_RELEASES` hook).
+# It brings `seaquel-http` and so reqwest: the TUI turns it on (it has
+# reqwest already, for Ask AI); the CLI doesn't until its `duckdb install`
+# subcommand (the DuckDB helper plan, Task 8), so it still links no
+# reqwest (Task 6's note).
+duckdb-helper-install = ["seaquel-core/duckdb-helper-install"]
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "time"] }
+tempfile = "3"
+# `MockReleases` for the `_DUCKDB_RELEASES` hook's test (a release server
+# on 127.0.0.1; never the real network).
+seaquel-http = { path = "../seaquel-http", features = ["testing"] }
+# So `cargo test -p seaquel-terminal` alone runs the install hook's tests.
+seaquel-terminal = { path = ".", features = ["duckdb-helper-install"] }
 # The log filter's marker test emits events at russh's targets (already in
 # Cargo.lock through tracing-subscriber).
 tracing = "0.1"

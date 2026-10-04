@@ -73,6 +73,8 @@ export interface CliInfo {
   /** Whether the install button is offered on this desktop platform. */
   canInstall: boolean;
   appImage: boolean;
+  /** The CLI's DuckDB helper (the install button installs it too). */
+  duckdbHelper: "installed" | "missing" | "outdated" | "unsafe" | "unknown";
 }
 
 export async function getCliInfo(): Promise<CliInfo> {

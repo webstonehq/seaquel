@@ -133,7 +133,11 @@ pub fn lines(model: &Model, area: Rect) -> Vec<Line<'static>> {
             out.push(Line::default());
         }
         let here = crate::state::browse::here(model);
-        let last = if here {
+        // A commit cut off by its connection may have landed (probe F1).
+        let warn = model.queue.interrupted();
+        let last = if warn {
+            format!("! {}", text::MAYBE_APPLIED_HINT)
+        } else if here {
             text::PENDING_HINT.to_string()
         } else {
             let id = model.queue.connection().unwrap_or_default();
@@ -142,7 +146,7 @@ pub fn lines(model: &Model, area: Rect) -> Vec<Line<'static>> {
         };
         out.push(Line::from(Span::styled(
             fit(&last, width),
-            theme.style(Role::Dim),
+            theme.style(if warn { Role::Warning } else { Role::Dim }),
         )));
     }
     out

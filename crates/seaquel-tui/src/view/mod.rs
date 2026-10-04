@@ -51,6 +51,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
         Some(Modal::Notice(n)) => dialogs::notice(model, n, frame),
         Some(Modal::Commit(d)) => commit::commit(model, d, frame),
         Some(Modal::ConfirmDiscard) => commit::discard(model, frame),
+        Some(Modal::ConfirmRecommit) => commit::recommit(model, frame),
         Some(Modal::QueueSwitch(q)) => commit::switch(model, q, frame),
         Some(Modal::EditValue(v)) => commit::value(model, v, frame),
         Some(Modal::Params(p)) => query::params(model, p, frame),
@@ -58,6 +59,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
         Some(Modal::SaveAs(s)) => query::save_as(model, s, frame),
         Some(Modal::Cell(c)) => query::cell(model, c, frame),
         Some(Modal::Ask(a)) => ask::render(model, a, frame),
+        Some(Modal::InstallDuckdb(d)) => dialogs::install(model, d, frame),
         None => {}
     }
     if model.keychain_box() {
@@ -442,6 +444,7 @@ mod tests {
                 BarContext::Commit
                 | BarContext::CommitProd
                 | BarContext::ConfirmDiscard
+                | BarContext::ConfirmRecommit
                 | BarContext::QueueSwitch
                 | BarContext::EditValue => {
                     m = crate::testing::fixtures::staged(
@@ -454,6 +457,7 @@ mod tests {
                             Modal::Commit(Default::default())
                         }
                         BarContext::ConfirmDiscard => Modal::ConfirmDiscard,
+                        BarContext::ConfirmRecommit => Modal::ConfirmRecommit,
                         BarContext::QueueSwitch => {
                             Modal::QueueSwitch(crate::state::commit::QueueSwitch {
                                 from: "conn-saved".into(),
@@ -555,6 +559,7 @@ mod tests {
             ("problem_retry", BarContext::ProblemRetry),
             ("notice", BarContext::Notice),
             ("keychain", BarContext::Keychain),
+            ("problem_reconnect", BarContext::ProblemReconnect),
         ] {
             let mut m = model_sized(80, 24);
             crate::testing::fixtures::dialog(&mut m, context);
@@ -571,6 +576,58 @@ mod tests {
             selected: 1,
         }));
         assert_snapshot("dialog_picker_connections_80x24", &draw(&m));
+    }
+
+    /// The DuckDB helper's install dialog (Task 7 of the DuckDB helper
+    /// plan): the question with the size, the download's progress and a
+    /// failure, at both sizes; the lookup at 80×24.
+    #[test]
+    fn the_install_dialog_at_148_and_80() {
+        for (w, h) in [(148, 42), (80, 24)] {
+            for (name, context) in [
+                ("ask", BarContext::InstallAsk),
+                ("progress", BarContext::InstallDownloading),
+                ("failed", BarContext::InstallFailed),
+            ] {
+                let mut m = model_sized(w, h);
+                crate::testing::fixtures::dialog(&mut m, context);
+                assert_eq!(m.bar_context(), context);
+                assert_snapshot(&format!("install_{name}_{w}x{h}"), &draw(&m));
+            }
+        }
+        let mut m = model_sized(80, 24);
+        crate::testing::fixtures::dialog(&mut m, BarContext::InstallChecking);
+        assert_snapshot("install_checking_80x24", &draw(&m));
+        // Review M2: the offer for a helper in a folder that isn't private.
+        let mut m = model_sized(80, 24);
+        crate::testing::fixtures::dialog(&mut m, BarContext::InstallAsk);
+        if let Some(Modal::InstallDuckdb(d)) = &mut m.modal {
+            d.stage = crate::state::install::Stage::Ask(crate::state::install::Offer {
+                size: 11_700_000,
+                repair: true,
+            });
+        }
+        let buf = draw(&m);
+        assert!(buf_text_has(&buf, "Installing again"));
+        assert_snapshot("install_ask_repair_80x24", &buf);
+        // Review nit: no Retry where a retry can't help.
+        let mut m = model_sized(80, 24);
+        crate::testing::fixtures::dialog(&mut m, BarContext::InstallFailedFinal);
+        assert_eq!(m.bar_context(), BarContext::InstallFailedFinal);
+        // The words that matter, whatever the layout.
+        let mut m = model_sized(148, 42);
+        crate::testing::fixtures::dialog(&mut m, BarContext::InstallAsk);
+        let text = buffer_text(&draw(&m));
+        assert!(text.contains("11.7 MB"), "{text}");
+        assert!(text.contains("Download now?"), "{text}");
+        crate::testing::fixtures::dialog(&mut m, BarContext::InstallDownloading);
+        let text = buffer_text(&draw(&m));
+        assert!(text.contains("4.2 MB of 11.7 MB"), "{text}");
+        assert!(text.contains("36%"), "{text}");
+    }
+
+    fn buf_text_has(buf: &ratatui::buffer::Buffer, s: &str) -> bool {
+        buffer_text(buf).contains(s)
     }
 
     /// Screen 1a's data: the staged edit of `48109.total` and the delete
@@ -1030,6 +1087,26 @@ mod tests {
                 .starts_with("Execute: enter | Preview SQL: p | Cancel: esc"),
             "{text}"
         );
+    }
+
+    /// Probe F1: a queue a cut-off commit may have applied says so in
+    /// panel 4, and `c` asks before committing it again.
+    #[test]
+    fn a_queue_that_may_be_applied_warns_and_asks() {
+        use crate::state::app::update;
+        use crate::testing::keys::key;
+        let mut wide = screen_1c(148, 42);
+        wide.queue.mark_interrupted(true);
+        let text = buffer_text(&draw(&wide));
+        assert!(
+            text.contains(crate::state::text::MAYBE_APPLIED_HINT),
+            "{text}"
+        );
+        let mut m = screen_1c(80, 24);
+        m.queue.mark_interrupted(true);
+        update(&mut m, key('c'));
+        assert_eq!(m.modal, Some(Modal::ConfirmRecommit));
+        assert_snapshot("dialog_recommit_80x24", &draw(&m));
     }
 
     #[test]

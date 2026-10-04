@@ -24,6 +24,23 @@ pub fn data_dir(identifier: &str) -> Result<PathBuf, StorageError> {
     resolve(std::env::var_os(DATA_DIR_ENV), dirs::data_dir(), identifier)
 }
 
+/// The platform's *local* data dir plus `identifier`, where the app keeps
+/// files that belong to this machine: the command line tool it installs
+/// (`<data_local_dir>/<identifier>/bin/`) and the terminal binaries' DuckDB
+/// helper (`bin/duckdb/`). The same as [`data_dir`] on macOS and Linux;
+/// `%LOCALAPPDATA%` rather than `%APPDATA%` on Windows.
+///
+/// `SEAQUEL_DATA_DIR`, when set and non-empty, wins here too (and is the
+/// folder itself), so a test, or anyone running a binary against another
+/// data dir, never reaches the real one. Nothing is created.
+pub fn data_local_dir(identifier: &str) -> Result<PathBuf, StorageError> {
+    resolve(std::env::var_os(DATA_DIR_ENV), local_platform(), identifier)
+}
+
+fn local_platform() -> Option<PathBuf> {
+    dirs::data_local_dir()
+}
+
 fn resolve(
     env: Option<OsString>,
     platform: Option<PathBuf>,
@@ -76,6 +93,33 @@ mod tests {
     /// The fallback, without whatever `SEAQUEL_DATA_DIR` the test run has.
     fn platform_default() -> PathBuf {
         resolve(None, dirs::data_dir(), ID).unwrap()
+    }
+
+    /// `data_local_dir`'s fallback, without the test run's override.
+    fn local_default() -> PathBuf {
+        resolve(None, local_platform(), ID).unwrap()
+    }
+
+    #[test]
+    fn data_local_dir_is_the_local_platform_dir_or_the_override() {
+        let expected = match std::env::var_os(DATA_DIR_ENV).filter(|v| !v.is_empty()) {
+            Some(dir) => PathBuf::from(dir),
+            None => local_default(),
+        };
+        assert_eq!(data_local_dir(ID).unwrap(), expected);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn data_local_dir_is_the_data_dir_off_windows() {
+        assert_eq!(local_default(), platform_default());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_local_path() {
+        let local = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap());
+        assert_eq!(local_default(), local.join(ID));
     }
 
     #[cfg(target_os = "macos")]

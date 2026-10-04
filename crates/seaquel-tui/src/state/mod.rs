@@ -10,6 +10,7 @@ pub mod dialogs;
 pub mod editor;
 pub mod explain;
 pub mod grid;
+pub mod install;
 pub mod keymap;
 pub mod log;
 pub mod mouse;

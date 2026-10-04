@@ -8,6 +8,11 @@
 //! DuckDB connections are temp files. The Postgres cases use the e2e Docker
 //! database through `SEAQUEL_TEST_POSTGRES` (ConnectConfig JSON) and skip
 //! without it, unless `SEAQUEL_TEST_REQUIRE_ENGINES` is set.
+//!
+//! DuckDB runs on the driver `SEAQUEL_TEST_DUCKDB_DRIVER` names (the DuckDB
+//! helper plan, Task 5): `native` (the default) or `remote`, the
+//! `seaquel-duckdb` helper at `SEAQUEL_TEST_DUCKDB_HELPER`, installed into
+//! each test's temp dir as a real install is laid out ([`plugins`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -114,10 +119,61 @@ fn live(name: &str) -> Option<Json> {
     }
 }
 
+/// Core's engines, DuckDB's on the driver `SEAQUEL_TEST_DUCKDB_DRIVER`
+/// names: `native` (unset) or `remote`, the helper at
+/// `SEAQUEL_TEST_DUCKDB_HELPER` installed under `dir` (once; a hard link,
+/// else a copy) as `duckdb-helper/bin/duckdb/<version>/seaquel-duckdb`,
+/// each folder 0700, so it goes with the test's temp dir.
+fn plugins(dir: &Path) -> seaquel_core::CoreBuilder {
+    match std::env::var("SEAQUEL_TEST_DUCKDB_DRIVER").as_deref() {
+        Err(std::env::VarError::NotPresent) | Ok("native") => seaquel_core::with_default_plugins(),
+        Ok("remote") => seaquel_core::with_plugins(|id| id != "duckdb")
+            .duckdb_helper(install_helper(&dir.join("duckdb-helper"))),
+        other => panic!("SEAQUEL_TEST_DUCKDB_DRIVER is `native` or `remote`, not {other:?}"),
+    }
+}
+
+fn install_helper(root: &Path) -> seaquel_core::DuckdbHelper {
+    let bin = std::env::var_os("SEAQUEL_TEST_DUCKDB_HELPER")
+        .map(PathBuf::from)
+        .expect(
+            "the remote driver needs SEAQUEL_TEST_DUCKDB_HELPER (cargo build -p seaquel-duckdb)",
+        );
+    let out = std::process::Command::new(&bin)
+        .arg("--version")
+        .output()
+        .unwrap();
+    let version = String::from_utf8(out.stdout)
+        .unwrap()
+        .trim()
+        .strip_prefix("seaquel-duckdb ")
+        .expect("seaquel-duckdb <version>")
+        .to_string();
+    let duckdb = root.join("bin").join("duckdb");
+    let helper = seaquel_core::DuckdbHelper {
+        dir: duckdb.clone(),
+        version: version.clone(),
+    };
+    let to = helper.path();
+    if !to.exists() {
+        let folder = duckdb.join(&version);
+        std::fs::create_dir_all(&folder).unwrap();
+        #[cfg(unix)]
+        for d in [root, &root.join("bin"), &duckdb, &folder] {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        if std::fs::hard_link(&bin, &to).is_err() {
+            std::fs::copy(&bin, &to).unwrap();
+        }
+    }
+    helper
+}
+
 /// Create the SQLite and DuckDB databases through Core: `items` with
 /// `ROWS` rows, `tags` in DuckDB's second schema, a view.
 async fn seed_databases(dir: &Path) -> (PathBuf, PathBuf) {
-    let core = seaquel_core::with_default_plugins()
+    let core = plugins(dir)
         .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .build();
     let lite = dir.join("app.sqlite");
@@ -182,7 +238,7 @@ async fn seed(ai_settings: Option<&str>) -> Seeded {
     let lite_url = format!("sqlite://{}", lite.display());
     let duck_path = duck.to_str().unwrap().to_string();
 
-    let core = seaquel_core::with_default_plugins()
+    let core = plugins(dir.path())
         .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .build();
     let ws = core
@@ -360,7 +416,7 @@ async fn start_with_store(
 ) -> Harness {
     let known_hosts = seeded.dir.path().join("known_hosts");
     let core = Arc::new(
-        seaquel_core::with_default_plugins()
+        plugins(seeded.dir.path())
             .ssh_known_hosts(&known_hosts)
             .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
             .build(),
@@ -658,7 +714,7 @@ async fn unexposed_and_unknown_connections_are_not_found() {
 async fn startup_refuses_unknown_and_ambiguous_names() {
     let seeded = seed(None).await;
     let core = Arc::new(
-        seaquel_core::with_default_plugins()
+        plugins(seeded.dir.path())
             .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
             .build(),
     );
@@ -814,6 +870,35 @@ async fn schema_tools_on_duckdb() {
         .map(|c| c["name"].as_str().unwrap())
         .collect();
     assert_eq!(names, ["id", "name", "amount", "payload"]);
+    h.stop().await;
+}
+
+/// The DuckDB tools run on the driver `SEAQUEL_TEST_DUCKDB_DRIVER` asked
+/// for: with `remote`, Core has no native engine and a helper locator, and
+/// a row only the helper refuses is refused.
+#[tokio::test]
+async fn duckdb_runs_on_the_driver_asked_for() {
+    let h = harness().await;
+    let remote = std::env::var("SEAQUEL_TEST_DUCKDB_DRIVER").as_deref() == Ok("remote");
+    eprintln!("SEAQUEL_TEST_DUCKDB_DRIVER remote: {remote}");
+    assert_eq!(h.core.duckdb_helper().is_some(), remote);
+    let out = h
+        .ok(
+            "run_query",
+            json!({ "connection": "duck", "sql": "SELECT 40 + 2 AS n" }),
+        )
+        .await;
+    assert_eq!(out["rows"], json!([[42]]));
+    // What only the helper does (REMOTE.md): a row past its 16 MiB frame
+    // is refused remotely, and comes back natively (its cell cut to 64 KB).
+    let big = json!({ "connection": "duck", "sql": "SELECT repeat('x', 20 * 1024 * 1024) AS big" });
+    if remote {
+        let text = h.err("run_query", big).await;
+        assert_code(&text, "RESULT_TOO_LARGE");
+    } else {
+        let out = h.ok("run_query", big).await;
+        assert_eq!(out["rows"][0][0]["truncated"], json!(true), "{out}");
+    }
     h.stop().await;
 }
 
@@ -1097,7 +1182,7 @@ async fn the_global_default_written_by_core_is_what_mcp_reads() {
         r#"{"enabled":true,"providers":[{"id":"p","name":"Old","provider":"openai-compatible","model":"m"}],"futureField":{"x":1}}"#,
     ))
     .await;
-    let core = seaquel_core::with_default_plugins()
+    let core = plugins(seeded.dir.path())
         .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .build();
     let ws = core
@@ -1712,7 +1797,7 @@ async fn an_unreadable_secret_is_a_tool_error() {
 async fn a_workspace_without_a_secret_store_connects_with_no_password() {
     let seeded = seed(None).await;
     let core = Arc::new(
-        seaquel_core::with_default_plugins()
+        plugins(seeded.dir.path())
             .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
             .build(),
     );
@@ -1915,4 +2000,161 @@ async fn a_slow_postgres_query_times_out_and_is_cancelled() {
         .await;
     assert_eq!(out["rows"], json!([[2]]));
     h.stop().await;
+}
+
+/// Review M3 of the DuckDB helper's probe fixes: the server closes its
+/// connections at once, not one after another. Two DuckDB connections run
+/// through a stand-in helper (a Perl proxy in front of a copy of the built
+/// helper) that takes 1.5 s to pass `close` on, so closing them in turn
+/// would take 3 s. Needs `SEAQUEL_TEST_DUCKDB_HELPER`.
+#[cfg(unix)]
+#[tokio::test]
+async fn closing_closes_the_connections_concurrently() {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(bin) = std::env::var_os("SEAQUEL_TEST_DUCKDB_HELPER").map(PathBuf::from) else {
+        eprintln!("skipping: SEAQUEL_TEST_DUCKDB_HELPER is not set");
+        return;
+    };
+    let seeded = seed(None).await;
+    let dir = seeded.dir.path().to_path_buf();
+    // A second DuckDB file and its connection.
+    let duck2 = dir.join("second.duckdb");
+    let first = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|x| x == "duckdb"))
+        .expect("the seeded DuckDB file");
+    std::fs::copy(&first, &duck2).unwrap();
+    {
+        let core = seaquel_core::with_plugins(|_| false)
+            .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+            .build();
+        let ws = core.open_workspace(WorkspaceSpec::new(&dir)).await.unwrap();
+        let path = duck2.to_str().unwrap();
+        connections::save(
+            ws.storage(),
+            &connection(
+                "c-duck2",
+                "duck2",
+                P1,
+                json!({ "type": "duckdb", "databaseName": path,
+                        "connectionString": format!("duckdb://{path}"),
+                        "aiShareSchema": true, "aiShareData": true }),
+            ),
+        )
+        .await
+        .unwrap();
+        ws.close().await;
+    }
+    // The stand-in helper, installed as a real one is laid out.
+    let real = dir.join("real-seaquel-duckdb");
+    if std::fs::hard_link(&bin, &real).is_err() {
+        std::fs::copy(&bin, &real).unwrap();
+    }
+    let helper = install_helper(&dir.join("duckdb-helper"));
+    let script = format!(
+        r#"#!/usr/bin/perl
+use strict;
+use warnings;
+use IPC::Open2;
+$SIG{{PIPE}} = 'IGNORE';
+my $pid = open2(my $from, my $to, '{real}', @ARGV);
+binmode STDIN; binmode STDOUT; binmode $from; binmode $to;
+sub put {{ my ($fh, $d) = @_; while (length $d) {{ my $w = syswrite($fh, $d); exit 1 unless defined $w; substr($d, 0, $w, ''); }} }}
+my ($buf, $in, $out) = ('', 1, 1);
+while ($out) {{
+  my $rin = '';
+  vec($rin, fileno(STDIN), 1) = 1 if $in;
+  vec($rin, fileno($from), 1) = 1;
+  next unless select(my $rout = $rin, undef, undef, undef) > 0;
+  if ($in && vec($rout, fileno(STDIN), 1)) {{
+    my $n = sysread(STDIN, my $chunk, 65536);
+    if (!$n) {{ $in = 0; close $to; }}
+    else {{
+      $buf .= $chunk;
+      while (length($buf) >= 4) {{
+        my $len = unpack('V', substr($buf, 0, 4));
+        last if length($buf) < 4 + $len;
+        my $frame = substr($buf, 0, 4 + $len, '');
+        my $body = substr($frame, 4, 1) eq "\0" ? substr($frame, 9) : '';
+        select(undef, undef, undef, 1.5) if $body =~ /^\x7b"type":"close"/;
+        put($to, $frame);
+      }}
+    }}
+  }}
+  if (vec($rout, fileno($from), 1)) {{
+    my $n = sysread($from, my $chunk, 65536);
+    if (!$n) {{ $out = 0; }} else {{ put(\*STDOUT, $chunk); }}
+  }}
+}}
+waitpid($pid, 0);
+exit($? >> 8);
+"#,
+        real = real.to_string_lossy().replace('\'', "\\'"),
+    );
+    let at = helper.path();
+    std::fs::remove_file(&at).unwrap();
+    std::fs::write(&at, script).unwrap();
+    std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let core = Arc::new(
+        seaquel_core::with_plugins(|id| id != "duckdb")
+            .duckdb_helper(helper)
+            .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+            .build(),
+    );
+    let spec = WorkspaceSpec::new(&dir).with_storage_options(StorageOptions {
+        read_only: true,
+        ..StorageOptions::default()
+    });
+    let ws = core.open_workspace(spec).await.unwrap();
+    let server = McpServer::start(
+        core.clone(),
+        ws,
+        &expose(&["duck", "duck2"]),
+        ServerOptions::default(),
+    )
+    .await
+    .unwrap();
+    let (server_io, client_io) = tokio::io::duplex(1 << 16);
+    let handler = server.clone();
+    let serving = tokio::spawn(async move {
+        let running = handler.serve(server_io).await.unwrap();
+        running.waiting().await.unwrap();
+    });
+    let client = ().serve(client_io).await.unwrap();
+    for name in ["duck", "duck2"] {
+        let mut params = CallToolRequestParams::new("run_query".to_string());
+        if let Json::Object(map) = json!({ "connection": name, "sql": "SELECT 1 AS n" }) {
+            params = params.with_arguments(map);
+        }
+        let result = client.call_tool(params).await.unwrap();
+        assert_ne!(result.is_error, Some(true), "{name}: {}", text(&result));
+    }
+    assert_eq!(server.open_connection_count(), 2);
+    client.cancel().await.unwrap();
+    serving.await.unwrap();
+    let started = Instant::now();
+    server.close().await;
+    let took = started.elapsed();
+    assert!(
+        took >= Duration::from_millis(1400) && took < Duration::from_millis(2600),
+        "{took:?}"
+    );
+    // Both helpers and their proxies are gone.
+    let gone = |p: &Path| {
+        std::process::Command::new("pgrep")
+            .arg("-f")
+            .arg(p)
+            .output()
+            .unwrap()
+            .stdout
+            .is_empty()
+    };
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !(gone(&real) && gone(&at)) {
+        assert!(Instant::now() < deadline, "a helper outlived the server");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }

@@ -27,6 +27,35 @@ pub enum PathStatus {
     Missing,
 }
 
+/// Whether this version's DuckDB helper is installed for the CLI
+/// (`Core::duckdb_helper_status`, the DuckDB helper plan).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DuckdbHelper {
+    Installed,
+    /// Not there, and no other version's either.
+    Missing,
+    /// Only another version's helper is there.
+    Outdated,
+    /// There, but a folder on the way is a link or writable by others.
+    Unsafe,
+    /// The data folder couldn't be found.
+    Unknown,
+}
+
+impl From<Option<seaquel_core::DuckdbHelperStatus>> for DuckdbHelper {
+    fn from(status: Option<seaquel_core::DuckdbHelperStatus>) -> Self {
+        use seaquel_core::DuckdbHelperStatus as S;
+        match status {
+            Some(S::Installed { .. }) => Self::Installed,
+            Some(S::Missing) => Self::Missing,
+            Some(S::Outdated) => Self::Outdated,
+            Some(S::Unsafe) => Self::Unsafe,
+            None => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliInfo {
@@ -42,6 +71,8 @@ pub struct CliInfo {
     /// Whether the install button is offered on this desktop platform.
     pub can_install: bool,
     pub app_image: bool,
+    /// The CLI's DuckDB helper: the install button installs it too.
+    pub duckdb_helper: DuckdbHelper,
 }
 
 fn exe_name() -> String {
@@ -120,6 +151,7 @@ pub fn cli_info(app: tauri::AppHandle) -> Result<CliInfo, String> {
         found_path: found.map(|p| p.display().to_string()),
         can_install: cli_install::available(),
         app_image,
+        duckdb_helper: cli_download::duckdb_helper_status(&app.config().identifier).into(),
     })
 }
 
@@ -160,6 +192,17 @@ mod tests {
         let only_extra = search_dirs(None, std::slice::from_ref(&c));
         assert_eq!(find_in(only_extra, "tool"), Some(c.join("tool")));
         assert_eq!(find_in(search_dirs(None, &[a]), "tool"), None);
+    }
+
+    #[test]
+    fn the_helper_status_goes_to_the_panel_as_a_word() {
+        use seaquel_core::DuckdbHelperStatus as S;
+        let word = |s: Option<S>| serde_json::to_value(DuckdbHelper::from(s)).unwrap();
+        assert_eq!(word(Some(S::Installed { path: "/x".into() })), "installed");
+        assert_eq!(word(Some(S::Missing)), "missing");
+        assert_eq!(word(Some(S::Outdated)), "outdated");
+        assert_eq!(word(Some(S::Unsafe)), "unsafe");
+        assert_eq!(word(None), "unknown");
     }
 
     #[test]

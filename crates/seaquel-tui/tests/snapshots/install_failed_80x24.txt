@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌Data - Structure - Indexes - Constraints - DDL────┐
+│not connected · enter to …││nothing selected                                  │
+└──────────────────────────┘│                                                  │
+┌[2]-Tables - Views────────┐│                                                  │
+│no connection             ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│                          ││                                                  │
+│       ┌ Couldn't reach the download server ──────────────────────────┐       │
+│       │ Check the network connection, or the proxy in HTTPS_PROXY,   │       │
+│       │ then retry.                                                  │       │
+│       │                                                              │       │
+└───────│ couldn't connect to the release server (or the proxy)        │       │
+┌[3]-Sav│                                                              │       │
+│no save│ NETWORK_ERROR                                                │       │
+│       └──────────────────────────────────────────────────────────────┘       │
+│                          ││                                                  │
+└──────────────────────────┘│                                                  │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Retry: r | Close: esc                                           seaquel <version>

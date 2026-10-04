@@ -9,6 +9,7 @@
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { getCliInfo, installCli, type CliInfo } from "$lib/api/tauri";
 	import McpSnippet from "./mcp-snippet.svelte";
+	import { helperNeeded, offersInstall } from "./cli-status";
 	import {
 		claudeCodeCommand,
 		claudeDesktopConfig,
@@ -83,6 +84,9 @@
 			.map((c) => c.id),
 	});
 
+	// The CLI's DuckDB helper (installed beside it by the same button).
+	const needsHelper = $derived(helperNeeded(info));
+
 	const nothingSelected = $derived(selection.projectIds.length === 0 && selection.connectionIds.length === 0);
 	const binary = $derived(info?.commandPath ?? "seaquel-cli");
 
@@ -137,7 +141,13 @@
 					{info.appImage ? m.settings_mcp_path_missing_appimage() : m.settings_mcp_path_missing()}
 				</p>
 			{/if}
-			{#if info.canInstall && (os === "windows" ? !info.binaryCurrent : info.pathStatus !== "installed")}
+			{#if needsHelper}
+				<p class="flex items-center gap-1.5 text-xs text-amber-600">
+					<TriangleAlertIcon class="size-3.5 shrink-0" />
+					{info.duckdbHelper === "unsafe" ? m.settings_mcp_duckdb_unsafe() : m.settings_mcp_duckdb_missing()}
+				</p>
+			{/if}
+			{#if offersInstall(info, os)}
 				<Button variant="outline" size="sm" onclick={install} disabled={installing}>
 					{installing ? m.settings_mcp_installing() : m.settings_mcp_install()}
 				</Button>

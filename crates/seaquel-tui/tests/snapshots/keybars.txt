@@ -36,12 +36,26 @@ Notice
 OK: enter                                                                                                                           seaquel <version>
 Keychain
 Stop waiting: esc                                                                                                                   seaquel <version>
+ProblemReconnect
+Connect again: r | Close: esc                                                                                                       seaquel <version>
+InstallChecking
+Cancel: esc                                                                                                                         seaquel <version>
+InstallAsk
+Download: enter | Cancel: esc                                                                                                       seaquel <version>
+InstallDownloading
+Stop: esc                                                                                                                           seaquel <version>
+InstallFailed
+Retry: r | Close: esc                                                                                                               seaquel <version>
+InstallFailedFinal
+Close: esc                                                                                                                          seaquel <version>
 Commit
 Execute: enter | Preview SQL: p | Cancel: esc                                                                                       seaquel <version>
 CommitProd
 Execute: enter | Preview SQL: tab | Cancel: esc                                                                                     seaquel <version>
 ConfirmDiscard
 Discard: y | Keep: esc                                                                                                              seaquel <version>
+ConfirmRecommit
+Commit again: y | Cancel: esc                                                                                                       seaquel <version>
 QueueSwitch
 Keep them: k | Discard them: d | Cancel: esc                                                                                        seaquel <version>
 EditValue

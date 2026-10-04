@@ -44,6 +44,10 @@ pub struct Pending {
     pub save: BTreeSet<SecretKind>,
     /// The host-key fingerprint the user trusted.
     pub trust: Option<String>,
+    /// DuckDB support was just installed for this connect (Task 7 of the
+    /// DuckDB helper plan): `ENGINE_NOT_INSTALLED` now is a problem to
+    /// show, not another download to offer.
+    pub after_install: bool,
 }
 
 /// "Password for …" with a masked input and a "Save password" box.
@@ -85,6 +89,9 @@ pub struct Problem {
     pub message: String,
     /// `r` asks for this secret and connects again.
     pub retry: Option<(SecretKind, Pending)>,
+    /// `r` connects again as it is (a DuckDB helper that didn't start, or
+    /// one that stopped).
+    pub reconnect: Option<Pending>,
 }
 
 impl fmt::Debug for Problem {
@@ -92,6 +99,7 @@ impl fmt::Debug for Problem {
         f.debug_struct("Problem")
             .field("code", &self.code)
             .field("retry", &self.retry.as_ref().map(|(k, _)| k))
+            .field("reconnect", &self.reconnect.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -132,6 +140,9 @@ pub fn problem(error: &CallError, retry: Option<(SecretKind, Pending)>) -> Probl
         "HOST_KEY_MISMATCH" => text::PROBLEM_TITLE_HOST_KEY,
         "ENGINE_NOT_AVAILABLE" => text::PROBLEM_TITLE_ENGINE,
         "CONNECTION_NOT_FOUND" => text::PROBLEM_TITLE_GONE,
+        "ENGINE_NOT_INSTALLED" => text::PROBLEM_TITLE_NOT_INSTALLED,
+        "ENGINE_UNAVAILABLE" => text::PROBLEM_TITLE_HELPER,
+        "CONNECTION_CLOSED" => text::PROBLEM_TITLE_CLOSED,
         _ => text::PROBLEM_TITLE_CONNECT,
     };
     Problem {
@@ -139,6 +150,7 @@ pub fn problem(error: &CallError, retry: Option<(SecretKind, Pending)>) -> Probl
         title,
         message: error.message.clone(),
         retry,
+        reconnect: None,
     }
 }
 

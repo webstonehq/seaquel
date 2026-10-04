@@ -243,6 +243,10 @@ pub struct Queue {
     /// The entry the last apply stopped at, and why (Task 5): cleared by
     /// the next staging action.
     failure: Option<(String, CallError)>,
+    /// An apply lost its connection before it answered (the DuckDB
+    /// helper plan's probe F1): some of the queue may have been applied.
+    /// Cleared by an apply that answers, or by emptying the queue.
+    interrupted: bool,
 }
 
 impl fmt::Debug for Queue {
@@ -717,6 +721,7 @@ impl Queue {
         self.steps.clear();
         self.connection = None;
         self.failure = None;
+        self.interrupted = false;
         self.changed();
     }
 
@@ -807,6 +812,18 @@ impl Queue {
     pub fn mark_failed(&mut self, id: &str, error: CallError) {
         self.failure = Some((id.to_string(), error));
         self.changed();
+    }
+
+    /// An apply lost its connection: the queue may be partly applied (the
+    /// GUI's `pendingChangesInterrupted`).
+    pub fn mark_interrupted(&mut self, interrupted: bool) {
+        self.interrupted = interrupted;
+        self.changed();
+    }
+
+    /// Whether the last apply ended without saying what ran.
+    pub fn interrupted(&self) -> bool {
+        self.interrupted
     }
 
     /// The marked entry's error, if `id` is it.

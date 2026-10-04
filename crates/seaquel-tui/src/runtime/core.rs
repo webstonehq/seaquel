@@ -19,7 +19,8 @@ use std::time::Duration;
 use seaquel_core::domain::library::{ConnectionPatch, SecretChanges};
 use seaquel_core::secrets::{SecretStore, SecretWait};
 use seaquel_core::{
-    ConnectRequest, Core, CoreError, HostKeyPolicy, Workspace, WorkspaceSpec, WriteOrigin,
+    ConnectRequest, Core, CoreError, DuckdbHelperProgress, DuckdbHelperStatus, HostKeyPolicy,
+    Workspace, WorkspaceSpec, WriteOrigin,
 };
 use seaquel_types::storage::{
     PersistedConnection, PersistedQueryHistoryItem, PersistedSavedQuery, SshTunnelConfig,
@@ -39,6 +40,7 @@ use crate::state::commit::HistoryLabel;
 use crate::state::commit::{Applied, ApplyCall, Destructive, Failure};
 use crate::state::dialogs::CallError;
 use crate::state::grid::Page;
+use crate::state::install::Offer;
 use crate::state::panels::{
     ConnAi, ConnItem, HistoryItem, LabelItem, Library, ProjectItem, SavedItem, TableItem,
     TableKind, Tunnel, TunnelAuth,
@@ -55,8 +57,10 @@ pub struct OpenOptions {
     pub data_dir: PathBuf,
     /// The keychain, or the test hook's `MemoryStore`.
     pub store: Arc<dyn SecretStore>,
-    /// The test hook's known_hosts, in place of `~/.ssh/known_hosts`.
-    pub known_hosts: Option<PathBuf>,
+    /// What `seaquel-terminal`'s Core takes: the test hooks' known_hosts
+    /// and DuckDB helper and release server (`CoreOptions::with_hooks`),
+    /// and the DuckDB helper's folder (tests give one under their data dir).
+    pub core: seaquel_terminal::CoreOptions,
     pub poll: Duration,
     /// The test hook's origin; else a random one.
     pub origin: Option<String>,
@@ -78,7 +82,9 @@ impl std::fmt::Debug for Session {
 
 /// The TUI's Core: `seaquel-terminal`'s, plus the native AI client with
 /// `AiEgress::Any`, as `src-tauri`'s `desktop_core` (Task 7 uses it).
-pub fn build_core(known_hosts: Option<PathBuf>) -> Core {
+/// DuckDB runs in the helper process (the DuckDB helper plan), which the
+/// TUI can download (`seaquel-terminal`'s `duckdb-helper-install`).
+pub fn build_core(options: seaquel_terminal::CoreOptions) -> Core {
     use seaquel_core::ai::native::{NativeHttp, NativeHttpOptions};
     use seaquel_core::ai::AiEgress;
 
@@ -90,7 +96,7 @@ pub fn build_core(known_hosts: Option<PathBuf>) -> Core {
     let http = seaquel_ai::testing::LoopbackOnly(http);
     seaquel_terminal::core_builder(seaquel_terminal::CoreOptions {
         local_files: None,
-        known_hosts,
+        ..options
     })
     .ai_http(Arc::new(http))
     .ai_egress(egress)
@@ -115,7 +121,7 @@ pub fn new_origin(hook: Option<&str>) -> WriteOrigin {
 
 /// Opens Core on the data dir as a second process.
 pub async fn open(options: OpenOptions) -> Result<Session, CoreError> {
-    let core = Arc::new(build_core(options.known_hosts));
+    let core = Arc::new(build_core(options.core));
     let wait = SecretWait::new();
     let spec = WorkspaceSpec::new(&options.data_dir)
         .with_secrets(wait.watch(options.store))
@@ -315,6 +321,33 @@ impl Session {
             req = req.with_host_key(HostKeyPolicy::Trust(fingerprint.clone()));
         }
         self.ws.connect(&self.core, req).await.map_err(call_error)
+    }
+
+    /// DuckDB support's download (the DuckDB helper plan, Task 7): its
+    /// size from the release metadata (one request), and whether the
+    /// helper already there sits in a folder that isn't private.
+    pub async fn duckdb_offer(&self) -> Result<Offer, CallError> {
+        let status = self.core.duckdb_helper_status().map_err(call_error)?;
+        let asset = self.core.duckdb_helper_asset().await.map_err(call_error)?;
+        Ok(Offer {
+            size: asset.size,
+            repair: status == DuckdbHelperStatus::Unsafe,
+        })
+    }
+
+    /// Downloads and installs DuckDB support, `progress` getting the
+    /// compressed bytes received and the total. Dropping the future stops
+    /// the download and leaves nothing behind.
+    pub async fn install_duckdb(
+        &self,
+        mut progress: impl FnMut(u64, u64) + Send,
+    ) -> Result<(), CallError> {
+        let mut report = |p: DuckdbHelperProgress| progress(p.bytes, p.total);
+        self.core
+            .duckdb_helper_install(&mut report)
+            .await
+            .map(drop)
+            .map_err(call_error)
     }
 
     pub async fn disconnect(&self, core_id: &str) {
@@ -937,10 +970,44 @@ mod tests {
         OpenOptions {
             data_dir: dir.to_path_buf(),
             store: memory_store(),
-            known_hosts: None,
+            core: seaquel_terminal::CoreOptions {
+                duckdb_helper_dir: Some(dir.join("bin").join("duckdb")),
+                ..seaquel_terminal::CoreOptions::default()
+            },
             poll: Duration::from_millis(50),
             origin: Some("tui-test0001".into()),
         }
+    }
+
+    /// The TUI's Core runs DuckDB in the helper (the DuckDB helper plan,
+    /// Task 6), looked for in the folder it's given; with none there a
+    /// connect is `ENGINE_NOT_INSTALLED` (what Task 7's dialog opens on),
+    /// and the download calls are compiled in.
+    #[tokio::test]
+    async fn duckdb_runs_in_the_helper_under_the_given_folder() {
+        use seaquel_core::{ConnectRequest, ConnectionForm, DuckdbHelperStatus};
+
+        let seed = Seed::new().await;
+        let session = open(options(seed.dir.path())).await.unwrap();
+        let helper = session.core.duckdb_helper().expect("the remote engine");
+        assert_eq!(helper.dir, seed.dir.path().join("bin").join("duckdb"));
+        assert_eq!(
+            session.core.duckdb_helper_status().unwrap(),
+            DuckdbHelperStatus::Missing
+        );
+        let form: ConnectionForm = serde_json::from_value(
+            serde_json::json!({"name": "d", "type": "duckdb", "databaseName": ":memory:"}),
+        )
+        .unwrap();
+        let e = session
+            .ws
+            .connect(&session.core, ConnectRequest::form(form))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, "ENGINE_NOT_INSTALLED", "{e:?}");
+        // Built, never awaited: no request leaves the test.
+        drop(session.core.duckdb_helper_asset());
+        session.close().await;
     }
 
     async fn refused(dir: &Path) -> CoreError {

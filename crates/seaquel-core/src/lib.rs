@@ -33,7 +33,9 @@ pub use seaquel_types::{StreamEvent, Value};
 // `engine-duckdb` included: that one is the native driver, and the page's
 // module registers the DuckDB engine's browser driver itself. So are the
 // secret store, SSH, git, licensing and the imports. Build it with
-// `--no-default-features --features browser,storage,workspace`.
+// `--no-default-features --features browser,storage,workspace`. The remote
+// DuckDB engine (`engine-duckdb-remote`) starts a process, which the page
+// can't.
 #[cfg(all(
     feature = "browser",
     any(
@@ -42,6 +44,7 @@ pub use seaquel_types::{StreamEvent, Value};
         feature = "engine-sqlite",
         feature = "engine-mssql",
         feature = "engine-duckdb",
+        feature = "engine-duckdb-remote",
         feature = "secrets",
         feature = "ssh",
         feature = "git",
@@ -72,6 +75,8 @@ mod changes;
 // this crate's own tests.
 #[cfg(all(feature = "storage", any(feature = "browser", test)))]
 mod demo;
+#[cfg(feature = "engine-duckdb-remote")]
+mod duckdb_helper;
 #[cfg(feature = "workspace")]
 mod edits;
 #[cfg(feature = "imports")]
@@ -96,6 +101,16 @@ pub use changes::{
 };
 #[cfg(all(feature = "storage", any(feature = "browser", test)))]
 pub use demo::DEMO_CONNECTION_ID;
+/// The helper's status and install (the DuckDB helper plan, Task 4).
+#[cfg(feature = "engine-duckdb-remote")]
+pub use duckdb_helper::{DuckdbHelperAsset, DuckdbHelperInstalled, DuckdbHelperStatus};
+#[cfg(feature = "duckdb-helper-install")]
+pub use duckdb_helper::{DuckdbHelperProgress, DuckdbHelperReleases};
+/// Where the DuckDB helper is and which app version it must report
+/// ([`CoreBuilder::duckdb_helper`]): `<dir>/<version>/seaquel-duckdb`, with
+/// `dir` the install's `bin/duckdb` folder.
+#[cfg(feature = "engine-duckdb-remote")]
+pub use seaquel_engine_duckdb::HelperLocator as DuckdbHelper;
 pub use seaquel_runtime::Executor;
 /// What a GUI sends to connect: the form and the secrets it supplies.
 pub use seaquel_types::connect::{ConnectionForm, SuppliedSecrets};
@@ -339,6 +354,17 @@ pub struct Core {
     /// Where other tools' files are ([`CoreBuilder::import_paths`]).
     #[cfg(feature = "imports")]
     import_paths: Option<ImportPaths>,
+    /// [`CoreBuilder::duckdb_helper`]'s install.
+    #[cfg(feature = "engine-duckdb-remote")]
+    duckdb_helper: Option<DuckdbHelper>,
+    /// Where the helper is downloaded from
+    /// ([`CoreBuilder::duckdb_helper_releases`]); GitHub when `None`.
+    #[cfg(feature = "duckdb-helper-install")]
+    duckdb_helper_releases: Option<DuckdbHelperReleases>,
+    /// One helper install at a time in this Core: a second waits and then
+    /// finds the first one's file.
+    #[cfg(feature = "duckdb-helper-install")]
+    duckdb_helper_installing: futures::lock::Mutex<()>,
     /// The assistant's model calls ([`CoreBuilder::ai_http`]); `None`
     /// answers `NOT_SUPPORTED`.
     #[cfg(feature = "ai")]
@@ -450,6 +476,10 @@ pub struct CoreBuilder {
     sync_plan_hook: Option<SyncPlanHook>,
     #[cfg(feature = "imports")]
     import_paths: Option<ImportPaths>,
+    #[cfg(feature = "engine-duckdb-remote")]
+    duckdb_helper: Option<DuckdbHelper>,
+    #[cfg(feature = "duckdb-helper-install")]
+    duckdb_helper_releases: Option<DuckdbHelperReleases>,
     #[cfg(feature = "ai")]
     ai_http: Option<Arc<dyn ai::http::HttpClient>>,
     #[cfg(feature = "ai")]
@@ -506,6 +536,41 @@ impl CoreBuilder {
 
     pub fn engine(mut self, engine: Arc<dyn Engine>) -> Self {
         self.engines.register(engine);
+        self
+    }
+
+    /// Registers the remote DuckDB engine (id `duckdb`): each connection
+    /// runs DuckDB in a `seaquel-duckdb` helper process of its own, found
+    /// by `helper`. The terminal binaries use it so they don't link DuckDB.
+    /// A connect with no usable helper there fails at once with
+    /// `ENGINE_NOT_INSTALLED`.
+    ///
+    /// # Panics
+    ///
+    /// If a `duckdb` engine is already registered: build the rest with
+    /// [`with_plugins`]`(|id| id != "duckdb")`, so a build that unified the
+    /// native driver in still registers this one only.
+    #[cfg(feature = "engine-duckdb-remote")]
+    #[must_use]
+    pub fn duckdb_helper(mut self, helper: DuckdbHelper) -> Self {
+        self.engines
+            .register(seaquel_engine_duckdb::remote_engine(helper.clone()));
+        self.duckdb_helper = Some(helper);
+        self
+    }
+
+    /// Where [`Core::duckdb_helper_install`] downloads from instead of
+    /// Seaquel's GitHub releases: tests, and debug builds' test hooks. A
+    /// [`DuckdbHelperReleases`] is `https:`, or `http:` to a loopback
+    /// address only. Only in debug builds or with `duckdb-helper-testing`
+    /// (review I1): a release build always downloads from GitHub.
+    #[cfg(all(
+        feature = "duckdb-helper-install",
+        any(debug_assertions, feature = "duckdb-helper-testing")
+    ))]
+    #[must_use]
+    pub fn duckdb_helper_releases(mut self, releases: DuckdbHelperReleases) -> Self {
+        self.duckdb_helper_releases = Some(releases);
         self
     }
 
@@ -648,6 +713,12 @@ impl CoreBuilder {
             sync_plan_hook: self.sync_plan_hook,
             #[cfg(feature = "imports")]
             import_paths: self.import_paths,
+            #[cfg(feature = "engine-duckdb-remote")]
+            duckdb_helper: self.duckdb_helper,
+            #[cfg(feature = "duckdb-helper-install")]
+            duckdb_helper_releases: self.duckdb_helper_releases,
+            #[cfg(feature = "duckdb-helper-install")]
+            duckdb_helper_installing: futures::lock::Mutex::new(()),
         }
     }
 }
@@ -950,6 +1021,19 @@ impl Core {
     /// the user's files.
     pub fn local_files(&self) -> Option<LocalFiles> {
         self.local_files
+    }
+
+    /// [`CoreBuilder::duckdb_helper`]'s install, if one was set.
+    #[cfg(feature = "engine-duckdb-remote")]
+    pub fn duckdb_helper(&self) -> Option<&DuckdbHelper> {
+        self.duckdb_helper.as_ref()
+    }
+
+    /// The release source [`CoreBuilder::duckdb_helper_releases`] set, if
+    /// any (`None`: Seaquel's GitHub releases). Its `Debug` shows hosts only.
+    #[cfg(feature = "duckdb-helper-install")]
+    pub fn duckdb_helper_releases(&self) -> Option<&DuckdbHelperReleases> {
+        self.duckdb_helper_releases.as_ref()
     }
 
     /// `NOT_SUPPORTED` unless this Core may touch the user's files.

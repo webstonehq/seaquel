@@ -24,9 +24,14 @@
 //! - `SEAQUEL_CLI_TEST_SECRETS`: a JSON file `{"db:<id>": "…"}` loaded into a
 //!   `MemoryStore` in place of the keychain;
 //! - `SEAQUEL_CLI_TEST_KNOWN_HOSTS`: the known_hosts file to check;
-//! - `SEAQUEL_CLI_TEST_CALL_TIMEOUT_MS`: the per-call timeout.
+//! - `SEAQUEL_CLI_TEST_CALL_TIMEOUT_MS`: the per-call timeout;
+//! - `SEAQUEL_CLI_TEST_DUCKDB_HELPER`: a built `seaquel-duckdb`, linked
+//!   into `<data dir>/bin/duckdb/<version>/` so DuckDB connections run in
+//!   it (the CLI links no DuckDB itself);
+//! - `SEAQUEL_CLI_TEST_DUCKDB_RELEASES`: `seaquel-cli duckdb install`'s
+//!   release server, on 127.0.0.1 (`duckdb.rs`).
 //!
-//! The tests set all of them (with `SEAQUEL_DATA_DIR`), so they never touch
+//! The tests set them (with `SEAQUEL_DATA_DIR`), so they never touch
 //! the real keychain, data dir or `~/.ssh`.
 
 use std::process::ExitCode;
@@ -99,18 +104,23 @@ fn startup_error(e: CoreError) -> String {
     format!("{}: {}", e.code, e.message)
 }
 
-/// The CLI's Core, as the desktop app builds its own: every engine, the
+/// The CLI's Core, as the desktop app builds its own: every engine (DuckDB
+/// through the `seaquel-duckdb` helper, the DuckDB helper plan), the
 /// user's files (phase 5e, Decision 31) and the import paths. No command
 /// uses the shared projection or the imports yet (Q26); the read-only
-/// storage refuses their writes.
+/// storage refuses their writes. `hooks` (debug builds) bring the
+/// known_hosts file and a built DuckDB helper.
 fn core_builder(
     import_paths: Option<seaquel_core::ImportPaths>,
-    known_hosts: Option<std::path::PathBuf>,
+    hooks: &TestHooks,
 ) -> seaquel_core::CoreBuilder {
-    let builder = seaquel_terminal::core_builder(seaquel_terminal::CoreOptions {
-        local_files: Some(seaquel_core::LocalFiles::Allowed),
-        known_hosts,
-    });
+    let builder = seaquel_terminal::core_builder(
+        seaquel_terminal::CoreOptions {
+            local_files: Some(seaquel_core::LocalFiles::Allowed),
+            ..seaquel_terminal::CoreOptions::default()
+        }
+        .with_hooks(hooks),
+    );
     match import_paths {
         Some(paths) => builder.import_paths(paths),
         None => builder,
@@ -122,10 +132,7 @@ async fn serve(args: McpArgs) -> Result<(), String> {
     let dir = seaquel_terminal::data_dir().map_err(startup_error)?;
     // The MCP server connects to the user's own saved connections, as the
     // desktop app would.
-    let builder = core_builder(
-        seaquel_core::ImportPaths::from_env(),
-        hooks.known_hosts().map(Into::into),
-    );
+    let builder = core_builder(seaquel_core::ImportPaths::from_env(), &hooks);
     let core = Arc::new(builder.build());
 
     // Keychain reads are timed so a pending prompt doesn't use up a call's
@@ -156,6 +163,11 @@ async fn serve(args: McpArgs) -> Result<(), String> {
             return Err(e.to_string());
         }
     };
+    // A DuckDB connection without its helper fails its tools; say so once
+    // here too (Decision 13). stderr only, whatever the log level.
+    if let Some(notice) = server.duckdb_helper_notice() {
+        eprintln!("seaquel-cli mcp: {notice}");
+    }
     log::info!("Serving MCP on stdio");
 
     let result = match server.clone().serve(seaquel_mcp::transport::stdio()).await {
@@ -192,7 +204,11 @@ mod tests {
     /// desktop's does, and its imports read the home it's given.
     #[test]
     fn the_cli_core_may_read_local_files() {
-        let core = core_builder(Some(seaquel_core::ImportPaths::new("/nowhere")), None).build();
+        let core = core_builder(
+            Some(seaquel_core::ImportPaths::new("/nowhere")),
+            &TestHooks::default(),
+        )
+        .build();
         assert_eq!(core.local_files(), Some(seaquel_core::LocalFiles::Allowed));
     }
 

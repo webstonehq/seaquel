@@ -748,6 +748,8 @@
   "settings_mcp_binary_missing": "명령줄 도구가 설치되지 않았습니다. 아래 MCP 명령을 사용하려면 설치하세요.",
   "settings_mcp_path_installed": "설치됨: 터미널에서 seaquel-cli를 실행할 수 있습니다.",
   "settings_mcp_path_outdated": "PATH에 있는 seaquel-cli는 다른 버전의 Seaquel에서 온 것입니다. 업데이트하려면 다시 설치하세요.",
+  "settings_mcp_duckdb_missing": "명령줄 도구용 DuckDB 지원이 설치되어 있지 않아 DuckDB 연결을 열 수 없습니다. 추가하려면 설치하세요.",
+  "settings_mcp_duckdb_unsafe": "명령줄 도구의 DuckDB 지원이 다른 사용자가 변경할 수 있는 폴더에 있어 사용되지 않습니다. 폴더를 다시 비공개로 만들려면 다시 설치하세요.",
   "settings_mcp_path_other": "PATH에 있는 seaquel-cli는 다른 프로그램입니다: {path}",
   "settings_mcp_path_missing": "seaquel-cli가 PATH에 없습니다. 아래 코드는 전체 경로를 사용하므로 MCP 호스트에는 필요하지 않습니다.",
   "settings_mcp_path_missing_appimage": "아직 설치되지 않았습니다. AppImage는 실행할 때마다 새로운 위치에 마운트되므로 먼저 도구를 설치하세요. 아래 코드는 설치된 사본을 사용합니다.",

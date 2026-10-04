@@ -1,13 +1,16 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   assetName,
   BINS,
   builtPath,
   cargoBuildArgs,
+  gzipFile,
+  gzipName,
   parseArgs,
   RELEASE_PROFILE,
 } from "./build-cli.mjs";
@@ -18,12 +21,14 @@ describe("build-cli arguments", () => {
       release: false,
       target: null,
       bin: "seaquel-cli",
+      gzip: false,
       help: false,
     });
     expect(parseArgs(["--release", "--target", "aarch64-apple-darwin"])).toEqual({
       release: true,
       target: "aarch64-apple-darwin",
       bin: "seaquel-cli",
+      gzip: false,
       help: false,
     });
   });
@@ -39,9 +44,11 @@ describe("build-cli arguments", () => {
 
   it("refuses an unknown --bin, naming the ones it knows", () => {
     expect(() => parseArgs(["--bin", "seaquel"])).toThrow(
-      "unknown --bin `seaquel`. Use one of: seaquel-cli, seaquel-tui.",
+      "unknown --bin `seaquel`. Use one of: seaquel-cli, seaquel-tui, seaquel-duckdb.",
     );
-    expect(() => parseArgs(["--bin"])).toThrow("--bin needs a binary: seaquel-cli, seaquel-tui.");
+    expect(() => parseArgs(["--bin"])).toThrow(
+      "--bin needs a binary: seaquel-cli, seaquel-tui, seaquel-duckdb.",
+    );
     expect(() => parseArgs(["--frobnicate"])).toThrow("unknown argument `--frobnicate`");
   });
 
@@ -49,7 +56,36 @@ describe("build-cli arguments", () => {
     expect(BINS).toEqual({
       "seaquel-cli": "seaquel-cli",
       "seaquel-tui": "seaquel-tui",
+      "seaquel-duckdb": "seaquel-duckdb",
     });
+  });
+
+  it("takes --bin seaquel-duckdb and --gzip", () => {
+    expect(parseArgs(["--release", "--bin", "seaquel-duckdb", "--gzip"])).toEqual({
+      release: true,
+      target: null,
+      bin: "seaquel-duckdb",
+      gzip: true,
+      help: false,
+    });
+    expect(cargoBuildArgs({ bin: "seaquel-duckdb", release: true, target: null })).toEqual([
+      "build",
+      "-p",
+      "seaquel-duckdb",
+      "--bin",
+      "seaquel-duckdb",
+      "--profile",
+      "terminal-release",
+    ]);
+  });
+
+  it("names the gzipped asset after the binary's", () => {
+    expect(gzipName("seaquel-duckdb", "aarch64-apple-darwin")).toBe(
+      "seaquel-duckdb-aarch64-apple-darwin.gz",
+    );
+    expect(gzipName("seaquel-duckdb", "x86_64-pc-windows-msvc")).toBe(
+      "seaquel-duckdb-x86_64-pc-windows-msvc.exe.gz",
+    );
   });
 
   it("names the asset per target, with .exe on Windows", () => {
@@ -132,6 +168,24 @@ describe("build-cli cargo invocation", () => {
         triple: "aarch64-apple-darwin",
       }),
     ).toBe(join(t, "debug", "seaquel-cli"));
+  });
+});
+
+describe("build-cli gzip", () => {
+  it("writes a .gz that unpacks to the same bytes, replacing an old one", () => {
+    const dir = mkdtempSync(join(tmpdir(), "build-cli-gz-"));
+    try {
+      const src = join(dir, "bin");
+      const bytes = Buffer.alloc(300_000);
+      for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 7919) % 251;
+      writeFileSync(src, bytes);
+      const dest = join(dir, "bin.gz");
+      writeFileSync(dest, "stale");
+      gzipFile(src, dest);
+      expect(gunzipSync(readFileSync(dest)).equals(bytes)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

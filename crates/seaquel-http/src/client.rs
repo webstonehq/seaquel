@@ -125,30 +125,74 @@ impl ClientOptions {
     }
 }
 
+/// Whether [`load_extra_roots_with`]'s warnings name the file. The server
+/// and the license client name it (the operator set it); the terminal
+/// binaries don't (review M6: a path under the user's home stays out of
+/// their logs), and say only the error's kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShowPath {
+    Yes,
+    No,
+}
+
+/// The warning for a file that can't be read, its `kind` being the
+/// `io::ErrorKind`.
+pub fn unreadable_roots_message(path: &Path, show: ShowPath, kind: &str) -> String {
+    match show {
+        ShowPath::Yes => format!(
+            "NODE_EXTRA_CA_CERTS {} can't be read ({kind}); ignoring it",
+            path.display()
+        ),
+        ShowPath::No => format!("NODE_EXTRA_CA_CERTS can't be read ({kind}); ignoring it"),
+    }
+}
+
 /// The certificates in the PEM file at `path`, for trusting a
 /// TLS-inspecting proxy's CA the way Node's fetch did with
 /// `NODE_EXTRA_CA_CERTS`. A file that can't be read or parsed, and each
-/// certificate rustls won't take as a root, is skipped with a warning.
+/// certificate rustls won't take as a root, is skipped with a warning that
+/// names the file.
 // The server's control-plane client and model calls use it (the desktop
 // trusts the OS store).
 pub fn load_extra_roots(path: &Path, activity: &'static str) -> Vec<reqwest::Certificate> {
-    let shown = path.display();
+    load_extra_roots_with(path, activity, ShowPath::Yes)
+}
+
+/// [`load_extra_roots`], its warnings naming the file only with
+/// [`ShowPath::Yes`].
+pub fn load_extra_roots_with(
+    path: &Path,
+    activity: &'static str,
+    show: ShowPath,
+) -> Vec<reqwest::Certificate> {
+    let shown = match show {
+        ShowPath::Yes => format!(" {}", path.display()),
+        ShowPath::No => String::new(),
+    };
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
-            log::warn!(activity = activity; "NODE_EXTRA_CA_CERTS {shown} can't be read ({e}); ignoring it");
+            let text = unreadable_roots_message(path, show, &format!("{:?}", e.kind()));
+            log::warn!(activity = activity; "{text}");
             return Vec::new();
         }
     };
     let certs = match reqwest::Certificate::from_pem_bundle(&bytes) {
         Ok(c) => c,
         Err(e) => {
-            log::warn!(activity = activity; "NODE_EXTRA_CA_CERTS {shown} isn't a PEM bundle ({e}); ignoring it");
+            match show {
+                ShowPath::Yes => {
+                    log::warn!(activity = activity; "NODE_EXTRA_CA_CERTS{shown} isn't a PEM bundle ({e}); ignoring it")
+                }
+                ShowPath::No => {
+                    log::warn!(activity = activity; "NODE_EXTRA_CA_CERTS isn't a PEM bundle; ignoring it")
+                }
+            }
             return Vec::new();
         }
     };
     if certs.is_empty() {
-        log::warn!(activity = activity; "NODE_EXTRA_CA_CERTS {shown} holds no certificate");
+        log::warn!(activity = activity; "NODE_EXTRA_CA_CERTS{shown} holds no certificate");
     }
     certs
         .into_iter()
@@ -160,8 +204,14 @@ pub fn load_extra_roots(path: &Path, activity: &'static str) -> Vec<reqwest::Cer
                 .tls_built_in_root_certs(false)
                 .add_root_certificate(cert.clone())
                 .build();
-            if let Err(e) = &ok {
-                log::warn!(activity = activity; "NODE_EXTRA_CA_CERTS {shown}: certificate #{} rejected ({e}); skipping it", i + 1);
+            match (&ok, show) {
+                (Err(e), ShowPath::Yes) => {
+                    log::warn!(activity = activity; "NODE_EXTRA_CA_CERTS{shown}: certificate #{} rejected ({e}); skipping it", i + 1)
+                }
+                (Err(_), ShowPath::No) => {
+                    log::warn!(activity = activity; "NODE_EXTRA_CA_CERTS: certificate #{} rejected; skipping it", i + 1)
+                }
+                (Ok(_), _) => {}
             }
             ok.is_ok()
         })

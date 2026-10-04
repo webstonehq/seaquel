@@ -9,6 +9,12 @@
 //! - **Windows:** the CLI is installed in the app's data directory. MCP
 //!   snippets use that absolute path; this doesn't edit the user's `PATH`.
 //!
+//! Every platform then installs the CLI's DuckDB helper beside it
+//! (`cli_download::install_duckdb_helper`, the DuckDB helper plan's Q4 C),
+//! also when the CLI itself was already current, so an earlier install
+//! gains it. A helper that can't be installed doesn't fail the CLI's
+//! install: the dialog says why and how to retry.
+//!
 //! The file-system steps are plain functions over paths so they can be tested
 //! against a temp directory; only [`install_from_menu`] touches the real system.
 //! Each platform uses part of them and the tests use all of them, hence the
@@ -401,7 +407,21 @@ pub fn install_and_report(app: &tauri::AppHandle) {
                 };
                 let name = format!("{outcome:?}");
                 log::info!(activity = "app.cli_install", outcome = name.as_str(); "{detail}");
-                show(&app, MessageDialogKind::Info, format!("{head}\n\n{detail}"));
+                let helper = cli_download::install_duckdb_helper(&app.config().identifier);
+                match &helper {
+                    Ok(done) => {
+                        log::info!(activity = "app.cli_install", event = "duckdb_helper", downloaded = done.downloaded, pruned = done.pruned; "The CLI's DuckDB helper is installed");
+                    }
+                    Err(e) => {
+                        log::warn!(activity = "app.cli_install", event = "duckdb_helper", code = e.code.as_str(); "The CLI's DuckDB helper couldn't be installed");
+                    }
+                }
+                let mut message = format!("{head}\n\n{detail}");
+                if let Some(line) = cli_download::helper_report(&helper) {
+                    message.push_str("\n\n");
+                    message.push_str(&line);
+                }
+                show(&app, MessageDialogKind::Info, message);
             }
             Err(message) => {
                 log::error!(activity = "app.cli_install"; "{message}");

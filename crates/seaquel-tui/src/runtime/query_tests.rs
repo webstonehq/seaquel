@@ -170,6 +170,7 @@ async fn core_refuses_an_unconfirmed_destructive_run_and_the_question_reopens() 
         page_size: 100,
         pending: Some(pending.clone()),
         connection_id: None,
+        core_id: h.model.conn.core_id().unwrap().into(),
     });
     let call = RunCall {
         tab: t.id,

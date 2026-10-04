@@ -14,7 +14,7 @@
 
 import { AsyncLocalStorage } from "async_hooks";
 import { dirname, join } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { existsSync } from "fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -71,7 +71,8 @@ const results = await Promise.allSettled(
   targets.map((db) =>
     als.run(db, async () => {
       const scriptPath = join(__dirname, db, "seed.mjs");
-      const { default: seed } = await import(scriptPath);
+      // A file URL: Node's ESM loader refuses a bare Windows path (`D:\…`).
+      const { default: seed } = await import(pathToFileURL(scriptPath).href);
       console.log(`starting`);
       await seed();
       console.log(`done`);

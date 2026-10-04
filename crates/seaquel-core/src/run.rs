@@ -424,6 +424,12 @@ pub(crate) async fn until_cancelled<T>(
     once.next().await
 }
 
+/// A count that failed with one of these lost the connection: the page's
+/// statement fails with it instead of estimating.
+fn connection_lost(code: &str) -> bool {
+    matches!(code, "CONNECTION_CLOSED" | "CONNECTION_NOT_FOUND")
+}
+
 /// A count query's total: the first cell of the first row as a whole number
 /// that isn't negative (`Int`, or `Decimal`/`Text` holding the digits, as a
 /// bigint arrives). Anything else is a failed count.
@@ -573,6 +579,14 @@ pub(crate) fn execute<'a>(
                     }
                     let counted = match counted {
                         Some(Ok(result)) => count_of(&result).ok_or("COUNT_NOT_NUMERIC".to_string()),
+                        // A lost connection isn't a count to estimate: the
+                        // statement fails with it, so the client sees the
+                        // connection is gone (DuckDB helper probe F2).
+                        Some(Err(e)) if connection_lost(&e.code) => {
+                            let end = executor.monotonic();
+                            yield error(e, end);
+                            return;
+                        }
                         Some(Err(e)) => Err(e.code),
                         None => return,
                     };

@@ -1030,6 +1030,43 @@ async fn a_failed_count_is_estimated_and_flagged() {
     }
 }
 
+/// Probe F2 (DuckDB helper plan): a count that fails because the
+/// connection is gone ends the statement with that error, so the client
+/// sees the lost connection; it isn't estimated.
+#[tokio::test]
+async fn a_count_on_a_lost_connection_fails_the_statement() {
+    let e = env("postgres").await;
+    let count_sql = "SELECT COUNT(*) as total FROM (SELECT a FROM t) AS count_query";
+    for code in ["CONNECTION_CLOSED", "CONNECTION_NOT_FOUND"] {
+        e.driver.load(vec![
+            expect(
+                "stream",
+                &paginate("postgres", "SELECT a FROM t", 3, 2),
+                json!([]),
+                json!({"columns": ["a"], "rows": [[1], [2], [3]]}),
+            ),
+            expect(
+                "query",
+                count_sql,
+                json!([]),
+                json!({"error": {"code": code, "message": "gone"}}),
+            ),
+        ]);
+        let ev = page(
+            &e,
+            json!({"source": {"sql": "SELECT a FROM t", "params": []}, "page": 2, "pageSize": 2}),
+        )
+        .await;
+        assert_eq!(
+            types(&ev),
+            ["statementStart", "statementError", "done"],
+            "{code}"
+        );
+        assert_eq!(ev[1]["code"], code);
+        assert_eq!(last(&ev)["succeeded"], false);
+    }
+}
+
 /// Probe M3: a page past the end comes back empty, and its offset says
 /// nothing about the total, so the count runs (estimated when it fails).
 #[tokio::test]

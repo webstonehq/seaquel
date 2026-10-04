@@ -106,7 +106,7 @@ fn sgr_clicks_select_rows_switch_tabs_and_the_wheel_scrolls() {
     );
     pty.wait_for(QUERY);
     pty.send(ANSWER);
-    pty.wait_for(b"c_three");
+    pty.wait_for_screen("c_three");
     let areas = layout::areas(Rect::new(0, 0, SIZE.0, SIZE.1), Panel::Tables).unwrap();
     // Panel 2: the `main` schema's row, then its tables.
     let row = |i: u16| areas.tables.y + 1 + i;
@@ -114,7 +114,7 @@ fn sgr_clicks_select_rows_switch_tabs_and_the_wheel_scrolls() {
     // A click on `c_three`, then Enter opens it.
     click(&pty, areas.tables.x + 4, row(3));
     pty.send(b"\r");
-    pty.wait_for(b"main.c_three");
+    pty.wait_for_screen("main.c_three");
 
     // The wheel over panel 2 (the focus is on the main view now): from
     // `c_three` up two rows to `a_one`; then panel 2 and Enter.
@@ -123,18 +123,18 @@ fn sgr_clicks_select_rows_switch_tabs_and_the_wheel_scrolls() {
     pty.send(b"2");
     settle();
     pty.send(b"\r");
-    pty.wait_for(b"main.a_one");
+    pty.wait_for_screen("main.a_one");
 
     // A click on panel 2's `Views` tab shows the view.
     let views_x = areas.tables.x + 1 + "[2]-Tables - ".len() as u16 + 1;
     click(&pty, views_x, areas.tables.y);
-    pty.wait_for(b"v_four");
+    pty.wait_for_screen("v_four");
 
     // The help says how to select text.
     pty.send(b"?");
-    pty.wait_for(b"Keybindings");
+    pty.wait_for_screen("Keybindings");
     for _ in 0..200 {
         pty.send(b"j");
     }
-    pty.wait_for(b"shift+drag");
+    pty.wait_for_screen("shift+drag");
 }

@@ -32,8 +32,27 @@ pub struct Seed {
 
 impl Seed {
     pub async fn new() -> Seed {
+        Seed::from_dir(tempfile::tempdir().unwrap()).await
+    }
+
+    /// A data dir under the target folder's `tmp` (beside the binary),
+    /// so a DuckDB helper started from it is found by `pgrep -f` on the
+    /// target dir.
+    pub async fn in_target() -> Seed {
+        let exe = std::env::current_exe().unwrap();
+        // `<target>/debug/deps/<test binary>`.
+        let tmp = exe.ancestors().nth(3).unwrap().join("tmp");
+        std::fs::create_dir_all(&tmp).unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("tui-")
+            .tempdir_in(tmp)
+            .unwrap();
+        Seed::from_dir(dir).await
+    }
+
+    async fn from_dir(dir: tempfile::TempDir) -> Seed {
         let seed = Seed {
-            dir: tempfile::tempdir().unwrap(),
+            dir,
             store: memory_store(),
         };
         seed.with(|_, _| async {}).await;

@@ -748,6 +748,8 @@
   "settings_mcp_binary_missing": "L'outil en ligne de commande n'est pas installé. Installez-le pour utiliser les commandes MCP ci-dessous.",
   "settings_mcp_path_installed": "Installé : vous pouvez exécuter seaquel-cli dans un terminal.",
   "settings_mcp_path_outdated": "Le seaquel-cli présent dans votre PATH provient d'une autre version de Seaquel. Réinstallez-le pour le mettre à jour.",
+  "settings_mcp_duckdb_missing": "La prise en charge de DuckDB par l'outil de ligne de commande n'est pas installée, donc ses connexions DuckDB ne s'ouvriront pas. Installez-la pour l'ajouter.",
+  "settings_mcp_duckdb_unsafe": "La prise en charge de DuckDB par l'outil de ligne de commande se trouve dans un dossier que d'autres utilisateurs peuvent modifier, elle n'est donc pas utilisée. Réinstallez-la pour rendre le dossier à nouveau privé.",
   "settings_mcp_path_other": "Le seaquel-cli présent dans votre PATH est un programme différent : {path}",
   "settings_mcp_path_missing": "seaquel-cli n'est pas dans votre PATH. Les hôtes MCP n'en ont pas besoin, car les extraits ci-dessous utilisent le chemin complet.",
   "settings_mcp_path_missing_appimage": "Pas encore installé. L'AppImage est montée à un nouvel emplacement à chaque exécution ; installez d'abord l'outil : les extraits ci-dessous utilisent la copie installée.",

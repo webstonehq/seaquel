@@ -11,7 +11,14 @@
 //! - `<prefix>_CALL_TIMEOUT_MS`: the MCP server's per-call timeout;
 //! - `<prefix>_ORIGIN`: the TUI's write origin, fixed for snapshot tests;
 //! - `<prefix>_PANIC`: makes the TUI panic (`main` or `task`), for the
-//!   terminal-restore tests.
+//!   terminal-restore tests;
+//! - `<prefix>_DUCKDB_HELPER`: a built `seaquel-duckdb`, linked (or
+//!   copied) into the helper's folder layout when Core is built, so DuckDB
+//!   connects through it (`CoreOptions::with_hooks`);
+//! - `<prefix>_DUCKDB_RELEASES`: a release server on a loopback address
+//!   (`http://127.0.0.1:<port>`, serving `/api/v<version>` and
+//!   `/download/v<version>/<asset>` as `seaquel-http`'s `MockReleases`
+//!   does), in place of GitHub's, for the helper's download.
 //!
 //! An empty value counts as unset. The tests set these (with
 //! `SEAQUEL_DATA_DIR`), so they never touch the real keychain, data dir or
@@ -31,6 +38,8 @@ pub struct TestHooks {
     call_timeout: Option<String>,
     origin: Option<String>,
     panic: Option<String>,
+    duckdb_helper: Option<String>,
+    duckdb_releases: Option<String>,
 }
 
 /// Which hooks are set, never their values (paths and origins stay out of
@@ -44,6 +53,8 @@ impl std::fmt::Debug for TestHooks {
             .field("call_timeout", &self.call_timeout.is_some())
             .field("origin", &self.origin.is_some())
             .field("panic", &self.panic.is_some())
+            .field("duckdb_helper", &self.duckdb_helper.is_some())
+            .field("duckdb_releases", &self.duckdb_releases.is_some())
             .finish()
     }
 }
@@ -70,6 +81,10 @@ impl TestHooks {
         let call_timeout = read("CALL_TIMEOUT_MS");
         let origin = read("ORIGIN");
         let panic = read("PANIC");
+        let duckdb_helper = read("DUCKDB_HELPER");
+        let duckdb_releases = read("DUCKDB_RELEASES");
+        hooks.duckdb_helper = duckdb_helper;
+        hooks.duckdb_releases = duckdb_releases;
         hooks.secrets = secrets;
         hooks.known_hosts = known_hosts;
         hooks.call_timeout = call_timeout;
@@ -104,6 +119,16 @@ impl TestHooks {
     /// `<prefix>_PANIC`.
     pub fn panic(&self) -> Option<&str> {
         self.panic.as_deref()
+    }
+
+    /// `<prefix>_DUCKDB_HELPER`: a built helper's file.
+    pub fn duckdb_helper(&self) -> Option<&str> {
+        self.duckdb_helper.as_deref()
+    }
+
+    /// `<prefix>_DUCKDB_RELEASES`: the release server's base address.
+    pub fn duckdb_releases(&self) -> Option<&str> {
+        self.duckdb_releases.as_deref()
     }
 
     /// Whether `<prefix>_SECRETS` is set (the store is then a
@@ -154,6 +179,9 @@ mod tests {
         ("SEAQUEL_TUI_TEST_ORIGIN", "tui-0000abcd"),
         ("SEAQUEL_TUI_TEST_PANIC", "task"),
         ("SEAQUEL_TUI_TEST_CALL_TIMEOUT_MS", "soon"),
+        ("SEAQUEL_TUI_TEST_DUCKDB_HELPER", "/tui/seaquel-duckdb"),
+        ("SEAQUEL_CLI_TEST_DUCKDB_HELPER", "/cli/seaquel-duckdb"),
+        ("SEAQUEL_TUI_TEST_DUCKDB_RELEASES", "http://127.0.0.1:9"),
     ];
 
     #[cfg(debug_assertions)]
@@ -165,6 +193,8 @@ mod tests {
         assert_eq!(tui.panic(), Some("task"));
         assert_eq!(tui.call_timeout(), None, "not a number");
         assert!(!tui.has_test_secrets());
+        assert_eq!(tui.duckdb_helper(), Some("/tui/seaquel-duckdb"));
+        assert_eq!(tui.duckdb_releases(), Some("http://127.0.0.1:9"));
 
         let cli = TestHooks::from_lookup("SEAQUEL_CLI_TEST", lookup(BOTH));
         assert_eq!(cli.known_hosts(), Some("/cli/known_hosts"));
@@ -172,6 +202,8 @@ mod tests {
         assert_eq!(cli.origin(), None);
         assert_eq!(cli.panic(), None);
         assert_eq!(cli.env_name("SECRETS"), "SEAQUEL_CLI_TEST_SECRETS");
+        assert_eq!(cli.duckdb_helper(), Some("/cli/seaquel-duckdb"));
+        assert_eq!(cli.duckdb_releases(), None);
     }
 
     #[cfg(debug_assertions)]
@@ -200,6 +232,8 @@ mod tests {
         assert_eq!(hooks.panic(), None);
         assert_eq!(hooks.call_timeout(), None);
         assert!(!hooks.has_test_secrets());
+        assert_eq!(hooks.duckdb_helper(), None);
+        assert_eq!(hooks.duckdb_releases(), None);
     }
 
     #[test]
@@ -208,6 +242,7 @@ mod tests {
         let text = format!("{hooks:?}");
         assert!(!text.contains("/tui"), "{text}");
         assert!(!text.contains("tui-0000abcd"), "{text}");
+        assert!(!text.contains("127.0.0.1"), "{text}");
     }
 
     #[cfg(debug_assertions)]

@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 // Builds a standalone terminal binary's release asset, `seaquel-cli`
-// (crates/seaquel-cli) or `seaquel-tui` (crates/seaquel-tui), and copies it to
+// (crates/seaquel-cli), `seaquel-tui` (crates/seaquel-tui) or the DuckDB
+// helper `seaquel-duckdb` (crates/seaquel-duckdb), and copies it to
 // src-tauri/binaries/<bin>-<target-triple>[.exe]. The release workflow uploads
-// each separately; the desktop app downloads the CLI on request.
+// each separately; the desktop app downloads the CLI on request, and the
+// terminal binaries download the helper the first time they open DuckDB.
 //
 //   node scripts/build-cli.mjs                     debug build of seaquel-cli for the host
 //   node scripts/build-cli.mjs --bin seaquel-tui   the TUI instead (`npm run tui:build`)
+//   node scripts/build-cli.mjs --bin seaquel-duckdb  the DuckDB helper (`npm run duckdb-helper:build`)
 //   node scripts/build-cli.mjs --release           release build (the `terminal-release` profile)
 //   node scripts/build-cli.mjs --target <triple>   cross build (cargo --target)
+//   node scripts/build-cli.mjs --gzip              also write <asset>.gz beside it (the helper's
+//                                                  release asset is gzipped)
 // Without an explicit --target, a host build runs without `--target`, so it
 // shares target/debug with other host builds. A release build uses the
 // `terminal-release` profile from the root Cargo.toml (fat LTO, one codegen
@@ -29,9 +34,11 @@ import {
   renameSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { constants as zlibConstants, gzipSync } from "node:zlib";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const binariesDir = join(root, "src-tauri", "binaries");
@@ -40,6 +47,7 @@ const binariesDir = join(root, "src-tauri", "binaries");
 export const BINS = {
   "seaquel-cli": "seaquel-cli",
   "seaquel-tui": "seaquel-tui",
+  "seaquel-duckdb": "seaquel-duckdb",
 };
 const BIN_LIST = Object.keys(BINS).join(", ");
 
@@ -79,6 +87,29 @@ export function assetName(bin, triple) {
   return `${bin}-${triple}${triple.includes("windows") ? ".exe" : ""}`;
 }
 
+/** The gzipped asset's file name: the asset's, plus `.gz`. */
+export function gzipName(bin, triple) {
+  return `${assetName(bin, triple)}.gz`;
+}
+
+/**
+ * Writes `src` gzipped (level 9) to `dest`, through a temp name and a rename,
+ * so a failed write never leaves a truncated asset.
+ * @param {string} src
+ * @param {string} dest
+ */
+export function gzipFile(src, dest) {
+  const tmp = `${dest}.tmp-${process.pid}`;
+  try {
+    writeFileSync(tmp, gzipSync(readFileSync(src), { level: zlibConstants.Z_BEST_COMPRESSION }));
+    rmSync(dest, { force: true });
+    renameSync(tmp, dest);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
+}
+
 /**
  * The command line, or an `Error` whose message says what's wrong.
  * @param {string[]} argv
@@ -88,6 +119,7 @@ export function parseArgs(argv) {
     release: false,
     target: null,
     bin: "seaquel-cli",
+    gzip: false,
     help: false,
   };
   const takeBin = (bin) => {
@@ -106,6 +138,7 @@ export function parseArgs(argv) {
     } else if (arg.startsWith("--target=")) args.target = arg.slice("--target=".length);
     else if (arg === "--bin") takeBin(argv[++i]);
     else if (arg.startsWith("--bin=")) takeBin(arg.slice("--bin=".length));
+    else if (arg === "--gzip") args.gzip = true;
     else if (arg === "--help" || arg === "-h") args.help = true;
     else throw new Error(`unknown argument \`${arg}\`. Run with --help.`);
   }
@@ -119,8 +152,9 @@ function fail(message) {
 
 function usage() {
   console.log(
-    `usage: node scripts/build-cli.mjs [--bin ${Object.keys(BINS).join("|")}] [--release] [--target <triple>]\n` +
-      "Builds the binary (seaquel-cli by default) and copies it to src-tauri/binaries/<bin>-<triple>[.exe].",
+    `usage: node scripts/build-cli.mjs [--bin ${Object.keys(BINS).join("|")}] [--release] [--target <triple>] [--gzip]\n` +
+      "Builds the binary (seaquel-cli by default) and copies it to src-tauri/binaries/<bin>-<triple>[.exe];\n" +
+      "with --gzip, also writes <bin>-<triple>[.exe].gz beside it.",
   );
 }
 
@@ -143,7 +177,7 @@ function main() {
     usage();
     process.exit(0);
   }
-  const { release, bin: BIN } = parsed;
+  const { release, bin: BIN, gzip } = parsed;
   const PACKAGE = BINS[BIN];
   const explicitTarget = parsed.target;
 
@@ -235,8 +269,26 @@ function main() {
     }
   }
 
+  // With --gzip, the .gz beside the copied binary, rewritten when missing or
+  // older than it.
+  function writeGzip() {
+    if (!gzip) return;
+    const gz = join(binariesDir, gzipName(BIN, triple));
+    if (existsSync(gz) && statSync(gz).mtimeMs >= statSync(dest).mtimeMs) {
+      console.log(`build-cli: ${rel(gz)} is up to date`);
+      return;
+    }
+    try {
+      gzipFile(dest, gz);
+    } catch (e) {
+      fail(`couldn't write ${rel(gz)}: ${e.message}`);
+    }
+    console.log(`build-cli: ${rel(gz)} (${statSync(gz).size} bytes)`);
+  }
+
   if (sameFileContents(built, dest)) {
     console.log(`build-cli: ${rel(dest)} is up to date (${profile})`);
+    writeGzip();
     return;
   }
 
@@ -254,4 +306,5 @@ function main() {
     fail(`couldn't copy ${built} to ${rel(dest)}: ${e.message}`);
   }
   console.log(`build-cli: ${rel(dest)} (${profile})`);
+  writeGzip();
 }

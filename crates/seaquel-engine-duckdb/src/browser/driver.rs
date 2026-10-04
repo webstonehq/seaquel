@@ -36,9 +36,9 @@ use seaquel_sql::params::duckdb_bind_literal;
 
 use super::binds::inline_binds;
 use super::bridge::{Bridge, DuckDbBridge};
-use super::ipc::{read_file, Columns, IpcStream, KindRules};
 use crate::dialect::DuckdbDialect;
 use crate::introspect;
+use crate::ipc::{read_file, Columns, IpcStream, KindRules};
 
 /// DuckDB-WASM 1.4.3's Arrow: HUGEINT comes as a bare `Decimal128(38, 0)`.
 const RULES: KindRules = KindRules {

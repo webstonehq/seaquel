@@ -162,6 +162,51 @@ pub fn dialog(model: &mut Model, context: crate::state::keymap::BarContext) {
             )))
         }
         BarContext::Notice => model.modal = Some(Modal::Notice(Notice("Saved.".into()))),
+        BarContext::ProblemReconnect => {
+            let mut p = problem(
+                &CallError::new(
+                    "ENGINE_UNAVAILABLE",
+                    "The DuckDB helper didn't start in time.",
+                ),
+                None,
+            );
+            p.reconnect = Some(pending);
+            model.modal = Some(Modal::Problem(p));
+        }
+        BarContext::InstallChecking
+        | BarContext::InstallAsk
+        | BarContext::InstallDownloading
+        | BarContext::InstallFailed
+        | BarContext::InstallFailedFinal => {
+            use crate::state::install::{failure, InstallDialog, Offer, Stage as Install, Step};
+            let stage = match context {
+                BarContext::InstallChecking => Install::Checking,
+                BarContext::InstallAsk => Install::Ask(Offer {
+                    size: 11_700_000,
+                    repair: false,
+                }),
+                BarContext::InstallDownloading => Install::Downloading {
+                    bytes: 4_212_000,
+                    total: 11_700_000,
+                },
+                BarContext::InstallFailedFinal => Install::Failed(failure(
+                    &CallError::new("NOT_SUPPORTED", "no DuckDB download for this platform"),
+                    Step::Download,
+                )),
+                _ => Install::Failed(failure(
+                    &CallError::new(
+                        "NETWORK_ERROR",
+                        "couldn't connect to the release server (or the proxy)",
+                    ),
+                    Step::Download,
+                )),
+            };
+            model.modal = Some(Modal::InstallDuckdb(InstallDialog {
+                pending,
+                op: 1,
+                stage,
+            }));
+        }
         BarContext::Keychain => {
             let t0 = std::time::Instant::now();
             model.conn = Conn::Connecting(Attempt {

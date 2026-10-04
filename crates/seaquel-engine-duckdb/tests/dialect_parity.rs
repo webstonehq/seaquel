@@ -16,6 +16,9 @@
 //! CRUD isn't recorded (the Rust dialect binds `?` parameters where the
 //! adapter inlined literals); `tests/smoke.rs` runs it live.
 
+#[path = "common/engine.rs"]
+mod engine_switch;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -48,7 +51,7 @@ fn load<I: DeserializeOwned>(file: &str, text: &str) -> Vec<Case<I>> {
 }
 
 fn engine() -> Arc<dyn Engine> {
-    seaquel_engine_duckdb::engine()
+    engine_switch::engine()
 }
 
 fn dialect(engine: &Arc<dyn Engine>) -> &dyn Dialect {

@@ -6333,6 +6333,7 @@ dependencies = [
  "reqwest 0.12.28",
  "seaquel-ai",
  "seaquel-core",
+ "seaquel-http",
  "seaquel-rpc",
  "seaquel-runtime",
  "seaquel-types",
@@ -6399,6 +6400,7 @@ dependencies = [
  "log",
  "rmcp",
  "seaquel-core",
+ "seaquel-http",
  "seaquel-mcp",
  "seaquel-terminal",
  "seaquel-types",
@@ -6446,6 +6448,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "seaquel-duckdb"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "seaquel-engine-duckdb",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "seaquel-engine"
 version = "0.1.0"
 dependencies = [
@@ -6471,6 +6482,7 @@ dependencies = [
  "duckdb",
  "futures",
  "js-sys",
+ "libc",
  "log",
  "seaquel-engine",
  "seaquel-engine-testkit",
@@ -6479,6 +6491,7 @@ dependencies = [
  "seaquel-types",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -6587,12 +6600,17 @@ dependencies = [
 name = "seaquel-http"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "futures",
+ "libc",
  "log",
  "reqwest 0.12.28",
  "seaquel-ai",
+ "seaquel-http",
  "seaquel-runtime",
+ "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "url",
@@ -6633,6 +6651,7 @@ dependencies = [
 name = "seaquel-mcp"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "log",
  "rmcp",
  "seaquel-core",
@@ -6783,8 +6802,11 @@ dependencies = [
  "clap",
  "log",
  "seaquel-core",
+ "seaquel-http",
  "seaquel-runtime",
+ "seaquel-terminal",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -6794,6 +6816,7 @@ dependencies = [
 name = "seaquel-tui"
 version = "0.1.0"
 dependencies = [
+ "anstyle-parse",
  "base64 0.22.1",
  "clap",
  "crossterm 0.29.0",
@@ -6804,6 +6827,7 @@ dependencies = [
  "ratatui-textarea",
  "seaquel-ai",
  "seaquel-core",
+ "seaquel-http",
  "seaquel-runtime",
  "seaquel-terminal",
  "seaquel-types",

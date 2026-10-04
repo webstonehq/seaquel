@@ -64,6 +64,19 @@ const BROWSER_MAY_ALSO_USE = new Set(["seaquel-engine-duckdb"]);
  */
 const INTERFACE_GLUE = new Set(["seaquel-rpc"]);
 
+/**
+ * Binaries that host one engine out of process (the DuckDB helper plan):
+ * `seaquel-duckdb` runs DuckDB for the terminal binaries, which talk to it
+ * over pipes. Each may depend on its own engine crate and the pure crates
+ * only, and nothing may depend on it.
+ */
+const ENGINE_HOSTS = {
+  "seaquel-duckdb": {
+    engine: "seaquel-engine-duckdb",
+    why: "the DuckDB helper may depend only on seaquel-engine-duckdb and the pure crates",
+  },
+};
+
 /** Engine-agnostic test support. */
 const TESTKIT = new Set(["seaquel-engine-testkit"]);
 
@@ -148,6 +161,7 @@ function classify(name) {
   if (BROWSER_INTERFACE.has(name)) return "browser-interface";
   if (INTERFACE_GLUE.has(name)) return "interface-glue";
   if (TESTKIT.has(name)) return "testkit";
+  if (Object.hasOwn(ENGINE_HOSTS, name)) return "engine-host";
   if (isEngine(name)) return "engine";
   if (DOMAIN_AND_INFRA.has(name)) return "domain";
   return null;
@@ -177,7 +191,18 @@ export function checkCrateDeps(packages) {
       }
     };
 
+    for (const dep of deps) {
+      if (Object.hasOwn(ENGINE_HOSTS, dep)) {
+        errors.push(`${pkg.name} -> ${dep}: ${dep} is a binary; nothing depends on it`);
+      }
+    }
+
     switch (kind) {
+      case "engine-host": {
+        const host = ENGINE_HOSTS[pkg.name];
+        forbid((d) => d === host.engine || PURE.has(d), host.why);
+        break;
+      }
       case "pure":
         forbid((d) => PURE.has(d), "pure crates may only depend on other pure crates");
         break;

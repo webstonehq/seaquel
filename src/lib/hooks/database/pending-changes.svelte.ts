@@ -100,8 +100,22 @@ export function confirmedFor(
 /** Core's code for an apply stopped because the web server closed the workspace. */
 const WORKSPACE_CLOSED = "WORKSPACE_CLOSED";
 
+/**
+ * Core's code for a connection lost mid-apply (an engine out of process
+ * stopped): the change in flight may have committed. Only the terminal
+ * binaries' DuckDB helper gives it today, but any connection may.
+ */
+const CONNECTION_CLOSED = "CONNECTION_CLOSED";
+
 /** Codes of a rejected apply that says nothing about what ran: no answer came. */
-const NO_ANSWER = new Set(["NETWORK_ERROR", "PROTOCOL_ERROR", "UNKNOWN", "CANCELLED", "WS_CLOSED"]);
+const NO_ANSWER = new Set([
+  "NETWORK_ERROR",
+  "PROTOCOL_ERROR",
+  "UNKNOWN",
+  "CANCELLED",
+  "WS_CLOSED",
+  CONNECTION_CLOSED,
+]);
 
 /** An entry as it was sent: its id and its change, by value. */
 function fingerprint(change: PendingChange): string {
@@ -389,7 +403,6 @@ export class PendingChangesManager {
       };
     }
 
-    this.setInterrupted(connectionId, false);
     for (const item of outcome.history) this.queryHistory.insertRecorded(item);
 
     const { applied, mode, ddl, failed } = outcome;
@@ -400,6 +413,20 @@ export class PendingChangesManager {
       connectionId,
       this.queue(connectionId).filter((c) => !ran.has(fingerprint(c))),
     );
+
+    if (failed?.code === CONNECTION_CLOSED) {
+      // The connection went during the apply (DuckDB helper probe F1): what
+      // ran before it is gone from the queue, but the change in flight (an
+      // atomic batch's COMMIT included) may have landed. Keep the rest,
+      // mark it and show the database as it is now.
+      void log.warn(
+        `Pending changes on ${connectionId} ended with the connection closed (${mode})`,
+      );
+      this.setInterrupted(connectionId, true);
+      await this.reload(connectionId, true);
+      return { kind: "interrupted", error: errorText(failed.code, failed.message) };
+    }
+    this.setInterrupted(connectionId, false);
 
     if (applied > 0 || ddl) await this.reload(connectionId, ddl);
 

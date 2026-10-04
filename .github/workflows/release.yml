@@ -159,6 +159,45 @@ jobs:
           path: src-tauri/binaries/seaquel-tui-${{ matrix.target }}*
           if-no-files-found: error
 
+      # The DuckDB helper (the DuckDB helper plan, Decision 14): the terminal
+      # binaries link no DuckDB and download this on first use, so it is the
+      # one DuckDB compile per target besides the app's. Built, signed and
+      # uploaded as the CLI and TUI are, with the same entitlements file:
+      # DuckDB loads its extensions (httpfs, …) as dylibs signed by DuckDB,
+      # which the hardened runtime refuses without
+      # `disable-library-validation` (issue #114). It is gzipped after
+      # signing, so the .gz holds the signed binary; only the .gz is uploaded.
+      - name: Build seaquel-duckdb
+        shell: bash
+        run: node scripts/build-cli.mjs --release --bin seaquel-duckdb --target ${{ matrix.target }}
+
+      - name: Sign macOS DuckDB helper
+        if: runner.os == 'macOS'
+        run: codesign --force --sign "$CERT_ID" --options runtime --entitlements src-tauri/macos/entitlements.plist src-tauri/binaries/seaquel-duckdb-${{ matrix.target }}
+
+      - name: Sign Windows DuckDB helper
+        if: runner.os == 'Windows'
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        shell: bash
+        run: trusted-signing-cli -e https://eus.codesigning.azure.net -a Seaquel -c Seaquel -d Seaquel src-tauri/binaries/seaquel-duckdb-${{ matrix.target }}.exe
+
+      - name: Gzip the signed DuckDB helper
+        shell: bash
+        run: |
+          bin="src-tauri/binaries/seaquel-duckdb-${{ matrix.target }}"
+          case "${{ matrix.target }}" in *windows*) bin="$bin.exe" ;; esac
+          node --input-type=module -e "import { gzipFile } from './scripts/build-cli.mjs'; gzipFile(process.argv[1], process.argv[1] + '.gz');" "$bin"
+          ls -l "$bin" "$bin.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seaquel-duckdb-${{ matrix.target }}
+          path: src-tauri/binaries/seaquel-duckdb-${{ matrix.target }}*.gz
+          if-no-files-found: error
+
       - name: build and publish
         uses: tauri-apps/tauri-action@v0
         env:
@@ -202,7 +241,14 @@ jobs:
           pattern: seaquel-tui-*
           path: cli-assets
           merge-multiple: true
-      - name: Add standalone CLI and TUI binaries to the release
+      # The DuckDB helper's .gz per target (`seaquel-duckdb-<triple>[.exe].gz`),
+      # the names Core's install asks the release for.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: seaquel-duckdb-*
+          path: cli-assets
+          merge-multiple: true
+      - name: Add standalone CLI and TUI binaries and the DuckDB helper to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}

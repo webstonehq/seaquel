@@ -1,25 +1,25 @@
+//! The native driver: [`crate::session`]'s DuckDB code on tokio's blocking
+//! threads, with sinks that decode each result's Arrow chunks into `Value`s
+//! by DuckDB's logical types.
+
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
 
 use duckdb::arrow::array::{Array, StructArray};
 use duckdb::core::{LogicalTypeHandle, LogicalTypeId};
-use duckdb::{
-    params_from_iter, types::Decimal as DuckDecimal, types::Value as DuckValue, Config, Connection,
-    InterruptHandle, Statement,
-};
+use duckdb::{Connection, InterruptHandle, Statement};
 use tokio::sync::mpsc;
 
-use log::warn;
 use seaquel_engine::{
     BatchStatement, BoxStream, CancellationToken, CappedResult, ConnectConfig, DatabaseStatistics,
-    DbError, Driver, ExecuteResult, ExpectRows, ExplainResult, QueryResult, ReadOnlyOptions,
-    RowCap, SchemaColumn, SchemaIndex, SchemaTable, StreamBatch, TransactionError, Value,
-    TRANSACTION_ALREADY_OPEN, TRANSACTION_OPEN,
+    DbError, Driver, ExecuteResult, ExplainResult, QueryResult, ReadOnlyOptions, RowCap,
+    SchemaColumn, SchemaIndex, SchemaTable, StreamBatch, TransactionError, Value,
 };
 
 use crate::blocking::{self, Op, Worker};
 use crate::decode::{self, Kind};
 use crate::introspect;
+use crate::session::{self, ChunkSink, Execution, Flow};
 
 /// The [`Kind`] of a result column's DuckDB type. duckdb-rs panics on type
 /// ids it doesn't know; the caller catches that and uses [`Kind::Plain`], so
@@ -49,64 +49,6 @@ fn kind_of(t: &LogicalTypeHandle) -> Kind {
         ),
         _ => Kind::Plain,
     }
-}
-
-/// Convert a parameter into a DuckDB `Value` for binding. `Int` binds as
-/// BIGINT, so integers are exact. `Decimal` binds as an exact DECIMAL when
-/// it has at most 38 digits (see [`decimal_param`]), otherwise as its text,
-/// which DuckDB casts to the other side's type (UHUGEINT, BIGNUM, DOUBLE).
-/// `Json` binds as its JSON text. Arrays are rejected: duckdb-rs can't bind
-/// LIST parameters; use an inline literal for these.
-fn to_duckdb_param(v: &Value) -> Result<DuckValue, DbError> {
-    Ok(match v {
-        Value::Null => DuckValue::Null,
-        Value::Bool(b) => DuckValue::Boolean(*b),
-        Value::Int(i) => DuckValue::BigInt(*i),
-        Value::Float(f) => DuckValue::Double(*f),
-        Value::Decimal(s) => decimal_param(s).unwrap_or_else(|| DuckValue::Text(s.clone())),
-        Value::Text(s) => DuckValue::Text(s.clone()),
-        Value::Bytes(b) => DuckValue::Blob(b.clone()),
-        Value::Json(j) => DuckValue::Text(j.to_string()),
-        Value::Array(_) => {
-            return Err(DbError::query_error("array parameters are not supported"));
-        }
-    })
-}
-
-/// `-12.50` as DECIMAL(4, 2), exactly. `None` for anything that isn't plain
-/// decimal digits (`NaN`, `1e5`) or needs more than DuckDB's 38 digits.
-fn decimal_param(s: &str) -> Option<DuckValue> {
-    let (negative, digits) = match s.as_bytes().first()? {
-        b'-' => (true, &s[1..]),
-        b'+' => (false, &s[1..]),
-        _ => (false, s),
-    };
-    let (int, frac) = digits.split_once('.').unwrap_or((digits, ""));
-    let all_digits = |p: &str| p.bytes().all(|b| b.is_ascii_digit());
-    if int.len() + frac.len() == 0 || !all_digits(int) || !all_digits(frac) {
-        return None;
-    }
-    let significant = format!("{int}{frac}");
-    let significant = significant.trim_start_matches('0');
-    let scale = u8::try_from(frac.len()).ok()?;
-    // One integer digit more than the scale, so `-0.05` is DECIMAL(3, 2):
-    // DuckDB prints DECIMAL(2, 2) as `-.05`.
-    let width = u8::try_from(significant.len())
-        .ok()?
-        .max(scale.saturating_add(1));
-    if significant.len() > 38 || scale > 38 {
-        return None;
-    }
-    let width = width.min(38);
-    let magnitude: i128 = if significant.is_empty() {
-        0
-    } else {
-        significant.parse().ok()?
-    };
-    let value = if negative { -magnitude } else { magnitude };
-    DuckDecimal::new(width, scale, value)
-        .ok()
-        .map(DuckValue::Decimal)
 }
 
 /// A DuckDB connection and its interrupt handle.
@@ -141,142 +83,13 @@ pub struct DuckdbDriver {
     read_only_source: Arc<Mutex<Connection>>,
 }
 
-/// The instance settings for [`ConnectConfig::restricted`], in the open
-/// config so they hold before the first statement. They go in after
-/// [`ConnectConfig::duckdb_config`]'s options, so they win over them:
-///
-/// - `enable_external_access = false`: no file but the database's own (and
-///   its WAL and temp directory), no URLs, no `ATTACH`, no `COPY`, no
-///   `INSTALL`/`LOAD`. DuckDB refuses to turn it back on while the database
-///   is running.
-/// - `autoinstall_known_extensions` and `autoload_known_extensions = false`:
-///   a query that needs an extension fails instead of downloading it into
-///   `~/.duckdb` or loading one that's there.
-/// - `lock_configuration = true`: changing a global option fails, so a query
-///   can't turn the autoload settings back on (DuckDB already refuses to
-///   re-enable external access). Session settings (`search_path`,
-///   `enable_profiling`) still change; with external access off, the ones
-///   naming a file (`profiling_output`, `log_query_path`) don't write it
-///   (`tests/restricted.rs`). `arrow_lossless_conversion` goes in here
-///   too, since [`open_sessions`] couldn't `SET` it afterwards.
-///
-/// DuckDB still opens and writes the database file, its WAL and its temp
-/// directory. `duckdb_extensions()` fails, since it lists the extension
-/// directory.
-fn restricted_config(config: &ConnectConfig) -> Result<Config, DbError> {
-    user_config(config)?
-        .enable_external_access(false)
-        .and_then(|c| c.enable_autoload_extension(false))
-        .and_then(|c| c.with("arrow_lossless_conversion", "true"))
-        .and_then(|c| c.with("lock_configuration", "true"))
-        .map_err(DbError::connection_error)
-}
-
-/// The [`ConnectConfig::duckdb_config`] options a restricted instance takes.
-/// None of them reaches a file, a URL or an extension: opening read-only,
-/// and the thread and memory limits.
-const RESTRICTED_OPTIONS: &[&str] = &[
-    "access_mode",
-    "threads",
-    "worker_threads",
-    "memory_limit",
-    "max_memory",
-];
-
-/// The open config with [`ConnectConfig::duckdb_config`]'s options, in
-/// order. An option DuckDB doesn't know (or a bad value) fails the connect
-/// with DuckDB's own message.
-///
-/// A `restricted` instance takes only [`RESTRICTED_OPTIONS`]; any other key
-/// is `INVALID_CONNECTION`, since options like `allowed_directories`,
-/// `allowed_paths`, `temp_directory`, `secret_directory` or the extension
-/// settings reopen what the lock-down closes.
-fn user_config(config: &ConnectConfig) -> Result<Config, DbError> {
-    let restricted = config.restricted.unwrap_or(false);
-    let mut out = Config::default();
-    for (key, value) in config.duckdb_config.iter().flatten() {
-        if restricted
-            && !RESTRICTED_OPTIONS
-                .iter()
-                .any(|allowed| allowed.eq_ignore_ascii_case(key))
-        {
-            return Err(DbError {
-                message: format!(
-                    "The DuckDB option \"{key}\" isn't allowed on a restricted connection"
-                ),
-                code: "INVALID_CONNECTION".to_string(),
-            });
-        }
-        out = out
-            .with(key, value)
-            .map_err(|e| DbError::connection_error(format!("DuckDB option \"{key}\": {e}")))?;
-    }
-    Ok(out)
-}
-
-/// Opens the database. Blocking: DuckDB may read or create a file.
-fn open(config: &ConnectConfig) -> Result<Connection, DbError> {
-    let path = config.path.as_deref().unwrap_or(":memory:");
-    let restricted = config.restricted.unwrap_or(false);
-    let flags = || {
-        if restricted {
-            restricted_config(config)
-        } else {
-            user_config(config)
-        }
-    };
-
-    if path == ":memory:" || path.is_empty() {
-        return Connection::open_in_memory_with_flags(flags()?).map_err(DbError::connection_error);
-    }
-    // DuckDB creates missing files on open; only allow that when asked
-    // so a mistyped path fails instead of opening a new, empty database.
-    let file = std::path::Path::new(path);
-    if !file.exists() {
-        if !config.create_if_missing.unwrap_or(false) {
-            return Err(DbError {
-                message: format!("Database file not found: {}", path),
-                code: "FILE_NOT_FOUND".to_string(),
-            });
-        }
-        if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                DbError::connection_error(format!("Failed to create database directory: {}", e))
-            })?;
-        }
-    }
-    Connection::open_with_flags(path, flags()?).map_err(DbError::connection_error)
-}
-
-/// Opens the database and sets up the session. `arrow_lossless_conversion`
-/// makes DuckDB send TIMETZ with its offset, and HUGEINT, UHUGEINT and UUID
-/// as their own bytes rather than as DECIMAL(38, 0) and text (see
-/// [`crate::decode`]). It only changes how results reach this driver.
-///
-/// Also opens the connection the read-only path clones from, a `try_clone()`
-/// of the first: the same database instance, its own session.
-/// `arrow_lossless_conversion` is a global setting (checked: a clone reads
-/// `true` after a plain `SET` on the first connection, and `false` after
-/// `SET GLOBAL … = false`), so HUGEINT, UUID and TIMETZ decode the same on
-/// every clone.
-fn open_sessions(config: &ConnectConfig) -> Result<(Connection, Connection), DbError> {
-    let conn = open(config)?;
-    // A restricted instance has it from its open config, and its
-    // configuration is locked.
-    if !config.restricted.unwrap_or(false) {
-        conn.execute_batch("SET arrow_lossless_conversion = true")
-            .map_err(DbError::connection_error)?;
-    }
-    let read_only = conn.try_clone().map_err(DbError::connection_error)?;
-    Ok((conn, read_only))
-}
-
 impl DuckdbDriver {
     pub async fn connect(config: &ConnectConfig) -> Result<Self, DbError> {
         let config = config.clone();
-        let (conn, read_only) = tokio::task::spawn_blocking(move || open_sessions(&config))
-            .await
-            .map_err(|e| Op::Connect.join_error(e))??;
+        let (conn, read_only) =
+            tokio::task::spawn_blocking(move || session::open_sessions(&config))
+                .await
+                .map_err(|e| Op::Connect.join_error(e))??;
         Ok(Self {
             main: Session::new(conn),
             read_only_source: Arc::new(Mutex::new(read_only)),
@@ -291,6 +104,19 @@ impl DuckdbDriver {
         F: FnOnce(&Connection, &Worker) -> Result<T, DbError> + Send + 'static,
     {
         run_on(&self.main, op, f).await
+    }
+
+    /// A connection of its own for one read-only call, cloned from
+    /// `read_only_source`. Dropped after the call: by the call's future, and
+    /// by the blocking task when it finishes (after a cancel, once the
+    /// interrupt has landed).
+    async fn read_only_session(&self) -> Result<Session, DbError> {
+        let source = self.read_only_source.clone();
+        let conn = tokio::task::spawn_blocking(move || blocking::lock(&source).try_clone())
+            .await
+            .map_err(|e| Op::Query.join_error(e))?
+            .map_err(DbError::query_error)?;
+        Ok(Session::new(conn))
     }
 }
 
@@ -308,19 +134,17 @@ where
     result.map_err(|e| op.join_error(e))?
 }
 
-/// An executed statement's rows, read chunk by chunk straight from DuckDB's
-/// Arrow output and decoded by [`decode::decode`].
-struct ResultReader<'s, 'c> {
-    stmt: &'s Statement<'c>,
+/// A result's column names and kinds, read off the executed statement, and
+/// the decoding of its cells by [`decode::decode`]. The DuckDB helper sends
+/// the same `kinds` to its client in each schema frame
+/// (`wire::schema_payload`), so both drivers decode by them.
+pub(crate) struct Decoder {
     columns: Vec<String>,
-    kinds: Vec<Kind>,
-    chunk: Option<StructArray>,
-    /// The next row of `chunk`.
-    next: usize,
+    pub(crate) kinds: Vec<Kind>,
 }
 
-impl<'s, 'c> ResultReader<'s, 'c> {
-    fn new(stmt: &'s Statement<'c>) -> Self {
+impl Decoder {
+    pub(crate) fn of(stmt: &Statement<'_>) -> Self {
         let count = stmt.column_count();
         let columns = (0..count)
             .map(|i| {
@@ -337,38 +161,14 @@ impl<'s, 'c> ResultReader<'s, 'c> {
                     .unwrap_or(Kind::Plain)
             })
             .collect();
-        Self {
-            stmt,
-            columns,
-            kinds,
-            chunk: None,
-            next: 0,
-        }
+        Self { columns, kinds }
     }
 
-    /// The next row, `None` after the last.
-    fn next_row(&mut self) -> Result<Option<Vec<Value>>, DbError> {
-        let chunk = loop {
-            match &self.chunk {
-                Some(chunk) if self.next < chunk.len() => break chunk,
-                _ => match self.stmt.step().map_err(DbError::query_error)? {
-                    Some(chunk) => {
-                        self.chunk = Some(chunk);
-                        self.next = 0;
-                    }
-                    None => {
-                        self.chunk = None;
-                        return Ok(None);
-                    }
-                },
-            }
-        };
-        let row = self.next;
-        self.next += 1;
+    /// Row `row` of `chunk`.
+    fn row(&self, chunk: &StructArray, row: usize) -> Result<Vec<Value>, DbError> {
         (0..self.kinds.len())
             .map(|i| self.read_cell(chunk, row, i))
-            .collect::<Result<_, _>>()
-            .map(Some)
+            .collect()
     }
 
     /// Cell `i` of `row`. The decoder reads Arrow arrays itself, so it
@@ -400,368 +200,208 @@ impl<'s, 'c> ResultReader<'s, 'c> {
     }
 }
 
-/// Prepares `sql`, then fails if the call was cancelled meanwhile. DuckDB
-/// clears its interrupt flag when a statement starts executing (see
-/// [`crate::blocking`]), so an interrupt that lands between prepare and
-/// execute would be lost; this check catches it.
-///
-/// For multi-statement SQL, duckdb-rs's `prepare` runs every statement but
-/// the last itself; a cancel that lands between those isn't seen until the
-/// last one.
-fn prepare<'c>(
-    conn: &'c Connection,
-    worker: &Worker,
-    op: Op,
-    sql: &str,
-) -> Result<Statement<'c>, DbError> {
-    let stmt = conn.prepare(sql).map_err(|e| op.error(e))?;
-    if worker.is_cancelled() {
-        return Err(op.error("cancelled"));
+/// A whole result's rows, collected under a [`RowCap`]: past it,
+/// `RESULT_TOO_LARGE` or the rows so far with `truncated` set. A byte budget
+/// counts the decoded rows. `query`, the read-only path and EXPLAIN.
+struct CappedSink<'w> {
+    worker: &'w Worker,
+    cap: RowCap,
+    decoder: Option<Decoder>,
+    rows: Vec<Vec<Value>>,
+    kept_bytes: usize,
+    truncated: bool,
+}
+
+impl<'w> CappedSink<'w> {
+    fn new(worker: &'w Worker, cap: RowCap) -> Self {
+        Self {
+            worker,
+            cap,
+            decoder: None,
+            rows: Vec::new(),
+            kept_bytes: 0,
+            truncated: false,
+        }
     }
-    Ok(stmt)
+
+    fn into_result(self) -> CappedResult {
+        CappedResult {
+            columns: self.decoder.map(|d| d.columns).unwrap_or_default(),
+            rows: self.rows,
+            truncated: self.truncated,
+        }
+    }
 }
 
-/// `Driver::query`, on the blocking thread.
-fn query_blocking(
-    conn: &Connection,
-    worker: &Worker,
-    sql: &str,
-    bound: &[DuckValue],
-) -> Result<QueryResult, DbError> {
-    let cap = RowCap::fail(seaquel_engine::max_query_rows());
-    query_capped(conn, worker, sql, bound, cap).map(Into::into)
+impl ChunkSink for CappedSink<'_> {
+    fn columns(&mut self, stmt: &Statement<'_>) -> Result<(), DbError> {
+        self.decoder = Some(Decoder::of(stmt));
+        Ok(())
+    }
+
+    fn chunk(&mut self, chunk: StructArray) -> Result<Flow, DbError> {
+        let Some(decoder) = &self.decoder else {
+            return Err(DbError::query_error("DuckDB sent rows before its columns"));
+        };
+        for row in 0..chunk.len() {
+            let row = decoder.row(&chunk, row)?;
+            if self.worker.is_cancelled() {
+                return Err(DbError::query_error("cancelled"));
+            }
+            if !self.cap.admit(self.rows.len(), self.kept_bytes)? {
+                self.truncated = true;
+                return Ok(Flow::Stop);
+            }
+            if self.cap.max_bytes().is_some() {
+                self.kept_bytes = self
+                    .kept_bytes
+                    .saturating_add(seaquel_engine::row_bytes(&row));
+            }
+            self.rows.push(row);
+        }
+        Ok(Flow::Continue)
+    }
+
+    fn finish(&mut self) -> Result<(), DbError> {
+        Ok(())
+    }
 }
 
-/// Runs `sql` and collects its rows under `cap`: past it,
-/// `RESULT_TOO_LARGE` or the rows so far with `truncated` set. A byte
-/// budget counts the rows decoded from the result's chunks; the chunk
-/// being read is already in DuckDB's memory, and so is the whole result
-/// (up to the wrapper's `LIMIT` on the read-only path): `Statement::execute`
-/// materializes it before the first row is read.
+/// Runs `sql` (materialized) and collects its rows under `cap`. The chunk
+/// being read is already in DuckDB's memory, and so is the whole result (up
+/// to the wrapper's `LIMIT` on the read-only path).
 fn query_capped(
     conn: &Connection,
     worker: &Worker,
     sql: &str,
-    bound: &[DuckValue],
+    bound: &[duckdb::types::Value],
     cap: RowCap,
 ) -> Result<CappedResult, DbError> {
-    let mut stmt = prepare(conn, worker, Op::Query, sql)?;
-    stmt.execute(params_from_iter(bound.iter()))
-        .map_err(DbError::query_error)?;
-    let mut reader = ResultReader::new(&stmt);
-
-    let mut rows: Vec<Vec<Value>> = Vec::new();
-    let mut truncated = false;
-    let mut kept_bytes = 0usize;
-    while let Some(row) = reader.next_row()? {
-        if worker.is_cancelled() {
-            return Err(DbError::query_error("cancelled"));
-        }
-        if !cap.admit(rows.len(), kept_bytes)? {
-            truncated = true;
-            break;
-        }
-        if cap.max_bytes().is_some() {
-            kept_bytes = kept_bytes.saturating_add(seaquel_engine::row_bytes(&row));
-        }
-        rows.push(row);
-    }
-
-    Ok(CappedResult {
-        columns: reader.columns,
-        rows,
-        truncated,
-    })
+    let mut sink = CappedSink::new(worker, cap);
+    session::rows(conn, worker, sql, bound, Execution::Materialized, &mut sink)?;
+    Ok(sink.into_result())
 }
 
 /// Rows per streamed batch, as in the sqlx drivers.
-///
-/// DuckDB still materializes the whole result before the first batch
-/// (`Statement::execute` doesn't use DuckDB's streaming execution; the
-/// driver then reads the result's Arrow chunks with `step()`), so batching
-/// bounds what's in flight to the UI, not DuckDB's memory use.
 const BATCH_SIZE: usize = 5000;
 
-/// Batches in flight between the blocking producer and the stream. See
-/// [`BATCH_SIZE`]: the result is already materialized in DuckDB by then.
+/// Batches in flight between the blocking producer and the stream: the
+/// DuckDB helper's credit window too (`wire::STREAM_CREDIT`, pinned by a
+/// test). With streaming execution DuckDB runs ahead of the producer only
+/// until `streaming_buffer_size` bytes (10^6 by default) are buffered and
+/// then waits, so a stream nobody reads holds that plus these batches.
 const STREAM_BUFFER: usize = 2;
 
-/// `Driver::query_stream`, on the blocking thread: sends batches until the
-/// result ends, the stream is dropped or `cancel` fires. Errors are sent too.
+/// `query_stream`'s rows, sent in [`BATCH_SIZE`] batches until the result
+/// ends, the stream is dropped or `cancel` fires.
+struct StreamSink<'a> {
+    worker: &'a Worker,
+    cancel: &'a CancellationToken,
+    tx: &'a mpsc::Sender<Result<StreamBatch, DbError>>,
+    decoder: Option<Decoder>,
+    /// The columns, until a batch carried them.
+    columns: Option<Vec<String>>,
+    buffer: Vec<Vec<Value>>,
+}
+
+impl StreamSink<'_> {
+    /// Nobody will read what comes next.
+    fn stopped(&self) -> bool {
+        self.worker.is_cancelled() || self.cancel.is_cancelled() || self.tx.is_closed()
+    }
+}
+
+impl ChunkSink for StreamSink<'_> {
+    fn columns(&mut self, stmt: &Statement<'_>) -> Result<(), DbError> {
+        let decoder = Decoder::of(stmt);
+        self.columns = Some(decoder.columns.clone());
+        self.decoder = Some(decoder);
+        Ok(())
+    }
+
+    fn chunk(&mut self, chunk: StructArray) -> Result<Flow, DbError> {
+        let Some(decoder) = &self.decoder else {
+            return Err(DbError::query_error("DuckDB sent rows before its columns"));
+        };
+        for row in 0..chunk.len() {
+            let row = decoder.row(&chunk, row)?;
+            if self.stopped() {
+                return Ok(Flow::Stop);
+            }
+            self.buffer.push(row);
+            if self.buffer.len() >= BATCH_SIZE {
+                let batch = StreamBatch {
+                    columns: self.columns.take(),
+                    rows: std::mem::replace(&mut self.buffer, Vec::with_capacity(BATCH_SIZE)),
+                    is_final: false,
+                    truncated: false,
+                };
+                if self.tx.blocking_send(Ok(batch)).is_err() {
+                    return Ok(Flow::Stop);
+                }
+            }
+        }
+        Ok(Flow::Continue)
+    }
+
+    /// The terminal batch: carries the columns if no batch did (an empty
+    /// result).
+    fn finish(&mut self) -> Result<(), DbError> {
+        let _ = self.tx.blocking_send(Ok(StreamBatch {
+            columns: self.columns.take(),
+            rows: std::mem::take(&mut self.buffer),
+            is_final: true,
+            truncated: false,
+        }));
+        Ok(())
+    }
+}
+
+/// `Driver::query_stream`, on the blocking thread, with DuckDB's streaming
+/// execution: batches go out as DuckDB produces the rows, so a failing query
+/// can fail after its first batches (the error is sent too), and a stream
+/// that stops early stops the query.
 fn stream_blocking(
     conn: &Connection,
     worker: &Worker,
     sql: &str,
-    bound: &[DuckValue],
+    bound: &[duckdb::types::Value],
     cancel: &CancellationToken,
     tx: &mpsc::Sender<Result<StreamBatch, DbError>>,
 ) -> Result<(), DbError> {
-    let stopped = || worker.is_cancelled() || cancel.is_cancelled() || tx.is_closed();
-    if stopped() {
+    let mut sink = StreamSink {
+        worker,
+        cancel,
+        tx,
+        decoder: None,
+        columns: None,
+        buffer: Vec::with_capacity(BATCH_SIZE),
+    };
+    if sink.stopped() {
         return Ok(());
     }
-    let mut stmt = match prepare(conn, worker, Op::Query, sql) {
-        Err(_) if stopped() => return Ok(()),
-        stmt => stmt?,
-    };
-    stmt.execute(params_from_iter(bound.iter()))
-        .map_err(DbError::query_error)?;
-    let mut reader = ResultReader::new(&stmt);
-    let mut columns = Some(reader.columns.clone());
-
-    let mut buffer: Vec<Vec<Value>> = Vec::with_capacity(BATCH_SIZE);
-    while let Some(row) = reader.next_row()? {
-        if stopped() {
-            return Ok(());
-        }
-        buffer.push(row);
-        if buffer.len() >= BATCH_SIZE {
-            let batch = StreamBatch {
-                columns: columns.take(),
-                rows: std::mem::replace(&mut buffer, Vec::with_capacity(BATCH_SIZE)),
-                is_final: false,
-                truncated: false,
-            };
-            if tx.blocking_send(Ok(batch)).is_err() {
-                return Ok(());
-            }
-        }
+    match session::rows(conn, worker, sql, bound, Execution::Streaming, &mut sink) {
+        // Nobody is listening for the error (a cancel lands as one).
+        Err(_) if sink.stopped() => Ok(()),
+        outcome => outcome,
     }
-    // Terminal batch: carries the columns if no batch did (empty result).
-    let _ = tx.blocking_send(Ok(StreamBatch {
-        columns,
-        rows: buffer,
-        is_final: true,
-        truncated: false,
-    }));
-    Ok(())
-}
-
-/// Whether a transaction opened by hand is running on `conn`. In autocommit
-/// every statement runs in a transaction of its own, so two
-/// `txid_current()` calls return different ids; inside one transaction they
-/// return the same. A probe that fails counts as open, so the batch is
-/// refused rather than risking the user's transaction. (duckdb-rs's
-/// `is_autocommit` is a stub that always says true.) Logs nothing.
-fn transaction_open(conn: &Connection) -> bool {
-    let txid = || conn.query_row("SELECT txid_current()", [], |row| row.get::<_, i64>(0));
-    match (txid(), txid()) {
-        (Ok(first), Ok(second)) => first == second,
-        _ => true,
-    }
-}
-
-/// `Driver::transaction`, on the blocking thread.
-fn transaction_blocking(
-    conn: &Connection,
-    worker: &Worker,
-    statements: &[(String, Vec<DuckValue>, Option<ExpectRows>)],
-) -> Result<Vec<u64>, TransactionError> {
-    let no_params = || params_from_iter(std::iter::empty::<DuckValue>());
-
-    // A BEGIN inside a transaction opened by hand would fail and make
-    // DuckDB abort the user's transaction, so refuse before sending it.
-    if transaction_open(conn) {
-        return Err(DbError {
-            message: TRANSACTION_ALREADY_OPEN.to_string(),
-            code: TRANSACTION_OPEN.to_string(),
-        }
-        .into());
-    }
-    conn.execute("BEGIN", no_params())
-        .map_err(DbError::execute_error)?;
-
-    // The statement running, so a panic can name it too.
-    let current = std::cell::Cell::new(None);
-    let body = catch_unwind(AssertUnwindSafe(
-        || -> Result<Vec<u64>, TransactionError> {
-            let mut counts = Vec::with_capacity(statements.len());
-            for (index, (sql, bound, expect)) in statements.iter().enumerate() {
-                if worker.is_cancelled() {
-                    return Err(DbError::execute_error("cancelled").into());
-                }
-                current.set(Some(index));
-                let at = |e| TransactionError::at(index, e);
-                let affected = prepare(conn, worker, Op::Execute, sql)
-                    .map_err(at)?
-                    .execute(params_from_iter(bound.iter()))
-                    .map_err(|e| at(DbError::execute_error(e)))?;
-                if let Some(expect) = expect {
-                    expect.check(index, affected as u64).map_err(at)?;
-                }
-                counts.push(affected as u64);
-            }
-            current.set(None);
-            // Nobody would learn the outcome: roll back instead.
-            if worker.is_cancelled() {
-                return Err(DbError::execute_error("cancelled").into());
-            }
-            conn.execute("COMMIT", no_params())
-                .map_err(DbError::execute_error)?;
-            Ok(counts)
-        },
-    ));
-    let outcome = match body {
-        Ok(outcome) => outcome,
-        Err(payload) => Err(TransactionError {
-            index: current.get(),
-            error: DbError::execute_error(format!(
-                "DuckDB panicked: {}",
-                blocking::panic_message(&*payload)
-            )),
-        }),
-    };
-    if outcome.is_err() {
-        // Best-effort rollback; surface the original error regardless of
-        // whether the rollback itself succeeds (it fails harmlessly when a
-        // failed COMMIT already ended the transaction). duckdb-rs's
-        // `is_autocommit` is a stub that always says true, so it can't tell.
-        let _ = conn.execute("ROLLBACK", no_params());
-    }
-    outcome
-}
-
-/// The only statement the read-only path prepares (see [`read_only_wrapper`]).
-/// The user's SQL is its parameter, so duckdb-rs's `prepare` (which runs
-/// every statement but the last itself) never sees it: `query()` parses it
-/// with DuckDB's own parser and runs it only if it is exactly one SELECT
-/// (`WITH`, `FROM t`, `VALUES`, `SUMMARIZE`, `DESCRIBE` and `SHOW` count),
-/// refusing `COPY`, `SET`, `ATTACH`, `INSTALL`, DDL, DML and every
-/// multi-statement input. (Core's token check runs first and admits only
-/// statements starting with SELECT or WITH; it also refuses the SELECTs a
-/// connection can't contain, such as `enable_logging()`.)
-const READ_ONLY_WRAPPER: &str = "SELECT * FROM query(?)";
-
-/// [`READ_ONLY_WRAPPER`] with `LIMIT` one past the row cap (`max_rows`, or
-/// the driver's own cap without it), so DuckDB stops there instead of
-/// materializing a huge result before the cap sees it: the one row past it
-/// is how the cap tells `RESULT_TOO_LARGE` or `truncated`. The limit is a
-/// number, never SQL text from the caller.
-fn read_only_wrapper(cap: RowCap) -> String {
-    let limit = cap.limit().saturating_add(1);
-    format!("{READ_ONLY_WRAPPER} LIMIT {limit}")
-}
-
-/// DuckDB's refusals on the read-only path: `query()`'s, and the read-only
-/// transaction's (`nextval`, a write `query()` let through).
-const READ_ONLY_REFUSALS: &[&str] = &[
-    "Expected a single SELECT statement",
-    "transaction is launched in read-only mode",
-];
-
-/// `Driver::query_read_only`, on the blocking thread, on the call's own
-/// connection: `BEGIN TRANSACTION READ ONLY`, the user's SQL through
-/// [`read_only_wrapper`], `ROLLBACK`. The rollback runs on every path once
-/// `BEGIN` was sent, a panic or a cancel included; the connection is dropped
-/// after the call anyway, which ends any transaction a failed ROLLBACK left.
-fn read_only_blocking(
-    conn: &Connection,
-    worker: &Worker,
-    sql: &str,
-    cap: RowCap,
-) -> Result<CappedResult, DbError> {
-    let no_params = || params_from_iter(std::iter::empty::<DuckValue>());
-    if let Err(e) = conn.execute("BEGIN TRANSACTION READ ONLY", no_params()) {
-        // An interrupt can land in BEGIN. Whether or not it opened the
-        // transaction, make sure none is left behind.
-        let _ = conn.execute("ROLLBACK", no_params());
-        return Err(DbError::query_error(e));
-    }
-    let body = catch_unwind(AssertUnwindSafe(|| {
-        query_capped(
-            conn,
-            worker,
-            &read_only_wrapper(cap),
-            &[DuckValue::Text(sql.to_string())],
-            cap,
-        )
-    }));
-    rollback_read_only(conn);
-    let outcome = body.unwrap_or_else(|payload| {
-        Err(DbError::query_error(format!(
-            "DuckDB panicked: {}",
-            blocking::panic_message(&*payload)
-        )))
-    });
-    outcome.map_err(|mut e| {
-        // DuckDB points at the wrapper ("LINE 1: SELECT * FROM query(?)"
-        // and a caret), which isn't the SQL the user or the model wrote.
-        if let Some(at) = e.message.find(&format!("\n\nLINE 1: {READ_ONLY_WRAPPER}")) {
-            e.message.truncate(at);
-        }
-        if READ_ONLY_REFUSALS.iter().any(|r| e.message.contains(r)) {
-            DbError::read_only(e.message)
-        } else {
-            e
-        }
-    })
-}
-
-/// Ends the read-only transaction. A failure (a cancel's interrupt can land
-/// on it) is only logged: the call's connection is dropped right after,
-/// which rolls the transaction back, and no other call uses it.
-fn rollback_read_only(conn: &Connection) {
-    let no_params = || params_from_iter(std::iter::empty::<DuckValue>());
-    if let Err(e) = conn.execute("ROLLBACK", no_params()) {
-        warn!(activity = "db.query_read_only", driver = "duckdb"; "ROLLBACK of a read-only query failed: {e}");
-    }
-}
-
-/// `Driver::explain_read_only`, on the blocking thread, on the call's own
-/// connection: the EXPLAIN in a `BEGIN TRANSACTION READ ONLY` that is always
-/// rolled back, as [`read_only_blocking`] does for queries. `explain` is one
-/// statement (checked by the caller): duckdb-rs's `prepare` runs every
-/// statement but the last itself, so `EXPLAIN SELECT 1; DELETE …` would run
-/// the DELETE for real.
-fn explain_read_only_blocking(
-    conn: &Connection,
-    worker: &Worker,
-    explain: &str,
-    bound: &[DuckValue],
-) -> Result<QueryResult, DbError> {
-    let no_params = || params_from_iter(std::iter::empty::<DuckValue>());
-    if let Err(e) = conn.execute("BEGIN TRANSACTION READ ONLY", no_params()) {
-        let _ = conn.execute("ROLLBACK", no_params());
-        return Err(DbError::query_error(e));
-    }
-    let cap = RowCap::fail(seaquel_engine::max_query_rows());
-    let body = catch_unwind(AssertUnwindSafe(|| {
-        query_capped(conn, worker, explain, bound, cap)
-    }));
-    rollback_read_only(conn);
-    let outcome = body.unwrap_or_else(|payload| {
-        Err(DbError::query_error(format!(
-            "DuckDB panicked: {}",
-            blocking::panic_message(&*payload)
-        )))
-    });
-    outcome.map(Into::into).map_err(|e| {
-        if READ_ONLY_REFUSALS.iter().any(|r| e.message.contains(r)) {
-            DbError::read_only(e.message)
-        } else {
-            e
-        }
-    })
-}
-
-fn bind_all(params: &[Value]) -> Result<Vec<DuckValue>, DbError> {
-    params.iter().map(to_duckdb_param).collect()
 }
 
 #[seaquel_runtime::async_trait]
 impl Driver for DuckdbDriver {
     async fn query(&self, sql: &str, params: Vec<Value>) -> Result<QueryResult, DbError> {
         let sql = sql.to_string();
-        let bound = bind_all(&params)?;
+        let bound = session::bind_all(&params)?;
         self.run(Op::Query, move |conn, worker| {
-            query_blocking(conn, worker, &sql, &bound)
+            let cap = RowCap::fail(seaquel_engine::max_query_rows());
+            query_capped(conn, worker, &sql, &bound, cap).map(Into::into)
         })
         .await
     }
 
-    /// Streams batches from a blocking producer. DuckDB materializes the
-    /// result before the first row, so a slow query sends nothing until it's
-    /// done. Dropping the stream (Core's cancel) interrupts the query.
+    /// Streams batches from a blocking producer, with DuckDB's streaming
+    /// execution (see [`stream_blocking`]). Dropping the stream (Core's
+    /// cancel) interrupts the query.
     fn query_stream<'a>(
         &'a self,
         sql: String,
@@ -769,7 +409,7 @@ impl Driver for DuckdbDriver {
         cancel: CancellationToken,
     ) -> BoxStream<'a, Result<StreamBatch, DbError>> {
         Box::pin(async_stream::stream! {
-            let bound = match bind_all(&params) {
+            let bound = match session::bind_all(&params) {
                 Ok(bound) => bound,
                 Err(e) => {
                     yield Err(e);
@@ -807,16 +447,14 @@ impl Driver for DuckdbDriver {
 
     async fn execute(&self, sql: &str, params: Vec<Value>) -> Result<ExecuteResult, DbError> {
         let sql = sql.to_string();
-        let bound = bind_all(&params)?;
+        let bound = session::bind_all(&params)?;
         let rows_affected = self
             .run(Op::Execute, move |conn, worker| {
-                prepare(conn, worker, Op::Execute, &sql)?
-                    .execute(params_from_iter(bound.iter()))
-                    .map_err(DbError::execute_error)
+                session::execute(conn, worker, &sql, &bound)
             })
             .await?;
         Ok(ExecuteResult {
-            rows_affected: rows_affected as u64,
+            rows_affected,
             last_insert_id: None,
         })
     }
@@ -828,8 +466,8 @@ impl Driver for DuckdbDriver {
     /// `expect_rows` rolls back with `NO_ROWS_AFFECTED`. Dropping the future
     /// interrupts the running statement, which fails and rolls back. While
     /// a transaction opened by hand is running, the batch is refused before
-    /// BEGIN ([`TRANSACTION_OPEN`], found by [`transaction_open`]):
-    /// a failed nested BEGIN would make DuckDB abort the user's transaction.
+    /// BEGIN (`TRANSACTION_OPEN`, see `session::transaction`): a failed
+    /// nested BEGIN would make DuckDB abort the user's transaction.
     ///
     /// A failure names its statement ([`TransactionError`]): the one DuckDB
     /// refused, whose parameters didn't bind (before anything runs), that
@@ -843,17 +481,18 @@ impl Driver for DuckdbDriver {
             .into_iter()
             .enumerate()
             .map(|(index, s)| {
-                let bound = bind_all(&s.params).map_err(|e| TransactionError::at(index, e))?;
+                let bound =
+                    session::bind_all(&s.params).map_err(|e| TransactionError::at(index, e))?;
                 Ok((s.sql, bound, s.expect_rows))
             })
             .collect::<Result<Vec<_>, TransactionError>>()?;
         self.run(Op::Execute, move |conn, worker| {
-            Ok(transaction_blocking(conn, worker, &statements))
+            Ok(session::transaction(conn, worker, &statements))
         })
         .await?
     }
 
-    /// See [`read_only_blocking`]. DuckDB's read-only path takes no bind
+    /// See `session::read_only`. DuckDB's read-only path takes no bind
     /// values: its one parameter is the user's SQL. Nothing that calls it
     /// passes any.
     async fn query_read_only(
@@ -880,18 +519,13 @@ impl Driver for DuckdbDriver {
                 "read-only DuckDB queries take no bind values",
             ));
         }
-        let source = self.read_only_source.clone();
-        let conn = tokio::task::spawn_blocking(move || blocking::lock(&source).try_clone())
-            .await
-            .map_err(|e| Op::Query.join_error(e))?
-            .map_err(DbError::query_error)?;
-        // Dropped after the call: by this future, and by the blocking task
-        // when it finishes (after a cancel, once the interrupt has landed).
-        let session = Session::new(conn);
+        let session = self.read_only_session().await?;
         let sql = sql.to_string();
         let cap = options.row_cap();
         run_on(&session, Op::Query, move |conn, worker| {
-            read_only_blocking(conn, worker, &sql, cap)
+            let mut sink = CappedSink::new(worker, cap);
+            session::read_only(conn, worker, &sql, cap.limit(), &mut sink)?;
+            Ok(sink.into_result())
         })
         .await
     }
@@ -935,7 +569,7 @@ impl Driver for DuckdbDriver {
     /// A plain `EXPLAIN (FORMAT JSON)` of one statement (a second is
     /// refused before anything runs), on a connection cloned for the call
     /// like [`DuckdbDriver::query_read_only`]'s, in a read-only transaction
-    /// (see [`explain_read_only_blocking`]). No timeout: dropping the call
+    /// (see `session::explain_read_only`). No timeout: dropping the call
     /// interrupts it.
     async fn explain_read_only(
         &self,
@@ -946,24 +580,21 @@ impl Driver for DuckdbDriver {
         if seaquel_sql::scan::split_statements(sql, seaquel_sql::SqlEngine::Duckdb).len() > 1 {
             return Err(DbError::read_only(seaquel_engine::EXPLAIN_ONE_STATEMENT));
         }
-        let bound = bind_all(&params)?;
-        let source = self.read_only_source.clone();
-        let conn = tokio::task::spawn_blocking(move || blocking::lock(&source).try_clone())
-            .await
-            .map_err(|e| Op::Query.join_error(e))?
-            .map_err(DbError::query_error)?;
-        let session = Session::new(conn);
+        let bound = session::bind_all(&params)?;
+        let session = self.read_only_session().await?;
         let explain = introspect::explain_sql(sql, false);
         let r = run_on(&session, Op::Query, move |conn, worker| {
-            explain_read_only_blocking(conn, worker, &explain, &bound)
+            let mut sink = CappedSink::new(worker, RowCap::fail(seaquel_engine::max_query_rows()));
+            session::explain_read_only(conn, worker, &explain, &bound, &mut sink)?;
+            Ok(QueryResult::from(sink.into_result()))
         })
         .await?;
         Ok(introspect::parse_explain(&r, false))
     }
 }
 
-/// The native driver's decoding of `sql`'s rows on `conn`, for
-/// `decode_from_ipc_matches_decode_from_duckdb` (`browser/ipc.rs`).
+/// The native driver's decoding of `sql`'s rows on `conn`, for the IPC and
+/// session comparisons (`ipc.rs`, `session.rs`).
 #[cfg(test)]
 pub(crate) fn native_rows(conn: &Connection, sql: &str) -> Result<CappedResult, DbError> {
     let interrupt = conn.interrupt_handle();
@@ -995,41 +626,45 @@ mod tests {
     /// at least 4 bytes.
     #[test]
     fn undecodable_cell_is_unsupported_type() {
-        let conn = Connection::open_in_memory().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT CASE WHEN i < 3000 THEN NULL ELSE '\\x01'::BLOB END AS t FROM range(3001) r(i)")
-            .unwrap();
-        stmt.execute([]).unwrap();
-        let mut reader = ResultReader::new(&stmt);
-        reader.kinds[0] = Kind::Bignum;
-        for _ in 0..3000 {
-            assert_eq!(reader.next_row().unwrap(), Some(vec![Value::Null]));
+        /// `CappedSink` with the first column's kind forced.
+        struct Forced<'w>(CappedSink<'w>);
+        impl ChunkSink for Forced<'_> {
+            fn columns(&mut self, stmt: &Statement<'_>) -> Result<(), DbError> {
+                self.0.columns(stmt)?;
+                self.0.decoder.as_mut().unwrap().kinds[0] = Kind::Bignum;
+                Ok(())
+            }
+            fn chunk(&mut self, chunk: StructArray) -> Result<Flow, DbError> {
+                self.0.chunk(chunk)
+            }
+            fn finish(&mut self) -> Result<(), DbError> {
+                self.0.finish()
+            }
         }
-        let e = reader.next_row().unwrap_err();
+
+        let conn = Connection::open_in_memory().unwrap();
+        let (_call, worker) = blocking::call(conn.interrupt_handle());
+        let mut sink = Forced(CappedSink::new(&worker, RowCap::fail(100_000)));
+        let e = session::rows(
+            &conn,
+            &worker,
+            "SELECT CASE WHEN i < 3000 THEN NULL ELSE '\\x01'::BLOB END AS t FROM range(3001) r(i)",
+            &[],
+            Execution::Materialized,
+            &mut sink,
+        )
+        .unwrap_err();
+        assert_eq!(sink.0.rows, vec![vec![Value::Null]; 3000]);
         assert_eq!(e.code, "UNSUPPORTED_TYPE");
         assert!(e.message.contains("Column \"t\""), "{}", e.message);
         assert!(e.message.contains("BIGNUM of 1 bytes"), "{}", e.message);
     }
 
+    /// The native driver's batches in flight and the DuckDB helper's credit
+    /// window are one number, so a stream holds as much in both.
     #[test]
-    fn decimal_params() {
-        let d = |s: &str| match decimal_param(s) {
-            Some(DuckValue::Decimal(d)) => Some((d.width(), d.scale(), d.to_string())),
-            _ => None,
-        };
-        assert_eq!(d("1.50"), Some((3, 2, "1.50".into())));
-        assert_eq!(d("-0.05"), Some((3, 2, "-0.05".into())));
-        assert_eq!(d("007"), Some((1, 0, "7".into())));
-        assert_eq!(d("0"), Some((1, 0, "0".into())));
-        assert_eq!(d(".5"), Some((2, 1, "0.5".into())));
-        assert_eq!(d(&"9".repeat(38)).map(|x| x.0), Some(38));
-        assert_eq!(
-            d(&format!("0.{}", "1".repeat(38))).map(|x| (x.0, x.1)),
-            Some((38, 38))
-        );
-        for s in [&"9".repeat(39), "NaN", "1e5", "", "-", ".", "1.2.3", "１"] {
-            assert_eq!(d(s), None, "{s}");
-        }
+    fn stream_buffer_is_the_helper_s_credit_window() {
+        assert_eq!(STREAM_BUFFER as u32, crate::wire::STREAM_CREDIT);
     }
 
     #[tokio::test]
@@ -1065,38 +700,44 @@ mod tests {
     /// the cancelled check after prepare must catch it. The drop happens
     /// inside the call, deterministically, while it holds the connection.
     /// Without the check the query runs to the end (seconds; the per-row
-    /// check then still reports "cancelled"), so the test times it.
+    /// check then still reports "cancelled"), so the test times it. Both
+    /// executions: the streaming one clears the flag too.
     #[test]
     fn cancel_that_lands_before_execute_is_not_lost() {
         let conn = Connection::open_in_memory().unwrap();
         let interrupt = conn.interrupt_handle();
         let conn = Mutex::new(conn);
 
-        let (call, worker) = blocking::call(interrupt.clone());
-        let started = tokio::time::Instant::now();
-        let r = worker.run(&conn, Op::Query, move |conn, worker| {
-            drop(call); // flags the call and interrupts DuckDB
-            query_blocking(
-                conn,
-                worker,
-                "SELECT sum(i % 7) FROM range(1500000000) t(i)",
-                &[],
-            )
-        });
-        let took = started.elapsed();
-        let e = r.unwrap_err();
-        assert_eq!(e.code, "QUERY_ERROR");
-        assert!(e.message.contains("cancelled"), "{}", e.message);
-        assert!(
-            took < std::time::Duration::from_millis(500),
-            "the query ran: {took:?}"
-        );
+        for execution in [Execution::Materialized, Execution::Streaming] {
+            let (call, worker) = blocking::call(interrupt.clone());
+            let started = tokio::time::Instant::now();
+            let r = worker.run(&conn, Op::Query, move |conn, worker| {
+                drop(call); // flags the call and interrupts DuckDB
+                let mut sink = CappedSink::new(worker, RowCap::fail(100_000));
+                session::rows(
+                    conn,
+                    worker,
+                    "SELECT sum(i % 7) FROM range(1500000000) t(i)",
+                    &[],
+                    execution,
+                    &mut sink,
+                )
+            });
+            let took = started.elapsed();
+            let e = r.unwrap_err();
+            assert_eq!(e.code, "QUERY_ERROR");
+            assert!(e.message.contains("cancelled"), "{}", e.message);
+            assert!(
+                took < std::time::Duration::from_millis(500),
+                "the query ran ({execution:?}): {took:?}"
+            );
+        }
 
         // The connection is fine.
         let (_call, worker) = blocking::call(interrupt);
         let r = worker
             .run(&conn, Op::Query, |conn, worker| {
-                query_blocking(conn, worker, "SELECT 42", &[])
+                query_capped(conn, worker, "SELECT 42", &[], RowCap::fail(100_000))
             })
             .unwrap();
         assert_eq!(r.rows, vec![vec![Value::Int(42)]]);

@@ -160,7 +160,7 @@ inserts what it generates. The demo has the assistant again, with the
 visitor's key in page memory. Found on the way and fixed here: web kept
 every closed tab's database connections. Its measured cost is in "Phase 6
 cost" below.
-Phase 7a: built; manual checks pending (see
+Phase 7a: built; manual checks passed (see
 2026-10-09-rust-core-phase-7a-tui-plan.md). `seaquel-tui` is a
 lazygit-style terminal client in a binary and release asset of its own,
 beside an unchanged `seaquel-cli`, with the code both share in
@@ -176,6 +176,19 @@ the assistant for SQL. Fixed on the way: the inline AI prompt didn't
 resolve `@mentions`, Postgres's Explain couldn't be cancelled, and
 (phase 6's follow-up) the CLI's debug log carried MCP tool calls' SQL.
 Its measured cost is in "Phase 7a cost" below.
+DuckDB helper: done: built, Checkpoint H-2 passed, owner's manual checks passed (2026-10-04) (see
+2026-10-10-duckdb-helper-plan.md). `seaquel-tui` and `seaquel-cli` no
+longer link DuckDB. It runs in `seaquel-duckdb`, a helper process per
+open DuckDB connection, spoken to over its stdin and stdout: JSON control
+frames and Arrow IPC rows, with a credit window per call and the column
+kinds sent beside the schema. The terminal binaries download it on first
+use from the release that matches their version (size and SHA-256
+checked, gzipped), through a dialog in the TUI, `seaquel-cli duckdb
+install` or the app's "Install Command Line Tool…". The native driver
+and the helper share one session layer, so `query_stream` now streams on
+the desktop too. The TUI went from 50.1 to 18.3 MB (8.6 MB gzipped), the
+CLI from 46.2 to 15.1 MB, and the helper is 11.5 MB gzipped. Its measured
+cost is in "DuckDB helper cost" below.
 
 ## Problem
 
@@ -244,6 +257,20 @@ components via wasmtime, or subprocess plugins over JSON-RPC) cost real
 complexity, and nobody outside Webstone is writing Seaquel plugins yet. Keep the
 traits clean enough that a WASM-component host could implement them later. If
 third-party plugins become a goal, that's a separate design.
+
+As built by the DuckDB helper plan: one engine now runs out of process,
+and the reasoning above still holds. The helper is first-party, built
+and released with the binaries that start it, and refused unless its
+version matches theirs, so there is no stable ABI or protocol to promise
+anyone. It was chosen for binary size, not extensibility: DuckDB was
+about two thirds of each terminal binary. It sits behind the same
+`Engine` and `Driver` traits (`seaquel-engine-duckdb`'s `remote`
+feature), and nothing in Core knows the driver is remote. The cost
+predicted for subprocess plugins was real: about 4,000 production lines
+for the helper's loop, the frames and the client, a protocol with credit
+windows and cancel ordering, process lifecycle rules (EOF, the wedge, a
+close that outlives the client by up to 60 s), a download with its own
+checks, and many of the plan's review findings.
 
 ## Architecture
 
@@ -348,6 +375,18 @@ file engine on a server lets any signed-in user read and write the server's
 files. Features alone didn't hold that rule, since Cargo unifies features
 across a workspace build, so `seaquel_core::with_plugins(|id| …)` registers
 engines by id and the server allows only Postgres, MySQL and MSSQL.)
+
+(As built by the DuckDB helper plan: the terminal binaries' slim build is
+the one without native DuckDB. DuckDB has three drivers behind the one
+`Engine` trait, all with the id `duckdb`: `native` in process (desktop,
+and the helper), `remote` over a `seaquel-duckdb` child process (the TUI
+and the CLI), and `browser` over DuckDB-WASM (the demo). Core's
+`engine-duckdb` feature is the native driver and `engine-duckdb-remote`
+the remote one, which `CoreBuilder::duckdb_helper(DuckdbHelper { dir,
+version })` registers. `seaquel-terminal` builds with
+`with_plugins(|id| id != "duckdb")` and then the remote engine, for the
+same reason the server uses `with_plugins`: a workspace build unifies the
+native driver into the terminal crates' test binaries anyway.)
 
 ## The engine plugin
 
@@ -972,6 +1011,38 @@ download):
 - **Host keys.** Unlike the MCP server, the TUI writes `known_hosts`: an
   unknown key shows its fingerprint, and Trust records exactly that key,
   as the GUI does.
+
+As built by the DuckDB helper plan:
+
+- **No DuckDB in the terminal binaries.** DuckDB runs in `seaquel-duckdb`,
+  a third release asset per target (`seaquel-duckdb-<triple>[.exe].gz`,
+  signed before it's gzipped, with the same entitlements file as the CLI
+  and TUI so DuckDB's own extensions load under the hardened runtime). A
+  terminal binary starts one helper per open DuckDB connection, refuses
+  one of another version, and checks before each start that the file and
+  its folders are the user's own and not writable by anyone else.
+- **Downloaded on first use.** The helper lives in
+  `<data_local_dir>/<identifier>/bin/duckdb/<version>/`, one folder per
+  version, the two newest kept. The TUI asks before the first DuckDB
+  connect and shows the download's size and progress; the MCP server
+  can't ask, so its tool error and a startup line name `seaquel-cli duckdb
+  install`; the app's "Install Command Line Tool…" fetches the helper
+  beside the CLI. Each checks the asset's size and SHA-256 against
+  GitHub's release metadata, over `https:` only, before renaming the file
+  into place. `--from FILE --sha256 HEX` installs a copy offline. Signed
+  checksums (a tampered release) and a Windows ACL check stay follow-ups.
+- **Sizes** (macOS arm64, `terminal-release`): `seaquel-tui` 18.28 MB
+  raw, 8.56 MB gzip -9; `seaquel-cli` 15.10 MB and 7.20 MB (it gained
+  reqwest for the download); `seaquel-duckdb` 34.69 MB and 11.50 MB. A
+  user who wants both terminal binaries and DuckDB downloads about 27 MB
+  gzipped instead of 36; one who never opens a DuckDB file, about 16 MB.
+  On Linux aarch64 (the probe, with a vendored libdbus) the three were
+  19.4, 16.1 and 33.7 MB raw, the helper 12.3 MB gzipped.
+- **Speed.** Through Core, the remote driver streams big results faster
+  than the native one on both OSes measured (605 against 783 ms for 10M
+  rows on macOS) because DuckDB and the decode overlap across processes;
+  a small call costs about 18 µs more (63 against 45 µs for `SELECT 1`).
+  The figures are in "DuckDB helper cost".
 
 ## The demo: Core in the browser
 
@@ -4074,6 +4145,202 @@ polling caught every commit from another process with no false positive
 from its own writes, the app's coarse reload was cheap enough that the
 change journal wasn't needed, every engine and SSH passed in the probe,
 and no marker reached the log.
+
+## DuckDB helper cost
+
+Source: `2026-10-10-duckdb-helper-effort.md` and the DuckDB helper plan's
+notes, plus line counts measured against `e5f0224` (Phase 7a, committed);
+the helper's work is uncommitted on top of it. Times are agent wall time
+as logged, review and probe fixes included, but not the plan, the spikes,
+the review passes themselves or the owner's answers. About a third of
+most rows was builds and test runs. Checkpoint H-2 isn't in it yet.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes | Logged |
+|---|---|---|---|---|
+| 1. Session split, shared IPC reader, streaming execution, `wire.rs` | 1.6–2.3 h | ~1.2 h | ~0.4 h | ~1.6 h |
+| 2. The helper and `seaquel-duckdb` | 1.5–2.1 h | ~1.4 h | ~0.9 h | ~2.3 h |
+| 3. The remote driver, `ENGINE_NOT_INSTALLED`, Core's remote engine | 2.0–2.8 h | ~1.6 h | ~0.7 h | ~2.3 h |
+| Checkpoint H-1 (kinds in the schema frame, `SELECT 1` latency) | — | — | ~2.0 h | ~2.0 h |
+| 4. Install (`release_asset`, Core's status and install, pruning) | 1.0–1.4 h | ~1.6 h | ~0.8 h | ~2.4 h |
+| 5. Parity (both drivers, `REMOTE.md`, CI) | 1.0–1.5 h | ~1.0 h | ~0.6 h | ~1.6 h |
+| 6. The terminal binaries without DuckDB | 0.5–0.8 h | ~0.8 h | ~0.4 h | ~1.2 h |
+| 7. The TUI's install dialog | 0.8–1.2 h | ~1.3 h | ~0.3 h | ~1.6 h |
+| 8. The CLI, the app's install, the release | 0.9–1.3 h | ~1.1 h | ~1.0 h | ~2.1 h |
+| 9. Probe | 1.2–1.8 h | ~1.0 h | ~1.6 h (F1–F4 ~1.0 h, their review ~0.6 h) | ~2.6 h |
+| 10. Docs and measurement | 0.6–0.9 h | ~0.8 h | — | ~0.8 h |
+| Review fixes (the plan's row) | 4.7–6.7 h | | | |
+| Probe fixes (the plan's row) | 1.2–2.0 h | | | |
+| **Total** | **~17.0–24.8 h** (expect ~19.5 h) | **~11.8 h** | **~8.7 h** | **~20.5 h** |
+
+**The plan came in at about 105% of its expectation**, inside its range.
+
+- **First passes ran near their estimates** (~10.0 h for Tasks 1–8
+  against 9.3–13.4 h), as planned: the spikes had settled the channel,
+  the encoding and the decode parity. Install (Task 4) ran over (1.6 h
+  against 1.0–1.4 h): the folder rules (each level opened with
+  `O_NOFOLLOW` and tightened through the handle), hand-followed redirects
+  and the mock release server were more than `cli_download.rs` had.
+- **Review fixes were ~5.1 h, about 51% of Tasks 1–8's first passes**,
+  on the ~50% budgeted (phase 7a: 43%, phase 6: 64%). The largest rounds
+  were the helper's (an output queue so an unread stream can't block the
+  dispatcher, the wedge, a cap on read-only calls) and the release's
+  (entitlements on the helper's signature, a stale `.part` sweep, pty
+  waits on the rendered screen).
+- **Checkpoint H-1 cost 2.0 h that the plan hadn't budgeted.** It found
+  wrong values after `RESET arrow_lossless_conversion` (the schema frame
+  now carries the native kinds, `PROTOCOL` 2) and `SELECT 1` 35% over the
+  spike, traced stage by stage across both processes to task hand-offs;
+  the fixes brought it to 63–64 µs and the owner's coordinator accepted a
+  ≤ 65 µs criterion for an async client.
+- **Probe fixes were ~1.6 h**, inside their 1.2–2.0 h budget: one
+  Important finding (a commit cut off by the helper's death was shown as
+  failed when it had landed) and three Minor.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~9,120 | ~1,090 |
+| Rust, tests (test files, `testing/` modules, `*_tests.rs` and inline `#[cfg(test)]` modules) | ~11,290 | ~270 |
+| Fixtures (the TUI's render snapshots) | ~310 | 0 |
+| TypeScript/JS, production (`cli-status.ts`, the settings panel, the GUI's interrupted apply, `build-cli.mjs`, `check-crate-deps.mjs`, the seeder) | ~150 | ~10 |
+| TypeScript/JS, tests | ~200 | ~3 |
+| CI and release workflows | ~170 | ~7 |
+| Docs (plans, CLAUDE.md, README, `REMOTE.md`) | ~1,180 | ~40 |
+
+Measured with `git diff -U0` against `e5f0224` plus the untracked files,
+leaving out `Cargo.lock` and the `Cargo.toml` files (about +200 −30),
+the locale files (+12) and Markdown outside the docs row; inline test
+modules counted from their `#[cfg(test)] mod` line; files under `tests/`
+and `testing/` and `*_tests.rs` counted as tests. About 830 of the
+production lines added are moves: `ipc.rs` (422 lines) up from
+`browser/`, and about 400 lines of `driver.rs` into `session.rs`.
+
+Where the production Rust went: `seaquel-engine-duckdb` +5,280 −1,030
+(the helper's loop ~1,570, the remote driver ~1,810, `wire.rs` ~550,
+`session.rs` ~550, `ipc.rs` moved), `seaquel-http` ~1,290
+(`release_asset` and its mock server), `seaquel-tui` +1,070 −20 (the
+install dialog, the lost connection, the interrupted commit), Core
+~480 (status, install, pruning, the count exception), `seaquel-cli`
+~360, `src-tauri` ~210, `seaquel-terminal` ~160, `seaquel-duckdb` 125,
+`seaquel-mcp` ~100, storage and types ~35.
+
+### Measured
+
+- **Sizes** (macOS arm64, `terminal-release`, `build-cli.mjs --release`;
+  bytes):
+
+  | Binary | Raw | gzip -9 | Before (phase 7a, variant B) |
+  |---|---|---|---|
+  | `seaquel-tui` | 18,277,936 | 8,562,015 | 50.12 / 18.89 MB |
+  | `seaquel-cli` | 15,100,336 | 7,195,592 | 46.17 / 17.15 MB |
+  | `seaquel-duckdb` | 34,691,328 | 11,503,115 | — |
+
+  Spike S8 predicted 17.8 MB for the TUI, about 14.5 for the CLI and
+  35.1 MB (11.7 gzip) for the helper. The TUI and CLI each carry about
+  0.25 MB more than predicted: `release_asset` (flate2, sha2, tempfile)
+  on top of the remote client, and in the CLI reqwest with its TLS
+  stack. Neither terminal binary has a `duckdb_` symbol or `libduckdb`
+  string. The probe's Linux aarch64 builds (with a vendored libdbus)
+  were 19,423,776, 16,147,808 and 33,692,752 bytes, the helper 12,275,620
+  gzipped.
+- **Speed** (the probe; release profile, through Core, three processes a
+  row, medians over all runs; macOS on an M4 Max, Linux in an aarch64
+  OrbStack VM on the same machine):
+
+  | Workload | macOS remote | macOS native | Linux remote | Linux native | Spike (pipe, streaming) |
+  |---|---|---|---|---|---|
+  | `SELECT 1` p50 / p99 | 63.0–63.3 / 80–83 µs | 44.8–45.3 / 52–53 µs | 120.9–125.1 / 164–175 µs | 64.7–72.2 / 123–1,795 µs | 51.8 µs mac (H-1 criterion ≤ 65), 87.8 Linux |
+  | big3 (10M rows) total / first batch | 605 ms / 1.2 ms | 783 ms / 1.2 ms | 755 ms / 1.3 ms | 2,236 ms / 1.2 ms | 563 / 569 ms |
+  | mixed20 (1M × 20) | 1,819 ms | 2,119 ms | 1,717 ms | 3,086 ms | 1,753 / 1,779 ms |
+  | widetext (2,000 × 64 KiB) | 205 ms | 174 ms | 319 ms | 274 ms | 206 / 324 ms (materialized pipe) |
+  | cancel mid-compute, p50 / next call p50 | 12.5–13.6 µs / 300–307 µs | 6.0 µs / 237–245 µs | 11–20 µs / 299–373 µs | 4–5 µs / 228–286 µs | |
+  | cancel mid-stream, p50 / next call p50 | 4.7–5.2 µs / 117–122 µs | 1.1–1.7 µs / 122–125 µs | 1.7–5.4 µs / 210–237 µs | 1.2–1.6 µs / 153–288 µs | |
+  | Helper peak RSS: select1 / big3 / mixed20 / widetext | 23.2 / 24.8 / 30.7 / 898 MB | — | 22.8 / 30.2 / 42.2 / 402 MB | — | 25 MB big3 streaming |
+  | Client peak RSS: big3 / widetext | 11.7 / 154 MB | 27.8 / 764 MB | not measured | | |
+  | Spawn to `helloOk` / to `opened` (`:memory:`) / to `opened` (a 1 GB file), p50 | 13.2 / 23.3 / 25.8 ms (during a build; Task 2 measured 7.6 / 11.5 idle) | | 0.8 / 5.9 / 5.9 ms | | 9.4–9.9 ms mac, 4.7 Linux |
+  | Helper RSS idle after open | 20.4 MB (`:memory:`), 21.5 MB (the file) | | 20.2 / 21.1 MB | | |
+
+  On macOS both H-1 criteria hold (`SELECT 1` 63.0 µs against ≤ 65,
+  big3 605 ms against ≤ 676). On Linux the remote client costs more
+  against the spike (`SELECT 1` +38%, big3 +33%), most likely the async
+  hand-offs' wakeups inside the VM; there is no criterion there. Remote
+  beats native through Core on big3 and mixed20 on both, by the margin
+  of the native decode-speed follow-up. In the TUI, through the dialog,
+  an install and connect took 0.33 s from a loopback server; the real
+  download from GitHub is a manual check.
+- **CI** (estimated, not measured): the `duckdb-drivers` job adds about
+  12–15 minutes cold on macOS and 25–35 on Windows (5–6 and 10–12 warm),
+  in parallel with the other jobs; `rust` gains 1–2 minutes.
+
+### Bugs found
+
+By who found them first, counted from the effort log and the plan's
+notes. Review items are counted as listed, so a few are hardening rather
+than bugs; a judgment call where one fix covers several.
+
+| Area | Implementer | Review | Checkpoint H-1 | Probe |
+|---|---|---|---|---|
+| Session split, streaming (Task 1) | — | 6 | — | — |
+| The helper (Task 2) | 1 | 7 | 1 | 1 |
+| The remote driver and Core (Task 3) | — | 9 | 1 | 1 |
+| Install (Task 4) | — | 7 | — | — |
+| Parity and CI (Task 5) | 1 [1] | 7 | — | — |
+| Terminal binaries, TUI dialog (Tasks 6, 7) | — | 10 | — | 2 |
+| CLI, app install, release (Task 8) | — | 8 | — | — |
+| The probe's fixes | 1 | 4 | — | — |
+| **Total** | **3 [1]** | **58** | **2** | **4** |
+
+The bracketed number was older than the plan (the e2e seeder's absolute
+imports, which Node refuses on Windows). The serious ones:
+
+- **A commit cut off by the helper's death was shown as failed** (probe
+  F1, Important): Core answered with `CONNECTION_CLOSED` on the failed
+  change, the TUI marked it `!` and kept it staged, and the change had
+  in fact committed, so committing again would fail a DELETE or
+  duplicate an INSERT. The TUI and the GUI now treat it as interrupted
+  ("may be partly applied") and the TUI offers Reconnect.
+- **Wrong values with lossy Arrow settings** (Checkpoint H-1): after
+  `RESET arrow_lossless_conversion` the remote driver read UHUGEINT's
+  maximum as −1 and BIT as bytes, because it took kinds from Arrow
+  fields. The schema frame now carries the native driver's kinds.
+- **DuckDB printed into the frame stream** (Task 2, implementer): its
+  progress bar draws on fd 1. The helper now keeps stdout for frames and
+  points fd 1 at stderr.
+- **An unread stream could block the helper's dispatcher** (Task 2
+  review): a control reply written behind a stream nobody read left the
+  helper unable to see EOF. Output became a queue with its own writer,
+  and a client that stops reading for 30 s loses its helper (the wedge).
+- **The helper's signature lacked the entitlements** (Task 8 review):
+  without `disable-library-validation` the hardened runtime would refuse
+  DuckDB's own signed extensions, as issue #114 did in the app.
+- **A reconnect could meet the closing helper's file lock** (probe-fix
+  review): letting a helper finish its close checkpoint after 2 s meant
+  the next open of that file in the same process hit DuckDB's lock; opens
+  now wait for it, and other processes retry for 10 s.
+
+### What was harder than expected
+
+- **Hand-offs, not the pipe.** The spike's `SELECT 1` was a blocking
+  loop; through Core every hop is a task wake on each side. Finding the
+  27 µs took timestamps in both processes, and the last 2 µs would need
+  the dispatcher and the client's reader restructured.
+- **Every way a process ends.** EOF while DuckDB runs, a client that
+  stops reading, a close checkpoint that takes seconds, a parent killed
+  with `kill -9`, Ctrl+Z on the TUI, a helper killed mid-commit: each
+  needed its own rule, and the close checkpoint needed rules on both
+  sides and then a registry of closing helpers.
+- **Platforms not at hand.** The Windows stdout guard and rename retry
+  are type-checked only, the Windows CI job hasn't run, and the probe's
+  Linux was aarch64 in a container. They are manual checks.
+
+What went to plan: pipes were as fast as the spikes said (remote beats
+native on large results), streaming execution in the shared session
+gave the desktop the same first-batch win, every native DuckDB suite
+passes on the remote driver with only the two frame limits as
+differences, and no marker reached a log.
 
 ## Risks
 

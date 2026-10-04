@@ -3,6 +3,9 @@
 //! them. An unknown option fails the connect with DuckDB's message, and a
 //! `restricted` instance takes only an allowlist.
 
+#[path = "common/engine.rs"]
+mod engine_switch;
+
 use std::sync::Arc;
 
 use seaquel_engine::{ConnectConfig, Driver};
@@ -14,7 +17,7 @@ fn config(v: serde_json::Value) -> ConnectConfig {
 }
 
 async fn open(config: &ConnectConfig) -> Result<Arc<dyn Driver>, seaquel_engine::DbError> {
-    seaquel_engine_duckdb::engine().open(config).await
+    engine_switch::engine().open(config).await
 }
 
 struct TempDir(std::path::PathBuf);
@@ -145,4 +148,56 @@ async fn restricted_takes_allowed_options() {
         .execute("SET autoload_known_extensions = true", vec![])
         .await
         .is_err());
+}
+
+/// `streaming_buffer_size` (how far a streamed query runs ahead of its
+/// reader, 1 MB by default) is a session setting, not an open option: DuckDB
+/// refuses it in the open config, so a connection string can't set it, and a
+/// restricted instance refuses it earlier, off its allowlist. A session
+/// `SET` changes it; on a restricted instance only the editor's own path
+/// could send one (the read-only path refuses `SET`), and the MCP server's
+/// tools use the read-only path.
+#[tokio::test]
+async fn streaming_buffer_size_is_a_session_setting() {
+    for size in ["64KB", "64GB"] {
+        let err = open(&config(json!({
+            "driver": "duckdb", "path": ":memory:", "restricted": true,
+            "duckdb_config": { "streaming_buffer_size": size },
+        })))
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("{size} was accepted"));
+        assert_eq!(err.code, "INVALID_CONNECTION", "{size}: {err:?}");
+        assert!(err.message.contains("streaming_buffer_size"), "{err:?}");
+
+        let err = open(&config(json!({
+            "driver": "duckdb", "path": ":memory:",
+            "duckdb_config": { "streaming_buffer_size": size },
+        })))
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("{size} was accepted in the open config"));
+        assert_eq!(err.code, "CONNECTION_ERROR", "{size}: {err:?}");
+        assert!(err.message.contains("streaming_buffer_size"), "{err:?}");
+    }
+    let d = open(&config(json!({ "driver": "duckdb", "path": ":memory:" })))
+        .await
+        .unwrap();
+    let setting = || {
+        d.query(
+            "SELECT current_setting('streaming_buffer_size') AS s",
+            vec![],
+        )
+    };
+    assert_eq!(
+        setting().await.unwrap().rows[0][0],
+        seaquel_engine::Value::Text("976.5 KiB".into())
+    );
+    d.execute("SET streaming_buffer_size = '64KB'", vec![])
+        .await
+        .unwrap();
+    assert_eq!(
+        setting().await.unwrap().rows[0][0],
+        seaquel_engine::Value::Text("62.5 KiB".into())
+    );
 }

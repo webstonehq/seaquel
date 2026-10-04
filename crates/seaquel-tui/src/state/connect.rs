@@ -139,7 +139,10 @@ pub fn on_msg(model: &mut Model, msg: Msg) -> Vec<Effect> {
         | Msg::QuerySaved { .. }
         | Msg::Edited { .. }
         | Msg::Generated { .. }
-        | Msg::Mentions { .. } => Vec::new(),
+        | Msg::Mentions { .. }
+        | Msg::DuckdbOffer { .. }
+        | Msg::InstallProgress { .. }
+        | Msg::Installed { .. } => Vec::new(),
     }
 }
 
@@ -216,9 +219,9 @@ pub(crate) fn start_connect(model: &mut Model, id: &str) -> Vec<Effect> {
 
 /// The next step of a connect: a prompt for a secret the row doesn't save
 /// and nothing typed yet covers, else the connect itself.
-fn proceed(model: &mut Model, pending: Pending) -> Vec<Effect> {
+pub(crate) fn proceed(model: &mut Model, pending: Pending) -> Vec<Effect> {
     let Some(row) = model.library.connection(&pending.connection_id).cloned() else {
-        return Vec::new();
+        return removed(model);
     };
     if let Some(kind) = to_ask(model, &row, &pending) {
         prompt(model, pending, kind, None);
@@ -238,6 +241,21 @@ fn proceed(model: &mut Model, pending: Pending) -> Vec<Effect> {
         Effect::Connect(call),
         Model::log_effect(None, format!("connecting {}", row.name)),
     ]
+}
+
+/// The connection a connect was for is gone (removed elsewhere while its
+/// helper downloaded, or before `r` reconnected it): the picker opens and
+/// the command log says why (review M1 of the DuckDB helper plan's Task 7).
+fn removed(model: &mut Model) -> Vec<Effect> {
+    model.modal = Some(Modal::Picker(picker::open_picker(
+        &model.library,
+        model.project.as_deref(),
+        &model.remembered,
+    )));
+    vec![Model::log_effect(
+        Some(Tag::Error),
+        text::CONNECTION_REMOVED.to_string(),
+    )]
 }
 
 /// The secret to ask for before connecting, if any: one the row doesn't
@@ -360,16 +378,21 @@ fn on_connected(
         }
         Err(e) => {
             model.conn = Conn::Failed { id };
-            let log = Model::log_effect(Some(Tag::Error), text::failed_line("connect", &e.code));
-            failed(model, &row, pending, &e);
-            vec![log]
+            let mut effects = vec![Model::log_effect(
+                Some(Tag::Error),
+                text::failed_line("connect", &e.code),
+            )];
+            effects.extend(failed(model, &row, pending, &e));
+            effects
         }
     }
 }
 
 /// What a failed connect opens: the trust dialog, a prompt for what's
-/// missing, or the problem (with a retry when a typed secret could fix it).
-fn failed(model: &mut Model, row: &ConnItem, pending: Pending, e: &CallError) {
+/// missing, DuckDB support's download, or the problem (with a retry when a
+/// typed secret could fix it, or a reconnect when the DuckDB helper didn't
+/// start).
+fn failed(model: &mut Model, row: &ConnItem, pending: Pending, e: &CallError) -> Vec<Effect> {
     let ssh_kind = row.tunnel.as_ref().map(|t| match t.auth {
         TunnelAuth::Password => SecretKind::Ssh,
         TunnelAuth::Key => SecretKind::SshKey,
@@ -379,6 +402,18 @@ fn failed(model: &mut Model, row: &ConnItem, pending: Pending, e: &CallError) {
         Some((kind, pending))
     };
     match e.code.as_str() {
+        // DuckDB support isn't installed: offer its download (Q5 A), unless
+        // it was just installed (then a download wouldn't help).
+        "ENGINE_NOT_INSTALLED" if !pending.after_install => {
+            return super::install::open(model, pending);
+        }
+        // The helper is there and checked but didn't answer in time (Task
+        // 3's M5): connecting again may work; a download wouldn't.
+        "ENGINE_UNAVAILABLE" => {
+            let mut problem = dialogs::problem(e, None);
+            problem.reconnect = Some(pending);
+            model.modal = Some(Modal::Problem(problem));
+        }
         // No store in this session: what it would hold is asked for
         // instead, as for a row that doesn't save it (probe F4).
         "SECRET_STORE_UNAVAILABLE" => {
@@ -398,7 +433,7 @@ fn failed(model: &mut Model, row: &ConnItem, pending: Pending, e: &CallError) {
                     port: tunnel.port,
                     fingerprint,
                 }));
-                return;
+                return Vec::new();
             }
             model.modal = Some(Modal::Problem(dialogs::problem(e, None)));
         }
@@ -429,6 +464,7 @@ fn failed(model: &mut Model, row: &ConnItem, pending: Pending, e: &CallError) {
             model.modal = Some(Modal::Problem(dialogs::problem(e, retry)));
         }
     }
+    Vec::new()
 }
 
 fn on_schema(
@@ -701,6 +737,122 @@ pub fn retry(model: &mut Model) {
         return;
     };
     prompt(model, pending, kind, Some(text::PASSWORD_AGAIN));
+}
+
+/// `r` on a problem a reconnect may fix (a DuckDB helper that didn't
+/// start, or one that stopped): the same connect again.
+pub fn reconnect(model: &mut Model) -> Vec<Effect> {
+    let Some(Modal::Problem(problem)) = &model.modal else {
+        return Vec::new();
+    };
+    let Some(pending) = problem.reconnect.clone() else {
+        return Vec::new();
+    };
+    if let Err(effects) = super::commit::idle(model) {
+        return effects;
+    }
+    model.modal = None;
+    let mut effects = drop_connection(model);
+    effects.extend(proceed(model, pending));
+    effects
+}
+
+/// The `CONNECTION_CLOSED` error in `msg`, when it answers a call on the
+/// connected connection: the DuckDB helper behind it stopped (the DuckDB
+/// helper plan, Decision 8; Core's `ConnectionClosed` event stays reserved,
+/// so the first call to fail says so). Only answers about the connection
+/// panel 1 has now count, by Core's id.
+pub(crate) fn lost_by(model: &Model, msg: &Msg) -> Option<CallError> {
+    use super::query::RunMsg;
+    let core_id = model.conn.core_id()?;
+    let (current, error) = match msg {
+        Msg::Schema {
+            core_id: c,
+            result: Err(e),
+            ..
+        }
+        | Msg::Meta {
+            core_id: c,
+            result: Err(e),
+            ..
+        }
+        | Msg::Columns {
+            core_id: c,
+            result: Err(e),
+            ..
+        } => (c == core_id, e),
+        Msg::Page {
+            op, result: Err(e), ..
+        } => (
+            model.browse.loading == Some(*op)
+                && model
+                    .browse
+                    .opened
+                    .as_ref()
+                    .is_some_and(|o| o.core_id == core_id),
+            e,
+        ),
+        // An apply's own outcome can carry it too (probe F1): Core answers
+        // a lost connection mid-apply as a failed change.
+        Msg::Applied {
+            op,
+            result:
+                Err(e)
+                | Ok(super::commit::Applied::Applied {
+                    failed: Some(super::commit::Failure { error: e, .. }),
+                    ..
+                }),
+            ..
+        } => (
+            model
+                .committing
+                .as_ref()
+                .is_some_and(|c| c.op == *op && c.core_id == core_id),
+            e,
+        ),
+        Msg::Run {
+            tab,
+            op,
+            event: RunMsg::Failed { error, .. } | RunMsg::Refused { error, .. },
+        } => (
+            model
+                .query
+                .tabs
+                .iter()
+                .find(|t| t.id == *tab)
+                .and_then(|t| t.op.as_ref())
+                .is_some_and(|o| o.op == *op && o.core_id == core_id),
+            error,
+        ),
+        _ => return None,
+    };
+    (current && error.code == "CONNECTION_CLOSED").then(|| error.clone())
+}
+
+/// The connection's helper stopped: panel 1 says closed, and the problem
+/// offers the same connect again, with the secrets typed for it.
+pub(crate) fn lost(model: &mut Model, error: CallError) -> Vec<Effect> {
+    let Conn::Connected { id, core_id } = std::mem::replace(&mut model.conn, Conn::None) else {
+        return Vec::new();
+    };
+    let pending = Pending {
+        connection_id: id.clone(),
+        typed: std::mem::take(&mut model.typed),
+        ..Pending::default()
+    };
+    model.conn = Conn::Closed { id };
+    super::browse::close(model);
+    let mut problem = dialogs::problem(&error, None);
+    problem.reconnect = Some(pending);
+    model.modal = Some(Modal::Problem(problem));
+    vec![
+        // Core still lists it: let it go.
+        Effect::Disconnect { core_id },
+        Model::log_effect(
+            Some(Tag::Error),
+            text::failed_line("connection closed", &error.code),
+        ),
+    ]
 }
 
 /// Esc on the keychain box, or its limit passed: a connect waiting on the
@@ -1827,5 +1979,201 @@ mod tests {
         let mut m = ready();
         update_(&mut m, ctrl('c'));
         assert_eq!(m.modal, Some(Modal::ConfirmQuit));
+    }
+    // ── The DuckDB helper (Task 7 of the DuckDB helper plan) ──
+
+    /// The fixture library plus a DuckDB file connection in project-b.
+    fn with_duckdb() -> Model {
+        let mut m = ready();
+        let file = m.library.connection("conn-file").unwrap().clone();
+        m.library.connections.push(crate::state::panels::ConnItem {
+            id: "conn-duck".into(),
+            name: "warehouse".into(),
+            engine: "duckdb".into(),
+            ..file
+        });
+        m
+    }
+
+    fn duck_pending() -> crate::state::dialogs::Pending {
+        let mut typed = Typed::default();
+        typed.set(SecretKind::Db, Secret::new("typed-pw"));
+        crate::state::dialogs::Pending {
+            connection_id: "conn-duck".into(),
+            typed,
+            ..Default::default()
+        }
+    }
+
+    /// Task 3's M5: a helper that didn't answer in time is there and
+    /// checked, so a download wouldn't help. The problem offers the same
+    /// connect again instead.
+    #[test]
+    fn a_helper_that_didnt_start_offers_reconnect_not_a_download() {
+        let mut m = with_duckdb();
+        m.conn = Conn::Connecting(Attempt {
+            attempt: 3,
+            pending: duck_pending(),
+        });
+        let effects = failed(
+            &mut m,
+            3,
+            "ENGINE_UNAVAILABLE",
+            "The DuckDB helper didn't start in time",
+        );
+        assert!(!effects
+            .iter()
+            .any(|e| matches!(e, Effect::CheckDuckdb { .. } | Effect::InstallDuckdb { .. })));
+        let Some(Modal::Problem(p)) = &m.modal else {
+            panic!("{:?}", m.modal)
+        };
+        assert_eq!(p.title, text::PROBLEM_TITLE_HELPER);
+        assert!(p.message.contains("didn't start in time"));
+        assert!(p.retry.is_none());
+        assert_eq!(m.bar_context(), BarContext::ProblemReconnect);
+        let effects = keys(&mut m, "r");
+        let call = connect_effect(&effects).expect("connects again");
+        assert_eq!(call.connection_id, "conn-duck");
+        assert_eq!(
+            call.secrets.db.as_ref().map(Secret::expose),
+            Some("typed-pw")
+        );
+        assert_eq!(m.modal, None);
+        assert!(matches!(m.conn, Conn::Connecting(_)));
+    }
+
+    /// A connected DuckDB whose helper stopped: the first call that says
+    /// so (any panel's) closes the connection and offers to connect again,
+    /// with the secrets typed for it.
+    #[test]
+    fn a_stopped_helper_closes_the_connection_and_offers_reconnect() {
+        let mut m = with_duckdb();
+        m.conn = Conn::Connected {
+            id: "conn-duck".into(),
+            core_id: "core-9".into(),
+        };
+        m.typed = duck_pending().typed;
+        let closed = |core_id: &str| Msg::Schema {
+            core_id: core_id.into(),
+            result: Err(CallError::new(
+                "CONNECTION_CLOSED",
+                "The DuckDB helper stopped (signal 9). Reconnect to continue.",
+            )),
+            stamp: Stamp::default(),
+        };
+        // Another connection's answer changes nothing.
+        update_(&mut m, closed("core-old"));
+        assert!(matches!(m.conn, Conn::Connected { .. }));
+        assert_eq!(m.modal, None);
+        let effects = update_(&mut m, closed("core-9"));
+        assert_eq!(
+            m.conn,
+            Conn::Closed {
+                id: "conn-duck".into()
+            }
+        );
+        assert!(effects.contains(&Effect::Disconnect {
+            core_id: "core-9".into()
+        }));
+        let Some(Modal::Problem(p)) = &m.modal else {
+            panic!("{:?}", m.modal)
+        };
+        assert_eq!(p.title, text::PROBLEM_TITLE_CLOSED);
+        assert!(p.message.contains("signal 9"));
+        assert_eq!(m.bar_context(), BarContext::ProblemReconnect);
+        let effects = keys(&mut m, "r");
+        let call = connect_effect(&effects).expect("connects again");
+        assert_eq!(call.connection_id, "conn-duck");
+        assert_eq!(
+            call.secrets.db.as_ref().map(Secret::expose),
+            Some("typed-pw")
+        );
+    }
+
+    /// Review M1: `r` to reconnect a connection removed meanwhile opens
+    /// the picker and says it was removed.
+    #[test]
+    fn reconnecting_a_removed_connection_opens_the_picker_and_says_so() {
+        let mut m = with_duckdb();
+        m.conn = Conn::Connecting(Attempt {
+            attempt: 3,
+            pending: duck_pending(),
+        });
+        failed(&mut m, 3, "ENGINE_UNAVAILABLE", "didn't start in time");
+        m.library.connections.retain(|c| c.id != "conn-duck");
+        let effects = keys(&mut m, "r");
+        assert!(connect_effect(&effects).is_none());
+        assert!(matches!(m.modal, Some(Modal::Picker(_))), "{:?}", m.modal);
+        assert!(effects.contains(&Model::log_effect(
+            Some(Tag::Error),
+            text::CONNECTION_REMOVED.to_string()
+        )));
+    }
+
+    /// The same from a table's columns read for completion, and from a
+    /// query tab's run: the run's statement fails first, then the
+    /// connection closes.
+    #[test]
+    fn a_stopped_helper_is_noticed_by_columns_and_runs() {
+        use crate::state::query::RunMsg;
+        let closed = || {
+            CallError::new(
+                "CONNECTION_CLOSED",
+                "The DuckDB helper stopped (signal 9). Reconnect to continue.",
+            )
+        };
+        let mut m = with_duckdb();
+        m.conn = Conn::Connected {
+            id: "conn-duck".into(),
+            core_id: "core-9".into(),
+        };
+        update_(
+            &mut m,
+            Msg::Columns {
+                core_id: "core-9".into(),
+                target: seaquel_core::domain::edits::TableTarget {
+                    schema: "main".into(),
+                    table: "t".into(),
+                },
+                result: Err(closed()),
+            },
+        );
+        assert!(matches!(m.conn, Conn::Closed { .. }), "{:?}", m.conn);
+        assert!(matches!(m.modal, Some(Modal::Problem(_))));
+
+        let mut m = with_duckdb();
+        m.conn = Conn::Connected {
+            id: "conn-duck".into(),
+            core_id: "core-9".into(),
+        };
+        update_(&mut m, key('Q'));
+        let tab = m.query.active().expect("a query tab").id;
+        let t = m.query.active_mut().unwrap();
+        t.op = Some(crate::state::query::Op {
+            op: 5,
+            stream_id: "tui-run-x-5".into(),
+            kind: crate::state::query::OpKind::Run,
+            page_size: 100,
+            pending: None,
+            connection_id: Some("conn-duck".into()),
+            core_id: "core-old".into(),
+        });
+        let failed = |op| Msg::Run {
+            tab,
+            op,
+            event: RunMsg::Failed {
+                index: 0,
+                error: closed(),
+                elapsed_ms: 1.0,
+                sql: None,
+            },
+        };
+        // A run left over from an earlier connection: not this one's.
+        update_(&mut m, failed(5));
+        assert!(matches!(m.conn, Conn::Connected { .. }), "{:?}", m.conn);
+        m.query.active_mut().unwrap().op.as_mut().unwrap().core_id = "core-9".into();
+        update_(&mut m, failed(5));
+        assert!(matches!(m.conn, Conn::Closed { .. }), "{:?}", m.conn);
+        assert!(matches!(m.modal, Some(Modal::Problem(_))));
     }
 }

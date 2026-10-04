@@ -341,6 +341,57 @@ describe("checkCrateDeps", () => {
     ]);
   });
 
+  it("lets the DuckDB helper host its engine crate, and nothing else", () => {
+    const base = [
+      pkg("seaquel-engine"),
+      pkg("seaquel-runtime"),
+      pkg("seaquel-types"),
+      pkg("seaquel-sql"),
+      pkg("seaquel-core"),
+      pkg(
+        "seaquel-engine-duckdb",
+        "seaquel-engine",
+        "seaquel-runtime",
+        "seaquel-types",
+        "seaquel-sql",
+      ),
+      pkg("seaquel-engine-sqlite", "seaquel-engine"),
+      pkg("seaquel-storage"),
+    ];
+    expect(
+      checkCrateDeps([
+        ...base,
+        pkg("seaquel-duckdb", "seaquel-engine-duckdb", "seaquel-engine", "seaquel-types"),
+      ]),
+    ).toEqual([]);
+    expect(
+      checkCrateDeps([
+        ...base,
+        pkg(
+          "seaquel-duckdb",
+          "seaquel-engine-duckdb",
+          "seaquel-core",
+          "seaquel-engine-sqlite",
+          "seaquel-storage",
+        ),
+      ]),
+    ).toEqual([
+      "seaquel-duckdb -> seaquel-core: the DuckDB helper may depend only on seaquel-engine-duckdb and the pure crates",
+      "seaquel-duckdb -> seaquel-engine-sqlite: the DuckDB helper may depend only on seaquel-engine-duckdb and the pure crates",
+      "seaquel-duckdb -> seaquel-storage: the DuckDB helper may depend only on seaquel-engine-duckdb and the pure crates",
+    ]);
+    // A binary: nothing may depend on it.
+    expect(
+      checkCrateDeps([
+        ...base,
+        pkg("seaquel-duckdb", "seaquel-engine-duckdb"),
+        pkg("seaquel-core", "seaquel-duckdb"),
+      ]),
+    ).toEqual([
+      "seaquel-core -> seaquel-duckdb: seaquel-duckdb is a binary; nothing depends on it",
+    ]);
+  });
+
   it("accepts the phase 6 crates", () => {
     const packages = [
       pkg("seaquel-macros"),

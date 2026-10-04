@@ -2,25 +2,30 @@
 name = "seaquel-cli"
 version = "0.1.0"
 edition = "2021"
-description = "The `seaquel-cli` binary, a release asset the desktop app can download and install. Its one subcommand, `mcp`, serves Seaquel's MCP server over stdio."
+description = "The `seaquel-cli` binary, a release asset the desktop app can download and install. `mcp` serves Seaquel's MCP server over stdio; `duckdb` installs its DuckDB helper."
 
 [[bin]]
 name = "seaquel-cli"
 path = "src/main.rs"
 
 [dependencies]
-# The five engines (Core's defaults) and the infrastructure the MCP server
-# needs. No `git` and no `license-*`: the CLI doesn't check licenses
-# (decision 14 of the design doc). `imports` (phase 5e): the CLI's Core is
-# built like the desktop's, with `LocalFiles` and the import paths, though
-# no command uses them yet (Q26).
-seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace", "imports"] }
+# The infrastructure the MCP server needs; the engines come through
+# seaquel-terminal (DuckDB in the `seaquel-duckdb` helper, so no default
+# features: Core's defaults link native DuckDB). No `git` and no
+# `license-*`: the CLI doesn't check licenses (decision 14 of the design
+# doc). `imports` (phase 5e): the CLI's Core is built like the desktop's,
+# with `LocalFiles` and the import paths, though no command uses them yet
+# (Q26).
+seaquel-core = { path = "../seaquel-core", default-features = false, features = ["storage", "secrets", "ssh", "workspace", "imports"] }
 seaquel-mcp = { path = "../seaquel-mcp" }
 # What the terminal binaries share (phase 7a, Decision 22): the data dir,
-# the Core builder (every engine, `TokioExecutor`), the test hooks, the log
-# filter, the shutdown signals and the version (its `build.rs` reads the
-# app's).
-seaquel-terminal = { path = "../seaquel-terminal" }
+# the Core builder (every engine, DuckDB through the helper,
+# `TokioExecutor`), the test hooks, the log filter, the shutdown signals
+# and the version (its `build.rs` reads the app's). With its
+# `duckdb-helper-install`: `seaquel-cli duckdb install` downloads the DuckDB
+# helper (the DuckDB helper plan, Task 8), which brings seaquel-http and
+# reqwest (+0.7 MB; CI's reqwest ban on the CLI went with it).
+seaquel-terminal = { path = "../seaquel-terminal", features = ["duckdb-helper-install"] }
 clap = { workspace = true }
 rmcp = { workspace = true }
 log = { workspace = true }
@@ -36,3 +41,7 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true, features = ["process", "io-util", "time"] }
+# `duckdb install`'s tests (the DuckDB helper plan, Task 8): `MockReleases`
+# on 127.0.0.1 serves the release metadata and the asset. Never the real
+# network.
+seaquel-http = { path = "../seaquel-http", features = ["release-asset", "testing"] }

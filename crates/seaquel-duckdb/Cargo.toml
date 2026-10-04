@@ -1,0 +1,24 @@
+[package]
+name = "seaquel-duckdb"
+version = "0.1.0"
+edition = "2021"
+description = "The DuckDB helper: DuckDB in a process of its own, started by the terminal binaries (seaquel-tui, seaquel-cli) and spoken to over its stdin and stdout."
+
+[[bin]]
+name = "seaquel-duckdb"
+path = "src/main.rs"
+
+[dependencies]
+# The helper's loop (`helper::serve`) and the native DuckDB under it. An
+# engine host may name its engine crate and the pure crates only
+# (scripts/check-crate-deps.mjs).
+seaquel-engine-duckdb = { path = "../seaquel-engine-duckdb", default-features = false, features = ["helper"] }
+
+# `dup2`: fd 1 pointed at stderr once stdout is kept for frames (`_dup2`
+# on Windows, for the C runtime's fd 1).
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+# `SetStdHandle`: the standard output handle pointed at stderr too. The
+# version Cargo.lock already has.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }

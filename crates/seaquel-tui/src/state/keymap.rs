@@ -60,6 +60,19 @@ pub enum Context {
     Notice,
     /// The keychain wait box.
     Keychain,
+    /// A DuckDB helper that didn't start or stopped: connect again, on top
+    /// of [`Context::Problem`].
+    ProblemReconnect,
+    /// DuckDB support isn't installed: looking up its download.
+    InstallChecking,
+    /// "Download now?"
+    InstallAsk,
+    /// The download's progress.
+    InstallDownloading,
+    /// The download or its lookup failed.
+    InstallFailed,
+    /// It failed in a way a retry can't fix (`NOT_SUPPORTED`).
+    InstallFailedFinal,
     /// The commit dialog (Task 5).
     Commit,
     /// The commit dialog on a `prod` connection: printable keys are the
@@ -67,6 +80,8 @@ pub enum Context {
     CommitProd,
     /// "Discard N staged changes?"
     ConfirmDiscard,
+    /// "Commit again?" after a commit that lost its connection.
+    ConfirmRecommit,
     /// Changes are staged on another connection.
     QueueSwitch,
     /// A staged value being edited (its text takes every printable key).
@@ -133,9 +148,16 @@ impl Context {
             | Context::ProblemRetry
             | Context::Notice
             | Context::Keychain
+            | Context::ProblemReconnect
+            | Context::InstallChecking
+            | Context::InstallAsk
+            | Context::InstallDownloading
+            | Context::InstallFailed
+            | Context::InstallFailedFinal
             | Context::Commit
             | Context::CommitProd
             | Context::ConfirmDiscard
+            | Context::ConfirmRecommit
             | Context::QueueSwitch
             | Context::EditValue
             | Context::Command
@@ -190,6 +212,15 @@ pub enum Action {
     Retry,
     /// Stop waiting for the keychain.
     GiveUp,
+    /// Connect again after the DuckDB helper didn't start or stopped.
+    Reconnect,
+    /// Download DuckDB support (the DuckDB helper plan, Task 7).
+    Download,
+    /// Look up or download DuckDB support again.
+    InstallRetry,
+    /// Leave the install dialog (a download in flight stops) for the
+    /// picker.
+    StopInstall,
     /// `u`: take back the last staging action.
     Undo,
     // The data grid (Task 4).
@@ -234,6 +265,8 @@ pub enum Action {
     DiscardAll,
     /// `y` in the discard question.
     ConfirmDiscard,
+    /// `y` in the "commit again?" question.
+    ConfirmRecommit,
     /// Enter in the commit dialog.
     Execute,
     /// `p` in the commit dialog (Tab on a `prod` connection).
@@ -984,6 +1017,72 @@ pub static BINDINGS: &[Binding] = &[
         "stop waiting",
         Some(("Stop waiting", "esc")),
     ),
+    // A DuckDB helper that didn't start or stopped.
+    b(
+        C::ProblemReconnect,
+        &[Key::char('r')],
+        A::Reconnect,
+        "r",
+        "connect again",
+        Some(("Connect again", "r")),
+    ),
+    // DuckDB support isn't installed (the DuckDB helper plan, Task 7).
+    b(
+        C::InstallChecking,
+        ESC,
+        A::StopInstall,
+        "esc",
+        "cancel",
+        Some(("Cancel", "esc")),
+    ),
+    b(
+        C::InstallAsk,
+        ENTER,
+        A::Download,
+        "enter",
+        "download",
+        Some(("Download", "enter")),
+    ),
+    b(
+        C::InstallAsk,
+        ESC,
+        A::StopInstall,
+        "esc",
+        "cancel",
+        Some(("Cancel", "esc")),
+    ),
+    b(
+        C::InstallDownloading,
+        ESC,
+        A::StopInstall,
+        "esc",
+        "stop the download",
+        Some(("Stop", "esc")),
+    ),
+    b(
+        C::InstallFailed,
+        &[Key::char('r')],
+        A::InstallRetry,
+        "r",
+        "try again",
+        Some(("Retry", "r")),
+    ),
+    b(
+        C::InstallFailed,
+        &[Key::code(KeyCode::Esc), Key::code(KeyCode::Enter)],
+        A::StopInstall,
+        "esc",
+        "close",
+        Some(("Close", "esc")),
+    ),
+    b(
+        C::InstallFailedFinal,
+        &[Key::code(KeyCode::Esc), Key::code(KeyCode::Enter)],
+        A::StopInstall,
+        "esc",
+        "close",
+        Some(("Close", "esc")),
+    ),
     // The commit dialog (the prototype's `s.modal === 'commit'`).
     b(
         C::Commit,
@@ -1033,6 +1132,24 @@ pub static BINDINGS: &[Binding] = &[
         "esc",
         "keep them",
         Some(("Keep", "esc")),
+    ),
+    // "Commit again?": the last commit lost its connection and may have
+    // been applied (the DuckDB helper plan's probe F1).
+    b(
+        C::ConfirmRecommit,
+        &[Key::char('y')],
+        A::ConfirmRecommit,
+        "y",
+        "commit them again",
+        Some(("Commit again", "y")),
+    ),
+    b(
+        C::ConfirmRecommit,
+        &[Key::char('n'), Key::code(KeyCode::Esc)],
+        A::Cancel,
+        "esc",
+        "don't commit",
+        Some(("Cancel", "esc")),
     ),
     // Changes staged on another connection.
     b(
@@ -1699,9 +1816,16 @@ pub enum BarContext {
     ProblemRetry,
     Notice,
     Keychain,
+    ProblemReconnect,
+    InstallChecking,
+    InstallAsk,
+    InstallDownloading,
+    InstallFailed,
+    InstallFailedFinal,
     Commit,
     CommitProd,
     ConfirmDiscard,
+    ConfirmRecommit,
     QueueSwitch,
     EditValue,
     QueryInsert,
@@ -1721,7 +1845,7 @@ pub enum BarContext {
 }
 
 impl BarContext {
-    pub const ALL: [BarContext; 38] = [
+    pub const ALL: [BarContext; 45] = [
         BarContext::Connection,
         BarContext::Tables,
         BarContext::Saved,
@@ -1741,9 +1865,16 @@ impl BarContext {
         BarContext::ProblemRetry,
         BarContext::Notice,
         BarContext::Keychain,
+        BarContext::ProblemReconnect,
+        BarContext::InstallChecking,
+        BarContext::InstallAsk,
+        BarContext::InstallDownloading,
+        BarContext::InstallFailed,
+        BarContext::InstallFailedFinal,
         BarContext::Commit,
         BarContext::CommitProd,
         BarContext::ConfirmDiscard,
+        BarContext::ConfirmRecommit,
         BarContext::QueueSwitch,
         BarContext::EditValue,
         BarContext::QueryInsert,
@@ -1784,9 +1915,16 @@ impl BarContext {
             BarContext::ProblemRetry => &[C::ProblemRetry, C::Problem],
             BarContext::Notice => &[C::Notice],
             BarContext::Keychain => &[C::Keychain],
+            BarContext::ProblemReconnect => &[C::ProblemReconnect, C::Problem],
+            BarContext::InstallChecking => &[C::InstallChecking],
+            BarContext::InstallAsk => &[C::InstallAsk],
+            BarContext::InstallDownloading => &[C::InstallDownloading],
+            BarContext::InstallFailed => &[C::InstallFailed],
+            BarContext::InstallFailedFinal => &[C::InstallFailedFinal],
             BarContext::Commit => &[C::Commit],
             BarContext::CommitProd => &[C::CommitProd, C::Commit],
             BarContext::ConfirmDiscard => &[C::ConfirmDiscard],
+            BarContext::ConfirmRecommit => &[C::ConfirmRecommit],
             BarContext::QueueSwitch => &[C::QueueSwitch],
             BarContext::EditValue => &[C::EditValue],
             BarContext::QueryInsert => &[C::Insert, C::Query, C::Global],
@@ -1867,9 +2005,16 @@ impl BarContext {
             BarContext::ProblemRetry => &[A::Retry, A::Close],
             BarContext::Notice => &[A::Close],
             BarContext::Keychain => &[A::GiveUp],
+            BarContext::ProblemReconnect => &[A::Reconnect, A::Close],
+            BarContext::InstallChecking => &[A::StopInstall],
+            BarContext::InstallAsk => &[A::Download, A::StopInstall],
+            BarContext::InstallDownloading => &[A::StopInstall],
+            BarContext::InstallFailed => &[A::InstallRetry, A::StopInstall],
+            BarContext::InstallFailedFinal => &[A::StopInstall],
             BarContext::Commit => &[A::Execute, A::PreviewSql, A::Cancel],
             BarContext::CommitProd => &[A::Execute, A::PreviewSql, A::Cancel],
             BarContext::ConfirmDiscard => &[A::ConfirmDiscard, A::Cancel],
+            BarContext::ConfirmRecommit => &[A::ConfirmRecommit, A::Cancel],
             BarContext::QueueSwitch => &[A::KeepQueue, A::DiscardQueue, A::Cancel],
             BarContext::EditValue => &[A::ApplyValue, A::Cancel],
             // Design 1b's bar (Decision 14's keys).
@@ -2082,9 +2227,16 @@ mod tests {
             BarContext::ProblemRetry,
             BarContext::Notice,
             BarContext::Keychain,
+            BarContext::ProblemReconnect,
+            BarContext::InstallChecking,
+            BarContext::InstallAsk,
+            BarContext::InstallDownloading,
+            BarContext::InstallFailed,
+            BarContext::InstallFailedFinal,
             BarContext::Commit,
             BarContext::CommitProd,
             BarContext::ConfirmDiscard,
+            BarContext::ConfirmRecommit,
             BarContext::QueueSwitch,
             BarContext::EditValue,
             BarContext::QueryCommand,
@@ -2118,6 +2270,36 @@ mod tests {
             Some(A::Retry)
         );
         assert!(lookup(BarContext::Problem.chain(), Key::char('r')).is_none());
+        // The DuckDB helper's dialogs (Task 7 of the DuckDB helper plan).
+        assert_eq!(
+            lookup(BarContext::ProblemReconnect.chain(), Key::char('r')).map(|b| b.action),
+            Some(A::Reconnect)
+        );
+        assert_eq!(
+            lookup(BarContext::InstallAsk.chain(), Key::code(KeyCode::Enter)).map(|b| b.action),
+            Some(A::Download)
+        );
+        assert_eq!(
+            lookup(BarContext::InstallFailed.chain(), Key::char('r')).map(|b| b.action),
+            Some(A::InstallRetry)
+        );
+        for context in [
+            BarContext::InstallChecking,
+            BarContext::InstallAsk,
+            BarContext::InstallDownloading,
+            BarContext::InstallFailed,
+            BarContext::InstallFailedFinal,
+        ] {
+            assert_eq!(
+                lookup(context.chain(), Key::code(KeyCode::Esc)).map(|b| b.action),
+                Some(A::StopInstall),
+                "{context:?}"
+            );
+        }
+        // Enter mustn't start a download anywhere but the question.
+        for context in [BarContext::InstallChecking, BarContext::InstallDownloading] {
+            assert!(lookup(context.chain(), Key::code(KeyCode::Enter)).is_none());
+        }
         // A cell full size is read-only: like the help, `q` closes it.
         for key in [Key::char('1'), Key::char('['), Key::char('?')] {
             assert!(lookup(BarContext::Cell.chain(), key).is_none(), "{key:?}");

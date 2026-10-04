@@ -69,7 +69,12 @@ fn row(id: &str, name: &str, fields: Json) -> PersistedConnection {
 /// whose saved password goes through the test secrets file (`pg refused`),
 /// and two connections named `twin`.
 async fn sandbox() -> Sandbox {
-    let dir = tempfile::tempdir().unwrap();
+    // Under the target dir, so a DuckDB helper the hook links in here is
+    // found by `pgrep -f` on the target path.
+    let dir = tempfile::Builder::new()
+        .prefix("cli-stdio-")
+        .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
+        .unwrap();
     let data = dir.path().join("data");
     std::fs::create_dir_all(&data).unwrap();
     let lite = dir.path().join("app.sqlite");
@@ -116,6 +121,11 @@ async fn sandbox() -> Sandbox {
         row("c-lite", "lite", lite_fields.clone()),
         row("c-twin-a", "twin", lite_fields.clone()),
         row("c-twin-b", "twin", lite_fields),
+        row(
+            "c-duck",
+            "duck",
+            json!({ "type": "duckdb", "databaseName": ":memory:" }),
+        ),
         row(
             "c-pg-refused",
             "pg refused",
@@ -219,7 +229,180 @@ async fn an_mcp_client_talks_to_the_binary() {
         .unwrap();
     assert!(stderr.contains("Serving MCP on stdio"), "{stderr}");
     assert!(stderr.contains("Connecting \"lite\""), "{stderr}");
+    // No DuckDB connection exposed: no word about its helper.
+    assert!(!stderr.contains("DuckDB support"), "{stderr}");
     assert!(!stderr.contains(SECRET), "a secret in the logs:\n{stderr}");
+}
+
+/// Runs `sql` on `connection` through the binary and returns the tool
+/// result's text and whether it is an error.
+async fn one_query(cmd: Command, connection: &str, sql: &str) -> (String, bool) {
+    let (text, is_error, _) = one_query_logged(cmd, connection, sql).await;
+    (text, is_error)
+}
+
+/// [`one_query`], with the binary's stderr.
+async fn one_query_logged(cmd: Command, connection: &str, sql: &str) -> (String, bool, String) {
+    let (transport, stderr) = TokioChildProcess::builder(cmd.configure(|c| {
+        c.args(["--connection", connection]);
+    }))
+    .stderr(Stdio::piped())
+    .spawn()
+    .unwrap();
+    let stderr = tokio::spawn(read_all(stderr.unwrap()));
+    let client = ().serve(transport).await.unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_secs(60),
+        client.call_tool(
+            CallToolRequestParams::new("run_query".to_string()).with_arguments(
+                json!({ "connection": connection, "sql": sql })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        ),
+    )
+    .await
+    .expect("the call answers in time")
+    .unwrap();
+    client.cancel().await.unwrap();
+    let stderr = tokio::time::timeout(Duration::from_secs(10), stderr)
+        .await
+        .expect("the binary exits once stdin closes")
+        .unwrap();
+    (text(&result), result.is_error == Some(true), stderr)
+}
+
+/// The MCP server's words for a DuckDB connection without the helper
+/// (Decision 13), as the tool error's text and the startup line.
+fn not_installed_text() -> String {
+    format!(
+        "DuckDB support isn't installed for seaquel-cli {}. Run \"seaquel-cli duckdb install\", \
+         or use Install Command Line Tool in the Seaquel app.",
+        seaquel_cli::VERSION
+    )
+}
+
+/// The CLI links no DuckDB (the DuckDB helper plan, Task 6): with no
+/// helper under the data dir, a DuckDB query is `ENGINE_NOT_INSTALLED` (a
+/// native driver would have answered), and nothing is downloaded or made.
+/// The error says how to install it (Task 8, Decision 13), and so does
+/// one stderr line at startup; the server starts anyway.
+#[tokio::test]
+async fn duckdb_without_the_helper_is_not_installed() {
+    let sb = sandbox().await;
+    let (text, is_error, stderr) =
+        one_query_logged(sb.command(&[]), "duck", "SELECT 40 + 2 AS n").await;
+    assert!(is_error, "{text}");
+    assert_eq!(
+        text,
+        format!("ENGINE_NOT_INSTALLED: {}", not_installed_text())
+    );
+    assert_eq!(
+        stderr.matches(&not_installed_text()).count(),
+        1,
+        "one startup line: {stderr}"
+    );
+    assert!(!stderr.contains("duck\""), "no connection name: {stderr}");
+    assert!(!sb.data().join("bin").exists());
+}
+
+/// A helper that is installed (it passes the start's check) but still
+/// refused, here a stand-in that exits at once: installing again wouldn't
+/// help (`install` finds it intact), so the error points at `duckdb
+/// status` instead, and there is no startup line.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_installed_helper_that_is_refused_points_at_status() {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    let sb = sandbox().await;
+    let folder = sb
+        .data()
+        .join("bin")
+        .join("duckdb")
+        .join(seaquel_cli::VERSION);
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&folder)
+        .unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o700)
+        .open(folder.join("seaquel-duckdb"))
+        .and_then(|mut f| std::io::Write::write_all(&mut f, b"#!/bin/sh\nexit 0\n"))
+        .unwrap();
+    let (text, is_error, stderr) =
+        one_query_logged(sb.command(&[]), "duck", "SELECT 40 + 2 AS n").await;
+    assert!(is_error, "{text}");
+    assert!(text.starts_with("ENGINE_NOT_INSTALLED: "), "{text}");
+    assert!(text.contains("seaquel-cli duckdb status"), "{text}");
+    assert!(!text.contains("seaquel-cli duckdb install"), "{text}");
+    assert!(!stderr.contains(&not_installed_text()), "{stderr}");
+}
+
+/// `SEAQUEL_CLI_TEST_DUCKDB_HELPER` (debug builds) links a built helper
+/// into `<data dir>/bin/duckdb/<version>/`, and the MCP server's DuckDB
+/// query runs in it. Needs `SEAQUEL_TEST_DUCKDB_HELPER`; skipped without
+/// it, failing with `SEAQUEL_TEST_REQUIRE_ENGINES`.
+#[tokio::test]
+async fn duckdb_runs_in_the_hook_s_helper() {
+    let built = match std::env::var_os("SEAQUEL_TEST_DUCKDB_HELPER") {
+        Some(path) => PathBuf::from(path),
+        None if std::env::var_os("SEAQUEL_TEST_REQUIRE_ENGINES").is_some() => {
+            panic!("SEAQUEL_TEST_DUCKDB_HELPER is not set")
+        }
+        None => {
+            eprintln!("skipping: SEAQUEL_TEST_DUCKDB_HELPER is not set");
+            return;
+        }
+    };
+    let sb = sandbox().await;
+    let mut cmd = sb.command(&[]);
+    cmd.env("SEAQUEL_CLI_TEST_DUCKDB_HELPER", &built);
+    let (text, is_error) = one_query(cmd, "duck", "SELECT 40 + 2 AS n").await;
+    assert!(!is_error, "{text}");
+    let out: Json = serde_json::from_str(&text).unwrap();
+    assert_eq!(out["rows"], json!([[42]]));
+    let installed = sb
+        .data()
+        .join("bin")
+        .join("duckdb")
+        .join(seaquel_cli::VERSION)
+        .join(format!("seaquel-duckdb{}", std::env::consts::EXE_SUFFIX));
+    assert!(installed.is_file(), "{installed:?}");
+}
+
+/// Review M4: the MCP server's DuckDB is restricted through the helper
+/// too. A query reading a file in the sandbox through `read_csv` is a
+/// tool error, and the file's content never comes back. Needs
+/// `SEAQUEL_TEST_DUCKDB_HELPER`, as above.
+#[tokio::test]
+async fn the_hook_s_helper_runs_duckdb_restricted() {
+    let built = match std::env::var_os("SEAQUEL_TEST_DUCKDB_HELPER") {
+        Some(path) => PathBuf::from(path),
+        None if std::env::var_os("SEAQUEL_TEST_REQUIRE_ENGINES").is_some() => {
+            panic!("SEAQUEL_TEST_DUCKDB_HELPER is not set")
+        }
+        None => {
+            eprintln!("skipping: SEAQUEL_TEST_DUCKDB_HELPER is not set");
+            return;
+        }
+    };
+    let sb = sandbox().await;
+    let csv = sb.dir.path().join("escape.csv");
+    std::fs::write(&csv, "marker\nRestricted-Marker-7731\n").unwrap();
+    let mut cmd = sb.command(&[]);
+    cmd.env("SEAQUEL_CLI_TEST_DUCKDB_HELPER", &built);
+    let sql = format!("SELECT * FROM read_csv('{}')", csv.display());
+    let (text, is_error) = one_query(cmd, "duck", &sql).await;
+    assert!(is_error, "{text}");
+    assert!(!text.contains("Restricted-Marker-7731"), "{text}");
+    assert!(
+        text.contains("file system operations are disabled"),
+        "refused by DuckDB's restriction: {text}"
+    );
 }
 
 /// Sends raw JSON-RPC lines and checks every stdout line is a JSON-RPC
@@ -228,7 +411,14 @@ async fn an_mcp_client_talks_to_the_binary() {
 async fn stdout_carries_only_json_rpc() {
     let sb = sandbox().await;
     let mut child = sb
-        .command(&["--connection", "lite", "--log-level", "debug"])
+        .command(&[
+            "--connection",
+            "lite",
+            "--connection",
+            "duck",
+            "--log-level",
+            "debug",
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -456,16 +646,36 @@ async fn a_data_dir_the_app_must_upgrade_is_refused() {
     let sb = sandbox().await;
     let file = sb.data().join("seaquel.db");
     // A file the app hasn't brought up to date: its schema version is gone.
+    // The DELETE runs on one plain connection that checkpoints and closes
+    // before the file is read (review I4): through the storage pool, a
+    // connection could still be closing, and checkpointing the WAL into the
+    // file, after `before` was read.
     {
+        use sqlx::{ConnectOptions, Connection};
         let storage = seaquel_core::storage::Storage::open(&file, StorageOptions::default())
             .await
             .unwrap();
-        sqlx::query("DELETE FROM schema_version")
-            .execute(storage.pool())
+        storage.close().await;
+        let mut conn = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&file)
+            .connect()
             .await
             .unwrap();
-        storage.close().await;
+        sqlx::query("DELETE FROM schema_version")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
     }
+    let wal = file.with_extension("db-wal");
+    assert!(
+        std::fs::metadata(&wal).map_or(true, |m| m.len() == 0),
+        "the WAL is checkpointed before the file is read"
+    );
     let before = std::fs::read(&file).unwrap();
     let stderr = fail(&sb, &["--connection", "lite"]).await;
     assert!(

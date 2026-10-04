@@ -1005,6 +1005,8 @@
   "settings_mcp_binary_missing": "The command line tool is not installed. Install it to use the MCP commands below.",
   "settings_mcp_path_installed": "Installed: you can run seaquel-cli in a terminal.",
   "settings_mcp_path_outdated": "The seaquel-cli on your PATH is from another version of Seaquel. Install it again to update it.",
+  "settings_mcp_duckdb_missing": "DuckDB support for the command line tool isn't installed, so its DuckDB connections won't open. Install to add it.",
+  "settings_mcp_duckdb_unsafe": "The command line tool's DuckDB support is in a folder other users can change, so it isn't used. Install to make the folder private again.",
   "settings_mcp_path_other": "seaquel-cli on your PATH is a different program: {path}",
   "settings_mcp_path_missing": "seaquel-cli isn't on your PATH. MCP hosts don't need it, since the snippets below use the full path.",
   "settings_mcp_path_missing_appimage": "Not installed yet. The AppImage is mounted at a new place each time it runs, so install the tool first: the snippets below use the installed copy.",

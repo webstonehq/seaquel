@@ -1,0 +1,24 @@
+┌[1]-Connection─────────○ 0┐┌Data - Structure - Indexes - Constraints - DDL────┐
+│not connected · enter to …││nothing selected                                  │
+└──────────────────────────┘│                                                  │
+┌[2]-Tables - Views────────┐│                                                  │
+│no connection             ││                                                  │
+│       ┌ Download DuckDB support? ────────────────────────────────────┐       │
+│       │ DuckDB support is a separate download of 11.7 MB.            │       │
+│       │ For seaquel-tui <version>.                                    │       │
+│       │                                                              │       │
+│       │ The DuckDB helper already there is in a folder that isn't    │       │
+│       │ private. Installing again makes it private.                  │       │
+│       │                                                              │       │
+└───────│ Its size and SHA-256 are checked before it's saved in        │       │
+┌[3]-Sav│ Seaquel's data folder. The connection continues once it's    │       │
+│no save│ installed.                                                   │       │
+│       │                                                              │       │
+│       │ Download now?                                                │       │
+└───────└──────────────────────────────────────────────────────────────┘       │
+┌[4]-Pending Changes───────┐└──────────────────────────────────────────────────┘
+│nothing staged            │┌Command Log───────────────────────────────────────┐
+│                          ││statements Seaquel runs show here                 │
+│                          ││                                                  │
+└──────────────────────────┘└──────────────────────────────────────────────────┘
+Download: enter | Cancel: esc                                   seaquel <version>

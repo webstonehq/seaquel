@@ -10,6 +10,7 @@ members = [
     "crates/seaquel-engine-mysql",
     "crates/seaquel-engine-mssql",
     "crates/seaquel-engine-duckdb",
+    "crates/seaquel-duckdb",
     "crates/seaquel-core",
     "crates/seaquel-rpc",
     "crates/seaquel-sql",

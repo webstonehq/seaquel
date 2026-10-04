@@ -164,6 +164,24 @@ impl DbError {
             code: "ENGINE_NOT_AVAILABLE".to_string(),
         }
     }
+
+    /// The engine is part of this build but runs in a separate download
+    /// that isn't there, or isn't one this build can use (the DuckDB
+    /// helper of the terminal binaries: missing, another version, unsafe
+    /// permissions, or it didn't answer). `engine` is the engine's name as
+    /// users know it, `version` the app version the download must match,
+    /// `reason` why it can't be used; none of them is a path. The interface
+    /// offers the download.
+    pub fn engine_not_installed(
+        engine: &str,
+        version: &str,
+        reason: impl std::fmt::Display,
+    ) -> Self {
+        Self {
+            message: format!("{engine} support for Seaquel {version} isn't installed: {reason}"),
+            code: "ENGINE_NOT_INSTALLED".to_string(),
+        }
+    }
 }
 
 /// Driver type discriminant

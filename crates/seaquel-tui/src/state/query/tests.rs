@@ -593,6 +593,39 @@ fn stream_all_keeps_at_most_the_row_cap() {
     assert!(!m.running());
 }
 
+/// Probe F4: a stream stopped at the cap shows the time it ran, from its
+/// `statementStart` to the tick the cap was reached in, not "0 ms".
+#[test]
+fn a_capped_stream_shows_the_time_it_ran() {
+    let mut m = querying(148, 42, "SELECT * FROM huge", false);
+    let t0 = std::time::Instant::now();
+    update(&mut m, Msg::Tick(t0));
+    update(&mut m, press(KeyCode::Esc));
+    typed(&mut m, ":all");
+    let call = run_call(&update(&mut m, press(KeyCode::Enter)));
+    update(&mut m, Msg::Tick(t0 + std::time::Duration::from_millis(20)));
+    send(
+        &mut m,
+        &call,
+        start(0, "SELECT * FROM huge", StatementKind::Stream, 1, 0),
+    );
+    update(
+        &mut m,
+        Msg::Tick(t0 + std::time::Duration::from_millis(360)),
+    );
+    send(
+        &mut m,
+        &call,
+        batch(&["id"], ints(0..(ROW_CAP as i64 + 10))),
+    );
+    let tab = m.query.active().unwrap();
+    assert!(tab.statements[0].capped);
+    match tab.statements[0].status {
+        Status::Done { elapsed_ms, .. } => assert_eq!(elapsed_ms, 340.0),
+        ref other => panic!("{other:?}"),
+    }
+}
+
 #[test]
 fn enter_opens_a_cell_full_size() {
     let mut m = querying(148, 42, "SELECT doc FROM t", false);

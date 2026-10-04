@@ -16,13 +16,13 @@
 //!   every execute. So an interrupt only stops the statement running (or
 //!   being prepared) when it lands; one that lands between prepare and
 //!   execute would be forgotten, which is why the driver checks the cancelled
-//!   flag after every prepare (`driver::prepare`). A window of a few
+//!   flag after every prepare (`session::prepare`). A window of a few
 //!   microseconds remains between that check and DuckDB's reset. The same
 //!   reset makes a late interrupt harmless: one fired after a stream's final
 //!   batch was sent, while the worker is still Running (dropping the
 //!   statement), can't reach the next call's statement, which clears the
 //!   flag when it starts.
-//! - **Panics.** duckdb-rs panics on some values (see `driver::read_cell`).
+//! - **Panics.** duckdb-rs panics on some values (see `driver::Decoder::read_cell`).
 //!   The worker catches them while it still holds the mutex, so it's never
 //!   poisoned; a poisoned mutex is recovered anyway. The connection stays
 //!   usable: a panic while reading a row leaves DuckDB's state alone, and the

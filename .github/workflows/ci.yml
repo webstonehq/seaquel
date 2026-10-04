@@ -57,8 +57,31 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --exclude seaquel --all-targets --features seaquel-runtime/tokio -- -D warnings
 
+      # `cargo test --workspace` builds target/debug/seaquel-duckdb (the
+      # helper's own tests need the binary), so the DuckDB helper plan's
+      # remote tests run here on Linux: the engine crate's tests/remote.rs,
+      # Core's duckdb_remote and duckdb_helper_install. They read the path
+      # when they run, after the build.
       - name: Tests
         run: cargo test --workspace --exclude seaquel --features seaquel-runtime/tokio
+        env:
+          SEAQUEL_TEST_DUCKDB_HELPER: ${{ github.workspace }}/target/debug/seaquel-duckdb
+
+      # The DuckDB suites and MCP's tools again on the remote driver (Task 5's
+      # switch; driver_switch.rs proves which driver ran). Same flags as
+      # Tests, so nothing is rebuilt: DuckDB isn't compiled a second time.
+      # Same-named suites of the other engines run again too; they are quick
+      # or skip without their servers.
+      - name: DuckDB and MCP tests on the remote driver
+        run: >-
+          cargo test --workspace --exclude seaquel --features seaquel-runtime/tokio
+          --test tools --test driver_switch --test smoke --test live --test values
+          --test transaction --test read_only --test read_only_max_rows
+          --test read_only_explain --test restricted --test restricted_home
+          --test duckdb_config --test dialect_parity --test streaming
+        env:
+          SEAQUEL_TEST_DUCKDB_HELPER: ${{ github.workspace }}/target/debug/seaquel-duckdb
+          SEAQUEL_TEST_DUCKDB_DRIVER: remote
 
       # The interface binaries as they ship, each with only its own features.
       # The steps above build the whole workspace, where Cargo unifies every
@@ -77,19 +100,42 @@ jobs:
           cargo clippy -p seaquel-server -- -D warnings
           cargo clippy -p seaquel-mcp -- -D warnings
           cargo clippy -p seaquel-terminal -- -D warnings
+          # The TUI's set (the DuckDB helper plan, Task 6): the helper's
+          # download and the debug `_DUCKDB_RELEASES` hook.
+          cargo clippy -p seaquel-terminal --features duckdb-helper-install -- -D warnings
           cargo clippy -p seaquel-tui -- -D warnings
+          # The DuckDB helper (the DuckDB helper plan, Task 2), and its loop
+          # in the engine crate on the helper's features alone.
+          cargo clippy -p seaquel-duckdb -- -D warnings
+          cargo clippy -p seaquel-engine-duckdb --no-default-features --features helper -- -D warnings
+          # The remote driver (Task 3) alone, and Core with it and no native
+          # DuckDB, as the terminal binaries will build it.
+          cargo clippy -p seaquel-engine-duckdb --no-default-features --features remote -- -D warnings
+          cargo clippy -p seaquel-core --no-default-features --features engine-duckdb-remote -- -D warnings
+          # The helper's download and install (Task 4), on their features
+          # alone.
+          cargo clippy -p seaquel-http --features release-asset -- -D warnings
+          cargo clippy -p seaquel-core --no-default-features --features duckdb-helper-install -- -D warnings
 
       # Phase 7a, Decisions 2 and 22: each terminal binary links only its own
       # extras. The TUI has no MCP server (rmcp), git, imports (plist) or
-      # license client; the CLI has no model HTTP client (reqwest, which only
-      # `ai-native` brings). Normal dependencies, as each binary builds.
+      # license client. The CLI's reqwest ban went with `seaquel-cli duckdb
+      # install` (the DuckDB helper plan, Q4 A, Task 8): it downloads the
+      # helper through seaquel-http.
+      # Neither links DuckDB (the DuckDB helper plan, Decision 11): DuckDB
+      # runs in the `seaquel-duckdb` helper, so no crate named like `duckdb`
+      # but the engine crate (whose `remote` driver is plain Rust) may be in
+      # either tree; that catches `duckdb` and `libduckdb-sys`. Normal
+      # dependencies, as each binary builds.
       - name: Terminal binaries' dependencies
         shell: bash
         run: |
           set -euo pipefail
           # One list per binary, built the same way; a failing `cargo tree`
           # fails the step (pipefail, and `set -e` on the assignment).
-          deps() { cargo tree -p "$1" -e normal --prefix none | sed 's/ .*//' | sort -u; }
+          # `--target all`: every platform's dependencies, not only this
+          # runner's (a Windows- or macOS-only crate counts too).
+          deps() { cargo tree -p "$1" -e normal --target all --prefix none | sed 's/ .*//' | sort -u; }
           tui=$(deps seaquel-tui)
           cli=$(deps seaquel-cli)
           test -n "$tui" && test -n "$cli"
@@ -100,12 +146,21 @@ jobs:
               found=1
             fi
           done
-          for name in reqwest; do
-            if grep -qx -- "$name" <<<"$cli"; then
-              echo "::error::seaquel-cli depends on $name"
+          for bin in seaquel-tui seaquel-cli; do
+            list=$([ "$bin" = seaquel-tui ] && echo "$tui" || echo "$cli")
+            duck=$(grep -- duckdb <<<"$list" | grep -vx -- seaquel-engine-duckdb || true)
+            if [ -n "$duck" ]; then
+              echo "::error::$bin links DuckDB: $(echo $duck)"
               found=1
             fi
           done
+          # The remote driver on its own feature links no DuckDB either.
+          remote=$(cargo tree -p seaquel-engine-duckdb --no-default-features --features remote -e normal --target all --prefix none | sed 's/ .*//' | sort -u)
+          test -n "$remote"
+          if grep -qx -- libduckdb-sys <<<"$remote"; then
+            echo "::error::seaquel-engine-duckdb's remote feature links libduckdb-sys"
+            found=1
+          fi
           exit "$found"
 
       - name: Pure crates build for wasm32
@@ -305,6 +360,70 @@ jobs:
           -p seaquel-ssh
       - name: SSH tunnels through Core
         run: cargo test -p seaquel-core --test ssh --test connect
+
+  # The DuckDB helper plan, Task 5: the DuckDB suites on both drivers, the
+  # native one (duckdb-rs in the test process) and the remote one (the
+  # `seaquel-duckdb` helper process), on macOS and Windows. Linux runs both
+  # in `rust`'s Tests step, on the workspace build it already has. The
+  # suites pick the driver from SEAQUEL_TEST_DUCKDB_DRIVER
+  # (crates/seaquel-engine-duckdb/tests/common/engine.rs) and install the
+  # helper SEAQUEL_TEST_DUCKDB_HELPER names into a folder of their own, laid
+  # out as a real install is. Differences between the drivers are listed in
+  # crates/seaquel-engine-duckdb/tests/REMOTE.md. Windows runs the helper's
+  # pipes, its EOF exit and its stdout guard (`fd_1_is_not_the_frame_channel`)
+  # for the first time here.
+  duckdb-drivers:
+    name: DuckDB on both drivers (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # DuckDB's C++ is compiled once in this job: the helper's build and the
+    # two test builds resolve libduckdb-sys the same way (checked with
+    # `--message-format=json`: one build-script out_dir), and the remote-only
+    # build links none. Slowest on Windows.
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # Pull requests read the cache main saved; only main writes it, so PRs
+      # don't each store a multi-GB DuckDB build per OS.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # The seeded file the smoke and read-only suites copy (as in `engines`).
+      - run: npm ci --ignore-scripts
+      - name: Seed the test DuckDB file
+        run: node e2e/test-databases/seed.mjs duckdb
+      # A debug helper, as the tests' own builds are. Its path goes to the
+      # later steps; each test installs it where the locator looks.
+      - name: Build the helper
+        shell: bash
+        run: |
+          cargo build -p seaquel-duckdb
+          echo "SEAQUEL_TEST_DUCKDB_HELPER=$GITHUB_WORKSPACE/target/debug/seaquel-duckdb${{ runner.os == 'Windows' && '.exe' || '' }}" >> "$GITHUB_ENV"
+      - name: The helper binary
+        run: cargo test -p seaquel-duckdb
+        env:
+          SEAQUEL_TEST_REQUIRE_ENGINES: "1"
+      # The native suites, the helper's loop, the client's calls and
+      # tests/remote.rs (its permission, pid and signal cases are Unix only).
+      - name: Native driver, helper loop and remote client
+        run: cargo test -p seaquel-engine-duckdb --features remote,helper
+        env:
+          SEAQUEL_TEST_REQUIRE_ENGINES: "1"
+      # The same suites on the remote driver, with no DuckDB linked into the
+      # test binaries (driver_switch.rs checks the driver by what it does).
+      - name: Every suite on the remote driver
+        run: cargo test -p seaquel-engine-duckdb --no-default-features --features remote
+        env:
+          SEAQUEL_TEST_REQUIRE_ENGINES: "1"
+          SEAQUEL_TEST_DUCKDB_DRIVER: remote
 
   desktop:
     name: Desktop app compiles

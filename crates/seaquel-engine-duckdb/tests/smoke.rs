@@ -4,6 +4,9 @@
 //! (skipped when it hasn't been seeded; `npm run e2e:db:seed`), and the
 //! DDL and CRUD the dialect generates, run statement by statement.
 
+#[path = "common/engine.rs"]
+mod engine_switch;
+
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -30,20 +33,50 @@ fn memory() -> ConnectConfig {
 }
 
 async fn open(config: &ConnectConfig) -> Arc<dyn Driver> {
-    seaquel_engine_duckdb::engine()
-        .open(config)
-        .await
-        .expect("open")
+    engine_switch::engine().open(config).await.expect("open")
 }
 
 #[tokio::test]
 async fn smoke() {
     run_smoke(
-        &*seaquel_engine_duckdb::engine(),
+        &*engine_switch::engine(),
         &memory(),
         &SmokeSpec::QUESTION_MARK,
     )
     .await;
+}
+
+/// DuckDB has no last-insert id: `execute` reports rows affected and
+/// `last_insert_id: None`, on either driver (`REMOTE.md`'s "Not
+/// differences"), even for a table with a sequence-backed key.
+#[tokio::test]
+async fn execute_has_no_last_insert_id() {
+    let d = open(&memory()).await;
+    d.execute("CREATE SEQUENCE ids START 41", vec![])
+        .await
+        .unwrap();
+    d.execute(
+        "CREATE TABLE t (id INTEGER PRIMARY KEY DEFAULT nextval('ids'), v VARCHAR)",
+        vec![],
+    )
+    .await
+    .unwrap();
+    let r = d
+        .execute(
+            "INSERT INTO t (v) VALUES (?)",
+            vec![Value::Text("a".into())],
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.rows_affected, 1);
+    assert_eq!(r.last_insert_id, None);
+    let r = d
+        .execute("INSERT INTO t (v) VALUES ('b'), ('c')", vec![])
+        .await
+        .unwrap();
+    assert_eq!(r.rows_affected, 2);
+    assert_eq!(r.last_insert_id, None);
+    d.close().await.unwrap();
 }
 
 /// The testkit's introspection checks on a scratch schema. DuckDB keeps no
@@ -131,7 +164,7 @@ async fn introspection() {
             ..IntrospectionExpect::ALL
         },
     };
-    run_introspection(&*seaquel_engine_duckdb::engine(), &memory(), &spec).await;
+    run_introspection(&*engine_switch::engine(), &memory(), &spec).await;
 }
 
 /// UNIQUE constraints in `table_metadata`: `is_unique` for a column that

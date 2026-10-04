@@ -6,6 +6,8 @@
 
 #![allow(dead_code)]
 
+pub mod screen;
+
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
@@ -29,6 +31,8 @@ pub struct Pty {
     out: Arc<Mutex<Vec<u8>>>,
     stop: Arc<AtomicBool>,
     child: Child,
+    /// Columns × rows, for [`Pty::screen`].
+    size: (u16, u16),
 }
 
 impl Drop for Pty {
@@ -54,6 +58,17 @@ impl Pty {
 
     /// [`Pty::start`] on a pty `size` columns × rows.
     pub fn start_sized(data: &std::path::Path, args: &[&str], size: (u16, u16)) -> Pty {
+        Pty::start_with(data, args, size, &[])
+    }
+
+    /// [`Pty::start_sized`] with more variables in the TUI's environment.
+    pub fn start_with(
+        data: &std::path::Path,
+        args: &[&str],
+        size: (u16, u16),
+        env: &[(&str, &str)],
+    ) -> Pty {
+        let cells = size;
         let (mut master, mut slave) = (-1, -1);
         let mut size = libc::winsize {
             ws_row: size.1,
@@ -100,6 +115,7 @@ impl Pty {
             .env("EDITOR", "/nonexistent/editor")
             .env("VISUAL", "/nonexistent/editor")
             .env_remove("NO_COLOR")
+            .envs(env.iter().copied())
             .stdin(Stdio::from(slave.try_clone().unwrap()))
             .stdout(Stdio::from(slave.try_clone().unwrap()))
             .stderr(Stdio::from(slave.try_clone().unwrap()));
@@ -146,6 +162,7 @@ impl Pty {
             out,
             stop,
             child,
+            size: cells,
         }
     }
 
@@ -153,6 +170,28 @@ impl Pty {
         self.out.lock().unwrap().clone()
     }
 
+    /// What the terminal shows now: the output so far, parsed.
+    pub fn screen(&self) -> screen::Screen {
+        screen::Screen::parse(&self.output(), self.size.0, self.size.1)
+    }
+
+    /// Waits until the screen shows `text` (review I3). Use this for
+    /// anything the TUI draws: ratatui redraws only changed cells, so drawn
+    /// text isn't always in the byte stream whole. [`Pty::wait_for`] is for
+    /// raw sequences (the terminal queries).
+    pub fn wait_for_screen(&self, text: &str) {
+        let start = Instant::now();
+        while !self.screen().contains(text) {
+            assert!(
+                start.elapsed() < WAIT,
+                "never saw {text:?} on the screen:\n{}",
+                self.screen().text()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Waits for a raw byte sequence in the output (a terminal query).
     pub fn wait_for(&self, pattern: &[u8]) {
         let start = Instant::now();
         while find(&self.output(), pattern).is_none() {

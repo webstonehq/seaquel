@@ -7,13 +7,17 @@
 //! (decision 14 of the design doc).
 //!
 //! stdout belongs to the MCP protocol under `seaquel-cli mcp`: messages and
-//! logs go to stderr.
+//! logs go to stderr. Under `seaquel-cli duckdb` it carries only the answer
+//! (a path or a status word).
 
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 
+mod duckdb;
 mod mcp;
+
+pub use duckdb::{DuckdbArgs, DuckdbCommand, InstallArgs};
 
 use seaquel_terminal::VERSION_TEXT;
 /// The terms line and the desktop app's version, which the CLI shares
@@ -42,6 +46,9 @@ pub enum Command {
     /// Only the saved connections named with --connection or --project are
     /// exposed, read-only. With neither, the server starts with none.
     Mcp(McpArgs),
+    /// DuckDB support: the `seaquel-duckdb` helper DuckDB connections run
+    /// in, downloaded separately for this version.
+    Duckdb(DuckdbArgs),
 }
 
 #[derive(Debug, Args)]
@@ -63,5 +70,6 @@ pub struct McpArgs {
 pub fn run(cli: Cli) -> ExitCode {
     match cli.command {
         Command::Mcp(args) => mcp::run(args),
+        Command::Duckdb(args) => duckdb::run(args),
     }
 }

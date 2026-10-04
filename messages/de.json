@@ -748,6 +748,8 @@
   "settings_mcp_binary_missing": "Das Kommandozeilen-Tool ist nicht installiert. Installieren Sie es, um die MCP-Befehle unten zu verwenden.",
   "settings_mcp_path_installed": "Installiert: Sie können seaquel-cli in einem Terminal ausführen.",
   "settings_mcp_path_outdated": "Das seaquel-cli in Ihrem PATH stammt aus einer anderen Version von Seaquel. Installieren Sie es erneut, um es zu aktualisieren.",
+  "settings_mcp_duckdb_missing": "Die DuckDB-Unterstützung für das Kommandozeilen-Tool ist nicht installiert, daher lassen sich dessen DuckDB-Verbindungen nicht öffnen. Installieren Sie sie, um sie hinzuzufügen.",
+  "settings_mcp_duckdb_unsafe": "Die DuckDB-Unterstützung des Kommandozeilen-Tools befindet sich in einem Ordner, den andere Benutzer ändern können, daher wird sie nicht verwendet. Installieren Sie sie erneut, um den Ordner wieder privat zu machen.",
   "settings_mcp_path_other": "seaquel-cli in Ihrem PATH ist ein anderes Programm: {path}",
   "settings_mcp_path_missing": "seaquel-cli befindet sich nicht in Ihrem PATH. MCP-Hosts benötigen es nicht, da die untenstehenden Snippets den vollständigen Pfad verwenden.",
   "settings_mcp_path_missing_appimage": "Noch nicht installiert. Das AppImage wird bei jedem Start an einem neuen Ort eingehängt. Installieren Sie das Tool daher zuerst: Die untenstehenden Snippets verwenden die installierte Kopie.",

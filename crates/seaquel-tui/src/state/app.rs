@@ -24,6 +24,7 @@ use super::commit::{self, Applied, ApplyCall, CommitDialog, Committing, QueueSwi
 use super::connect;
 use super::dialogs::{CallError, Notice, PasswordPrompt, Problem, TrustPrompt};
 use super::grid::Page;
+use super::install;
 use super::keymap::{self, Action, BarContext, Key};
 use super::log::{CommandLog, LogLine, Tag};
 use super::panels::{HistoryItem, Library, Row, SavedItem, TableItem};
@@ -153,6 +154,9 @@ pub enum Modal {
     Commit(CommitDialog),
     /// `D` in panel 4: "Discard N staged changes?"
     ConfirmDiscard,
+    /// `c` on a queue a commit may have partly applied (it lost its
+    /// connection): "Commit again?"
+    ConfirmRecommit,
     /// Changes are staged on another connection: keep, discard or stay.
     QueueSwitch(QueueSwitch),
     /// `e` in panel 4: a staged value being edited.
@@ -167,6 +171,9 @@ pub enum Modal {
     Cell(CellView),
     /// Ask AI over the query tab (Task 7).
     Ask(Ask),
+    /// DuckDB support isn't installed: its download (the DuckDB helper
+    /// plan, Task 7).
+    InstallDuckdb(install::InstallDialog),
 }
 
 /// Panel 1's connection.
@@ -293,6 +300,9 @@ pub struct Model {
     /// later).
     pub remember_dirty: Option<Option<Instant>>,
     pub next_attempt: u64,
+    /// The DuckDB helper's lookups and downloads (Task 7 of the DuckDB
+    /// helper plan).
+    pub next_install: u64,
     /// The opened table: its page, metadata, cursor and filters (Task 4).
     pub browse: Browse,
     /// The staged changes (Decision 12); `staged` counts them.
@@ -348,6 +358,7 @@ impl Model {
             remembered: Remembered::default(),
             remember_dirty: None,
             next_attempt: 1,
+            next_install: 1,
             browse: Browse::default(),
             queue: Queue::default(),
             page_size: browse::DEFAULT_PAGE_SIZE,
@@ -390,6 +401,9 @@ impl Model {
             Some(Modal::Password(p)) if !p.can_save => return BarContext::PasswordNoSave,
             Some(Modal::Password(_)) => return BarContext::Password,
             Some(Modal::Trust(_)) => return BarContext::Trust,
+            Some(Modal::Problem(p)) if p.reconnect.is_some() => {
+                return BarContext::ProblemReconnect
+            }
             Some(Modal::Problem(p)) => {
                 return if p.retry.is_some() {
                     BarContext::ProblemRetry
@@ -406,6 +420,7 @@ impl Model {
                 }
             }
             Some(Modal::ConfirmDiscard) => return BarContext::ConfirmDiscard,
+            Some(Modal::ConfirmRecommit) => return BarContext::ConfirmRecommit,
             Some(Modal::QueueSwitch(_)) => return BarContext::QueueSwitch,
             Some(Modal::EditValue(_)) => return BarContext::EditValue,
             Some(Modal::Params(_)) => return BarContext::Params,
@@ -413,6 +428,7 @@ impl Model {
             Some(Modal::SaveAs(_)) => return BarContext::SaveAs,
             Some(Modal::Cell(_)) => return BarContext::Cell,
             Some(Modal::Ask(a)) => return a.bar_context(),
+            Some(Modal::InstallDuckdb(d)) => return d.bar_context(),
             None => {}
         }
         if self.focus == Panel::Main && self.query.shown {
@@ -835,6 +851,22 @@ pub enum Msg {
         project_id: String,
         result: Result<ask::Names, CallError>,
     },
+    /// The DuckDB helper's download size looked up (`op` tells a late one).
+    DuckdbOffer {
+        op: u64,
+        result: Result<install::Offer, CallError>,
+    },
+    /// Compressed bytes of the helper's download received so far.
+    InstallProgress {
+        op: u64,
+        bytes: u64,
+        total: u64,
+    },
+    /// The helper's download ended.
+    Installed {
+        op: u64,
+        result: Result<(), CallError>,
+    },
 }
 
 /// A command-log line `update` asks for; the runtime stamps the time. Its
@@ -949,6 +981,20 @@ pub enum Effect {
     LoadMentions {
         project_id: String,
     },
+    /// Look up the DuckDB helper's download (`duckdb_helper_status` and
+    /// `duckdb_helper_asset`).
+    CheckDuckdb {
+        op: u64,
+    },
+    /// Download and install the DuckDB helper (`duckdb_helper_install`).
+    InstallDuckdb {
+        op: u64,
+    },
+    /// Drop the lookup or download `op` (the future goes, and with it the
+    /// partial file).
+    CancelInstall {
+        op: u64,
+    },
 }
 
 /// Applies `msg` to `model`.
@@ -960,7 +1006,12 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             return effects;
         }
     }
-    let effects = apply(model, msg);
+    // Read before the message is handled: its handler may end the op.
+    let lost = connect::lost_by(model, &msg);
+    let mut effects = apply(model, msg);
+    if let Some(error) = lost {
+        effects.extend(connect::lost(model, error));
+    }
     commit::sync(model);
     browse::refresh(model);
     query::sync(model);
@@ -1057,6 +1108,12 @@ fn apply(model: &mut Model, msg: Msg) -> Vec<Effect> {
             ask::on_mentions(model, &project_id, result);
             Vec::new()
         }
+        Msg::DuckdbOffer { op, result } => install::on_offer(model, op, result),
+        Msg::InstallProgress { op, bytes, total } => {
+            install::on_progress(model, op, bytes, total);
+            Vec::new()
+        }
+        Msg::Installed { op, result } => install::on_installed(model, op, result),
         other => connect::on_msg(model, other),
     }
 }
@@ -1260,6 +1317,10 @@ fn on_key(model: &mut Model, key: Key) -> Vec<Effect> {
         Action::Retry => connect::retry(model),
         Action::GiveUp if ask::waiting(model) => return ask::give_up_keychain(model),
         Action::GiveUp => return connect::give_up_keychain(model),
+        Action::Reconnect => return connect::reconnect(model),
+        Action::Download => return install::download(model),
+        Action::InstallRetry => return install::retry(model),
+        Action::StopInstall => return install::stop(model),
         Action::ScrollUp | Action::ScrollDown => {
             model.scroll_help(binding.action == Action::ScrollDown);
         }
@@ -1271,6 +1332,7 @@ fn on_key(model: &mut Model, key: Key) -> Vec<Effect> {
         Action::ApplyValue => return commit::apply_value(model),
         Action::DiscardAll => return commit::ask_discard(model),
         Action::ConfirmDiscard => return commit::discard(model),
+        Action::ConfirmRecommit => return commit::recommit(model),
         Action::Execute => return commit::execute(model),
         Action::PreviewSql => commit::toggle_preview(model),
         Action::KeepQueue => return commit::keep_queue(model),

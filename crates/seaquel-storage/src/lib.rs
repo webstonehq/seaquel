@@ -21,7 +21,7 @@ pub mod schema;
 mod write;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use data_dir::{data_dir, DATA_DIR_ENV};
+pub use data_dir::{data_dir, data_local_dir, DATA_DIR_ENV};
 pub use data_steps::DATA_STEPS_TABLE;
 /// The SQL layer's error and migration error: sqlx's on native targets,
 /// the in-memory executor's (same variants, codes and messages) on wasm32.

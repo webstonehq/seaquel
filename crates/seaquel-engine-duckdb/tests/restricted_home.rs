@@ -5,6 +5,9 @@
 //!
 //! The unrestricted side isn't run here: it would download from the network.
 
+#[path = "common/engine.rs"]
+mod engine_switch;
+
 use std::path::Path;
 
 use seaquel_engine::ConnectConfig;
@@ -29,8 +32,12 @@ async fn a_restricted_instance_writes_nothing_under_home() {
     let data = root.join("data");
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&data).unwrap();
-    // Before any DuckDB instance exists in this process.
+    // Before any DuckDB instance exists in this process (and before the
+    // remote driver's helper starts: it inherits the environment). DuckDB
+    // reads `USERPROFILE` on Windows.
     std::env::set_var("HOME", &home);
+    #[cfg(windows)]
+    std::env::set_var("USERPROFILE", &home);
 
     let config: ConnectConfig = serde_json::from_value(serde_json::json!({
         "driver": "duckdb",
@@ -39,10 +46,7 @@ async fn a_restricted_instance_writes_nothing_under_home() {
         "restricted": true,
     }))
     .unwrap();
-    let d = seaquel_engine_duckdb::engine()
-        .open(&config)
-        .await
-        .expect("open");
+    let d = engine_switch::engine().open(&config).await.expect("open");
     d.execute("CREATE TABLE t AS SELECT 1 AS a", vec![])
         .await
         .unwrap();

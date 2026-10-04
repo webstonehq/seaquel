@@ -61,6 +61,9 @@ pub const PROBLEM_TITLE_CONNECT: &str = "Couldn't connect";
 pub const PROBLEM_TITLE_HOST_KEY: &str = "The SSH host key changed";
 pub const PROBLEM_TITLE_ENGINE: &str = "This build can't connect to it";
 pub const PROBLEM_TITLE_GONE: &str = "That connection is gone";
+pub const PROBLEM_TITLE_NOT_INSTALLED: &str = "The DuckDB helper can't be used";
+pub const PROBLEM_TITLE_HELPER: &str = "DuckDB didn't start";
+pub const PROBLEM_TITLE_CLOSED: &str = "The connection was lost";
 pub const KEYCHAIN_SAVING: &str = "The password is saved once you answer the dialog.";
 
 /// The secret store each platform has, which the keychain dialogs name
@@ -417,6 +420,12 @@ pub const PROD_WARNING: &str = "⚠ This connection is tagged production.";
 pub const TYPE_PROD: &str = "type prod to confirm › ";
 pub const DESTRUCTIVE_HEADER: &str = "⚠ Destructive statements:";
 pub const DISCARD_TITLE: &str = "Discard?";
+/// The DuckDB helper plan's probe F1: a commit cut off by its connection.
+pub const COMMIT_INTERRUPTED: &str =
+    "the connection closed during the commit: it may have been applied; check the data before committing again";
+pub const MAYBE_APPLIED_HINT: &str = "may be partly applied: check the data";
+pub const RECOMMIT_TITLE: &str = "Commit again?";
+pub const RECOMMIT_QUESTION: &str = "The last commit was cut off when the connection closed and may have been applied. Committing again runs every change again: check the data first.";
 pub const SWITCH_TITLE: &str = "Staged changes";
 pub const BEGIN: &str = "BEGIN;";
 pub const STAGING_ELSEWHERE: &str =
@@ -634,6 +643,102 @@ pub fn connected_line(name: &str, engine: &str) -> String {
 /// The command log's line for a failed connect or load: the code only.
 pub fn failed_line(what: &str, code: &str) -> String {
     format!("{what} failed: {code}")
+}
+
+// ── The DuckDB helper's install dialog (the DuckDB helper plan, Task 7) ──
+
+pub const INSTALL_TITLE: &str = "DuckDB support";
+pub const INSTALL_ASK_TITLE: &str = "Download DuckDB support?";
+pub const INSTALL_FAILED_TITLE: &str = "DuckDB support wasn't installed";
+
+/// The size lookup.
+pub const INSTALL_CHECKING: &str = "DuckDB support isn't installed. Looking up its download…";
+
+/// The question (Q5 A): the size before anything is fetched.
+pub fn install_ask(size: &str) -> String {
+    format!("DuckDB support is a separate download of {size}.")
+}
+pub const INSTALL_QUESTION: &str = "Download now?";
+
+/// Which binary's version it is for, on a line of its own (so the
+/// version's length never moves a line break).
+pub fn install_for() -> String {
+    format!("For seaquel-tui {}.", seaquel_terminal::VERSION)
+}
+
+pub const INSTALL_CHECKED: &str =
+    "Its size and SHA-256 are checked before it's saved in Seaquel's data folder. The connection \
+     continues once it's installed.";
+
+/// The helper there sits in a folder someone else can change (`Unsafe`).
+pub const INSTALL_REPAIR: &str =
+    "The DuckDB helper already there is in a folder that isn't private. Installing again makes \
+     it private.";
+
+pub const INSTALL_DOWNLOADING: &str = "Downloading DuckDB support…";
+pub const INSTALL_STARTING: &str = "starting…";
+
+/// `4.2 MB of 11.7 MB`.
+pub fn install_progress(bytes: &str, total: &str) -> String {
+    format!("{bytes} of {total}")
+}
+
+/// The command log's lines.
+pub fn install_started_line(size: &str) -> String {
+    format!("downloading DuckDB support ({size})")
+}
+pub const INSTALLED_LINE: &str = "installed DuckDB support";
+/// A connect (after an install, or a reconnect) whose saved connection was
+/// removed meanwhile.
+pub const CONNECTION_REMOVED: &str = "That connection was removed. Pick another one.";
+pub const INSTALL_STOPPED_LINE: &str = "DuckDB support's download stopped";
+
+/// A failed lookup or download: a title and what to do (Core's message is
+/// shown under them).
+pub fn install_failure(code: &str) -> (&'static str, &'static str) {
+    match code {
+        "NETWORK_ERROR" => (
+            "Couldn't reach the download server",
+            "Check the network connection, or the proxy in HTTPS_PROXY, then retry.",
+        ),
+        "RELEASE_NOT_FOUND" | "ASSET_NOT_FOUND" => (
+            "DuckDB support isn't published for this version",
+            "This seaquel-tui has no DuckDB download for this platform yet. Retry later, or use \
+             the Seaquel app.",
+        ),
+        "DIGEST_MISMATCH" | "SIZE_MISMATCH" | "GZIP_ERROR" => (
+            "The download was damaged",
+            "Nothing was installed. Retry to download it again.",
+        ),
+        "DIGEST_MISSING"
+        | "DIGEST_INVALID"
+        | "SIZE_INVALID"
+        | "ASSET_TOO_LARGE"
+        | "RELEASE_METADATA_INVALID"
+        | "HTTP_ERROR"
+        | "REDIRECT_REFUSED" => (
+            "The download server's answer can't be used",
+            "Nothing was installed. Retry later.",
+        ),
+        "FILE_ERROR" => (
+            "Couldn't save DuckDB support",
+            "Check that the disk has room and that Seaquel's data folder can be written, then \
+             retry.",
+        ),
+        "UNSAFE_FOLDER" => (
+            "Seaquel's data folder can't be used",
+            "A folder on the way to the DuckDB helper belongs to another user or is a link. Fix \
+             or remove it, then retry.",
+        ),
+        "NOT_SUPPORTED" => (
+            "DuckDB support can't be downloaded here",
+            "This platform has no DuckDB download.",
+        ),
+        _ => (
+            "Couldn't install DuckDB support",
+            "Retry, or look for the code in the log.",
+        ),
+    }
 }
 
 /// "Password for <name>", the prompt's first line.

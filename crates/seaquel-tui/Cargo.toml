@@ -9,11 +9,15 @@ name = "seaquel-tui"
 path = "src/main.rs"
 
 [dependencies]
-seaquel-terminal = { path = "../seaquel-terminal" }
+# `duckdb-helper-install`: the TUI downloads the DuckDB helper on the first
+# DuckDB connect (the DuckDB helper plan, Decision 12).
+seaquel-terminal = { path = "../seaquel-terminal", features = ["duckdb-helper-install"] }
 # Decision 2: `ai-native` for Ask AI (Task 7) on top of what
-# seaquel-terminal brings (`storage`, `secrets`, `ssh`, `workspace`). No
-# `imports`, `git` or `license-*`, and no seaquel-mcp or seaquel-rpc.
-seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace", "ai-native"] }
+# seaquel-terminal brings (the engines, DuckDB through the helper,
+# `storage`, `secrets`, `ssh`, `workspace`). No `imports`, `git` or
+# `license-*`, and no seaquel-mcp or seaquel-rpc. No default features: Core's
+# defaults are every engine with native DuckDB, which the TUI doesn't link.
+seaquel-core = { path = "../seaquel-core", default-features = false, features = ["storage", "secrets", "ssh", "workspace", "ai-native"] }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 # The SQL editor's buffer, cursor and undo (Q7 A); modes, completion and
@@ -50,7 +54,14 @@ tempfile = "3"
 seaquel-ai = { path = "../seaquel-ai", features = ["testing"] }
 # `async_trait` for the tests' blocking and refusing secret stores.
 seaquel-runtime = { path = "../seaquel-runtime" }
+# The DuckDB helper's install dialog (the DuckDB helper plan, Task 7):
+# `MockReleases` on 127.0.0.1 serves the release metadata and the asset.
+seaquel-http = { path = "../seaquel-http", features = ["release-asset", "testing"] }
 # The trust test checks the known_hosts line's key against the fingerprint
 # the dialog showed.
 base64 = { workspace = true }
 sha2 = "0.10"
+# The pty tests' screen (`tests/pty/screen.rs`, review I3 of the DuckDB
+# helper plan's Task 8): a VTE parser already in the lockfile (through
+# clap's anstream), so waits match the rendered screen, not raw bytes.
+anstyle-parse = "1"

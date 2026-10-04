@@ -225,6 +225,18 @@ pub fn discard(model: &Model, frame: &mut Frame) {
     );
 }
 
+/// "Commit again?": the last commit lost its connection (probe F1).
+pub fn recommit(model: &Model, frame: &mut Frame) {
+    draw_box(
+        model,
+        frame,
+        text::RECOMMIT_TITLE.to_string(),
+        Role::Warning,
+        64,
+        vec![Line::from(text::RECOMMIT_QUESTION)],
+    );
+}
+
 pub fn switch(model: &Model, question: &QueueSwitch, frame: &mut Frame) {
     let mut lines = vec![Line::from(text::staged_on(
         model.queue.entries().len(),

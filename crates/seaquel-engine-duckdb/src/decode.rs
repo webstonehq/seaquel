@@ -45,7 +45,7 @@ use arrow_array::types::{
     UInt64Type, UInt8Type,
 };
 use arrow_array::{Array, ArrayRef, GenericListArray, OffsetSizeTrait};
-#[cfg(any(feature = "browser", test))]
+#[cfg(any(feature = "browser", feature = "remote", test))]
 use arrow_schema::Field;
 use arrow_schema::{DataType, IntervalUnit, TimeUnit};
 use serde_json::Value as Json;
@@ -54,7 +54,17 @@ use seaquel_engine::Value;
 
 /// What the Arrow type alone doesn't say about a column (or an element of
 /// one): DuckDB types that share an Arrow carrier with another type.
+///
+/// The DuckDB helper sends each result's kinds, made from DuckDB's logical
+/// types as the native driver makes them, in its schema frame
+/// (`wire::schema_payload`), so its client decodes as natively whatever
+/// the session did to `arrow_lossless_conversion`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(
+    any(feature = "remote", feature = "helper", test),
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
 pub(crate) enum Kind {
     /// The Arrow type says it all.
     Plain,
@@ -76,8 +86,9 @@ pub(crate) enum Kind {
 }
 
 impl Kind {
-    /// The kind of an Arrow field, for the browser driver, which has no
-    /// DuckDB logical types (the native driver walks those). DuckDB marks the
+    /// The kind of an Arrow field, for the browser driver and the DuckDB
+    /// helper's client, which have no DuckDB logical types (the native
+    /// driver walks those). DuckDB marks the
     /// types Arrow has no carrier for with extension metadata
     /// (`ARROW:extension:name`): `arrow.uuid`, `arrow.json`, `arrow.bool8`
     /// and DuckDB's own under `arrow.opaque` (with a `type_name`) or
@@ -85,7 +96,7 @@ impl Kind {
     /// ([`Kind::Plain`]), except that with `decimal38_is_hugeint` a bare
     /// `Decimal128(38, 0)` is read as HUGEINT (DuckDB-WASM 1.4.3 sends
     /// HUGEINT so).
-    #[cfg(any(feature = "browser", test))]
+    #[cfg(any(feature = "browser", feature = "remote", test))]
     pub(crate) fn of_field(field: &Field, decimal38_is_hugeint: bool) -> Kind {
         let child = |f: &Field| Kind::of_field(f, decimal38_is_hugeint);
         if let Some(kind) = extension_kind(field) {
@@ -122,7 +133,7 @@ impl Kind {
 
 /// The kind an Arrow extension type names, if it names one the decoder
 /// treats specially.
-#[cfg(any(feature = "browser", test))]
+#[cfg(any(feature = "browser", feature = "remote", test))]
 fn extension_kind(field: &Field) -> Option<Kind> {
     let metadata = field.metadata();
     let name = metadata.get("ARROW:extension:name")?;

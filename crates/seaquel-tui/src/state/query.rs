@@ -147,6 +147,8 @@ pub struct Op {
     pub pending: Option<PendingRun>,
     /// The saved connection its history goes under.
     pub connection_id: Option<String>,
+    /// Core's connection it runs on.
+    pub core_id: String,
 }
 
 impl fmt::Debug for Op {
@@ -198,6 +200,8 @@ pub struct StatementResult {
     pub status: Status,
     /// "Stream all" stopped at [`ROW_CAP`].
     pub capped: bool,
+    /// The tick its `statementStart` arrived in: a capped stream's time.
+    pub started: Option<Instant>,
 }
 
 impl fmt::Debug for StatementResult {
@@ -1291,6 +1295,7 @@ fn go(model: &mut Model, pending: PendingRun, confirmed: bool) -> Vec<Effect> {
         page_size,
         pending: Some(pending),
         connection_id: history.as_ref().map(|h| h.connection_id.clone()),
+        core_id: call.core_id.clone(),
     });
     tab.statements.clear();
     tab.run_error = None;
@@ -1374,6 +1379,7 @@ fn statement_line(sql: &str, elapsed_ms: f64) -> Effect {
 
 /// A run's event.
 pub fn on_run(model: &mut Model, tab: u64, op: u64, event: RunMsg) -> Vec<Effect> {
+    let model_now = model.now;
     let Some(t) = model.query.tab_mut(tab) else {
         return Vec::new();
     };
@@ -1402,6 +1408,7 @@ pub fn on_run(model: &mut Model, tab: u64, op: u64, event: RunMsg) -> Vec<Effect
                 widths: Vec::new(),
                 status: Status::Running,
                 capped: false,
+                started: model_now,
             }),
             OpKind::Page { statement } => {
                 if let Some(s) = t.statements.get_mut(statement) {
@@ -1410,6 +1417,7 @@ pub fn on_run(model: &mut Model, tab: u64, op: u64, event: RunMsg) -> Vec<Effect
                     s.page_no = page;
                     s.page_size = size;
                     s.status = Status::Running;
+                    s.started = model_now;
                 }
                 t.row = 0;
             }
@@ -1466,8 +1474,15 @@ pub fn on_run(model: &mut Model, tab: u64, op: u64, event: RunMsg) -> Vec<Effect
                 page.rows.truncate(ROW_CAP);
                 page.total_rows = ROW_CAP as u64;
                 s.capped = true;
+                // The time up to the stop (probe F4), to the tick.
+                let elapsed_ms = match (s.started, model_now) {
+                    (Some(start), Some(now)) => {
+                        now.saturating_duration_since(start).as_micros() as f64 / 1000.0
+                    }
+                    _ => 0.0,
+                };
                 s.status = Status::Done {
-                    elapsed_ms: 0.0,
+                    elapsed_ms,
                     rows_affected: None,
                 };
                 let statements = t.statements.len() as u32;
@@ -1528,6 +1543,7 @@ pub fn on_run(model: &mut Model, tab: u64, op: u64, event: RunMsg) -> Vec<Effect
                     widths: Vec::new(),
                     status: Status::Running,
                     capped: false,
+                    started: None,
                 });
             }
             if let Some(s) = target(t, kind, Some(index)) {
@@ -1796,6 +1812,7 @@ pub fn page(model: &mut Model, forward: bool) -> Vec<Effect> {
         page_size: page.page_size,
         pending: None,
         connection_id: None,
+        core_id: call.core_id.clone(),
     });
     model.query.next_op = op;
     vec![Effect::PageRun(call)]

@@ -23,7 +23,7 @@ mod logging;
 mod signals;
 mod version;
 
-pub use crate::core::{core_builder, data_dir, CoreOptions, APP_IDENTIFIER};
+pub use crate::core::{core_builder, data_dir, duckdb_helper_dir, CoreOptions, APP_IDENTIFIER};
 pub use hooks::TestHooks;
 pub use logging::{log_filter, log_filter_holding, LogLevel};
 pub use signals::{shutdown_signal, ShutdownSignal, ShutdownSignals};

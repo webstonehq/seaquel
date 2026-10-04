@@ -41,8 +41,11 @@
 //! - **Transport.** [`transport::stdio`] rather than rmcp's, so a line that
 //!   isn't JSON gets a `-32700` parse error and a warning instead of silence.
 //! - **Errors** are tool results with `isError: true` and the text
-//!   `CODE: message`, with Core's code and message.
+//!   `CODE: message`, with Core's code and message. One exception: a DuckDB
+//!   connection whose `seaquel-duckdb` helper isn't installed says how to
+//!   install it ([`duckdb_helper`], the DuckDB helper plan's Decision 13).
 
+pub mod duckdb_helper;
 pub mod error;
 pub mod exposed;
 mod server;

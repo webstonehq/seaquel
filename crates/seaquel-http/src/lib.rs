@@ -8,10 +8,15 @@
 //!   the model calls' timeouts, no redirects and the egress rules.
 //! - [`egress`]: the web server's guard against model calls to private
 //!   addresses (phase 6 Decision 9).
+//! - [`release_asset`] (the `release-asset` feature): a release asset
+//!   downloaded, checked for size and SHA-256, gunzipped and installed into
+//!   private folders (the DuckDB helper plan, Task 4).
 
 pub mod client;
 pub mod egress;
 mod native;
+#[cfg(feature = "release-asset")]
+pub mod release_asset;
 
 pub use egress::Egress;
 pub use native::{NativeHttp, NativeHttpOptions};

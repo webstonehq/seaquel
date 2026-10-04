@@ -17,15 +17,22 @@ use std::sync::{Arc, Once};
 use seaquel_engine::{ConnectConfig, Driver, Value};
 use seaquel_engine_testkit::scratch_name;
 
+#[path = "common/engine.rs"]
+mod engine_switch;
+
 static HOME: Once = Once::new();
 
 /// Points `HOME` at a temp dir, once per process, before any test opens a
-/// database.
+/// database. DuckDB reads `USERPROFILE` on Windows, so that too there. The
+/// remote driver's helper inherits both when it starts
+/// (`duckdb_s_home_is_the_temp_one`).
 fn temp_home() {
     HOME.call_once(|| {
         let home = std::env::temp_dir().join(scratch_name("seaquel-duckdb-home-"));
         std::fs::create_dir_all(&home).unwrap();
         std::env::set_var("HOME", &home);
+        #[cfg(windows)]
+        std::env::set_var("USERPROFILE", &home);
     });
 }
 
@@ -92,10 +99,8 @@ fn config(path: &str, restricted: bool) -> ConnectConfig {
 }
 
 async fn open(config: &ConnectConfig) -> Arc<dyn Driver> {
-    seaquel_engine_duckdb::engine()
-        .open(config)
-        .await
-        .expect("open")
+    temp_home();
+    engine_switch::engine().open(config).await.expect("open")
 }
 
 fn sql_str(path: &str) -> String {
@@ -401,6 +406,35 @@ async fn time_zone_functions_need_icu_which_a_restricted_instance_lacks() {
     d.close().await.unwrap();
 }
 
+/// The DuckDB a test opens resolves `~` to the temp `HOME`, so nothing it
+/// writes there reaches the real one. On the remote driver this is the
+/// helper process, which inherits the environment when it starts: the rule
+/// above holds there only because of that.
+#[tokio::test]
+async fn duckdb_s_home_is_the_temp_one() {
+    temp_home();
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let marker = scratch_name("home-marker-");
+    std::fs::write(home.join(&marker), "").unwrap();
+    let d = open(&config(":memory:", false)).await;
+    let r = d
+        .query(&format!("SELECT file FROM glob('~/{marker}')"), vec![])
+        .await
+        .unwrap();
+    let file = match r.rows.as_slice() {
+        [row] => match &row[0] {
+            Value::Text(file) => PathBuf::from(file),
+            other => panic!("{other:?}"),
+        },
+        rows => panic!("DuckDB's ~ isn't the temp HOME: {rows:?}"),
+    };
+    assert_eq!(
+        file.canonicalize().unwrap(),
+        home.join(&marker).canonicalize().unwrap()
+    );
+    d.close().await.unwrap();
+}
+
 /// A restricted instance still refuses a file that doesn't exist yet the
 /// usual way.
 #[tokio::test]
@@ -410,11 +444,7 @@ async fn a_restricted_missing_file_is_not_created() {
     let path = dir.join("missing.duckdb");
     let mut c = config(path.to_str().unwrap(), true);
     c.create_if_missing = None;
-    let e = seaquel_engine_duckdb::engine()
-        .open(&c)
-        .await
-        .err()
-        .unwrap();
+    let e = engine_switch::engine().open(&c).await.err().unwrap();
     assert_eq!(e.code, "FILE_NOT_FOUND");
     assert!(!dir.exists());
 }

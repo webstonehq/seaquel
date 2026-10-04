@@ -489,6 +489,57 @@ describe("PendingChangesManager.apply", () => {
     expect(effects.refreshDataTabs).toHaveBeenCalledWith("conn-1");
   });
 
+  // DuckDB helper probe F1: an engine out of process can stop mid-commit,
+  // and Core then answers CONNECTION_CLOSED; whether the commit landed is
+  // unknown.
+  it("an atomic batch whose connection closed is interrupted: it may have committed", async () => {
+    const { manager, edit, ids, state, effects } = setup({
+      applyChanges: () =>
+        outcome({
+          mode: "atomic",
+          failed: { code: "CONNECTION_CLOSED", message: "The DuckDB helper stopped" },
+        }),
+    });
+    const c1 = edit(updateEdit(1, "a"));
+    const c2 = edit(updateEdit(2, "b"));
+    const result = await manager.apply("conn-1");
+    expect(result.kind).toBe("interrupted");
+    expect(ids()).toEqual([c1, c2]);
+    expect(state.pendingChangesInterrupted["conn-1"]).toBe(true);
+    expect(effects.reloadSchema).toHaveBeenCalledWith("conn-1");
+    expect(effects.refreshDataTabs).toHaveBeenCalledWith("conn-1");
+  });
+
+  it("an in-order apply whose connection closed drops what ran and marks the rest", async () => {
+    const { manager, edit, ids, state } = setup({
+      applyChanges: (p) =>
+        outcome({
+          mode: "inOrder",
+          applied: 1,
+          results: [{ id: p.changes[0].id, rowsAffected: 1 }],
+          failed: { id: p.changes[1].id, index: 1, code: "CONNECTION_CLOSED", message: "gone" },
+        }),
+    });
+    edit(updateEdit(1, "a"));
+    const c2 = edit(updateEdit(2, "b"));
+    const result = await manager.apply("conn-1");
+    expect(result.kind).toBe("interrupted");
+    expect(ids()).toEqual([c2]);
+    expect(state.pendingChangesInterrupted["conn-1"]).toBe(true);
+  });
+
+  it("a rejected apply whose connection closed is interrupted", async () => {
+    const { manager, edit, ids, state } = setup({
+      applyChanges: () => {
+        throw refusal("CONNECTION_CLOSED", "gone");
+      },
+    });
+    const c1 = edit(updateEdit(1, "a"));
+    expect((await manager.apply("conn-1")).kind).toBe("interrupted");
+    expect(ids()).toEqual([c1]);
+    expect(state.pendingChangesInterrupted["conn-1"]).toBe(true);
+  });
+
   it("a disconnected connection sends nothing", async () => {
     const { manager, edit, state, core } = setup();
     edit(updateEdit(1, "a"));

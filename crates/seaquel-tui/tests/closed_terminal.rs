@@ -83,7 +83,7 @@ fn closing_an_idle_terminal_ends_the_tui_cleanly() {
     let mut pty = Pty::start(data.path(), &[]);
     pty.wait_for(QUERY);
     pty.send(ANSWER);
-    pty.wait_for(b"Command Log");
+    pty.wait_for_screen("Command Log");
     pty.close_terminal();
     let status = pty.wait_exit();
     assert_clean_exit(status, &pty.output());
@@ -139,10 +139,10 @@ fn closing_the_terminal_while_postgres_streams_stops_the_statement() {
     let mut pty = Pty::start(data.path(), &["--project", "P", "--connection", "pg"]);
     pty.wait_for(QUERY);
     pty.send(ANSWER);
-    pty.wait_for(b"connected pg");
+    pty.wait_for_screen("connected pg");
     // A new query tab, a slow statement streamed with `:all`.
     pty.send(b"Q");
-    pty.wait_for(b"untitled-1");
+    pty.wait_for_screen("untitled-1");
     pty.type_text(&format!(
         "SELECT g AS {marker}, pg_sleep(0.01) FROM generate_series(1, 3000) g"
     ));
@@ -202,9 +202,9 @@ fn analyze_case(end: End, tag: &str) {
     let mut pty = Pty::start(data.path(), &["--project", "P", "--connection", "pg"]);
     pty.wait_for(QUERY);
     pty.send(ANSWER);
-    pty.wait_for(b"connected pg");
+    pty.wait_for_screen("connected pg");
     pty.send(b"Q");
-    pty.wait_for(b"untitled-1");
+    pty.wait_for_screen("untitled-1");
     pty.type_text(&format!("SELECT pg_sleep(20) AS {marker}"));
     std::thread::sleep(Duration::from_millis(200));
     pty.send(b"\x1b");

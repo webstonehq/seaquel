@@ -18,6 +18,7 @@ use seaquel_types::storage::PersistedConnection;
 use serde_json::Value as Json;
 use tokio::sync::OnceCell;
 
+use crate::duckdb_helper;
 use crate::error::{ToolError, TIMEOUT};
 use crate::exposed::{self, Exposed, Found, Selection, Sharing, AMBIGUOUS_CONNECTION};
 use crate::tools;
@@ -171,8 +172,13 @@ impl McpServer {
                 .collect()
         };
         let count = ids.len();
-        for id in ids {
-            if let Err(e) = self.inner.workspace.disconnect(&self.inner.core, &id).await {
+        // At once: each can take up to 2 s (a DuckDB helper closing its
+        // file), and the CLI's exit waits for them all.
+        let closing = ids
+            .iter()
+            .map(|id| self.inner.workspace.disconnect(&self.inner.core, id));
+        for result in futures::future::join_all(closing).await {
+            if let Err(e) = result {
                 log::warn!("Closing a connection failed: {e}");
             }
         }
@@ -275,7 +281,10 @@ impl Inner {
                 self.workspace
                     .connect(&self.core, request)
                     .await
-                    .map_err(ToolError::from)
+                    .map_err(|e| {
+                        let e = ToolError::from(e);
+                        duckdb_helper::connect_error(&self.core, c, &self.options.version, e)
+                    })
             })
             .await?;
         Ok(id.clone())

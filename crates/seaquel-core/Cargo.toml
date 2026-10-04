@@ -10,7 +10,21 @@ engine-postgres = ["dep:seaquel-engine-postgres"]
 engine-mysql = ["dep:seaquel-engine-mysql"]
 engine-sqlite = ["dep:seaquel-engine-sqlite"]
 engine-mssql = ["dep:seaquel-engine-mssql"]
-engine-duckdb = ["dep:seaquel-engine-duckdb"]
+# The native DuckDB driver (duckdb-rs, in process): the desktop app.
+engine-duckdb = ["dep:seaquel-engine-duckdb", "seaquel-engine-duckdb/native"]
+# DuckDB in a helper process (the DuckDB helper plan): the terminal
+# binaries, through `CoreBuilder::duckdb_helper`. No `duckdb` crate in the
+# build. Refused with `browser`.
+engine-duckdb-remote = ["dep:seaquel-engine-duckdb", "seaquel-engine-duckdb/remote"]
+# Downloading the helper (the DuckDB helper plan, Task 4):
+# `Core::duckdb_helper_asset`, `duckdb_helper_install` and
+# `duckdb_helper_install_from_file`, over `seaquel-http`'s `release_asset`.
+# `Core::duckdb_helper_status` needs only `engine-duckdb-remote`.
+duckdb-helper-install = ["engine-duckdb-remote", "dep:seaquel-http", "seaquel-http/release-asset", "dep:tokio"]
+# `CoreBuilder::duckdb_helper_releases` (another release source) in a
+# build without debug assertions: tests only (review I1). Debug builds have
+# it anyway, for the terminal binaries' test hooks.
+duckdb-helper-testing = ["duckdb-helper-install", "seaquel-http/testing"]
 # Infrastructure (phase 3), off by default. src-tauri will enable storage,
 # secrets, ssh, git and license-desktop; seaquel-server storage and
 # license-server; the browser build none of them.
@@ -66,7 +80,7 @@ seaquel-engine-postgres = { path = "../seaquel-engine-postgres", optional = true
 seaquel-engine-mysql = { path = "../seaquel-engine-mysql", optional = true }
 seaquel-engine-sqlite = { path = "../seaquel-engine-sqlite", optional = true }
 seaquel-engine-mssql = { path = "../seaquel-engine-mssql", optional = true }
-seaquel-engine-duckdb = { path = "../seaquel-engine-duckdb", optional = true }
+seaquel-engine-duckdb = { path = "../seaquel-engine-duckdb", default-features = false, optional = true }
 seaquel-storage = { path = "../seaquel-storage", optional = true }
 seaquel-secrets = { path = "../seaquel-secrets", optional = true }
 seaquel-ssh = { path = "../seaquel-ssh", optional = true }
@@ -98,7 +112,12 @@ uuid = { workspace = true, features = ["js"] }
 # Turns on the workspace features for this crate's own tests
 # (tests/workspace.rs, tests/connect.rs), so `cargo test -p seaquel-core`
 # runs them.
-seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets", "ssh", "workspace", "git", "imports"] }
+# `engine-duckdb-remote` for tests/duckdb_remote.rs (skipped unless
+# SEAQUEL_TEST_DUCKDB_HELPER names a built helper).
+# `duckdb-helper-install` for tests/duckdb_helper_install.rs, against
+# seaquel-http's loopback release server (`testing`).
+seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets", "ssh", "workspace", "git", "imports", "engine-duckdb-remote", "duckdb-helper-install", "duckdb-helper-testing"] }
+seaquel-http = { path = "../seaquel-http", features = ["testing"] }
 # tests/shared.rs: points libgit2's config search paths at an empty dir, so
 # no test reads the user's git config.
 git2 = { workspace = true }

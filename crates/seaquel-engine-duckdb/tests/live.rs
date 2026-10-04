@@ -6,6 +6,9 @@
 //! be cancelled, and a runtime dropped normally waits for it, so a cancel
 //! regression would leave a test waiting on an endless query forever.
 
+#[path = "common/engine.rs"]
+mod engine_switch;
+
 use std::future::Future;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::Arc;
@@ -44,7 +47,7 @@ async fn open() -> Arc<dyn Driver> {
         "path": ":memory:"
     }))
     .unwrap();
-    seaquel_engine_duckdb::engine().open(&config).await.unwrap()
+    engine_switch::engine().open(&config).await.unwrap()
 }
 
 async fn stream_all(driver: &dyn Driver, sql: &str) -> Vec<Result<StreamBatch, DbError>> {

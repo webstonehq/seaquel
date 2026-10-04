@@ -48,6 +48,9 @@
 //!   DuckDB does the same by itself past `checkpoint_threshold` and on
 //!   close), and `enable_logging()` turns on logging for the whole database.
 
+#[path = "common/engine.rs"]
+mod engine_switch;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -71,10 +74,7 @@ fn memory() -> ConnectConfig {
 }
 
 async fn open(config: &ConnectConfig) -> Arc<dyn Driver> {
-    seaquel_engine_duckdb::engine()
-        .open(config)
-        .await
-        .expect("open")
+    engine_switch::engine().open(config).await.expect("open")
 }
 
 /// A scratch directory for the files attacks try to write. Removed on drop.
@@ -553,12 +553,7 @@ fn spec(dir: &Scratch, wal: Option<PathBuf>) -> ReadOnlySpec {
 #[tokio::test]
 async fn read_only_in_memory() {
     let dir = Scratch::new();
-    run_read_only(
-        &*seaquel_engine_duckdb::engine(),
-        &memory(),
-        &spec(&dir, None),
-    )
-    .await;
+    run_read_only(&*engine_switch::engine(), &memory(), &spec(&dir, None)).await;
 }
 
 #[tokio::test]
@@ -569,7 +564,7 @@ async fn read_only_on_the_seeded_file() {
     let dir = Scratch::new();
     let wal = db.0.join("seaquel_test.duckdb.wal");
     run_read_only(
-        &*seaquel_engine_duckdb::engine(),
+        &*engine_switch::engine(),
         &db.config(),
         &spec(&dir, Some(wal)),
     )

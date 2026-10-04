@@ -4,6 +4,9 @@
 //! but the last itself and returns the last to run: `SELECT 1; DELETE …`
 //! deleted for real.
 
+#[path = "common/engine.rs"]
+mod engine_switch;
+
 use std::sync::Arc;
 
 use seaquel_engine::{ConnectConfig, Driver, Value};
@@ -12,10 +15,7 @@ async fn open() -> Arc<dyn Driver> {
     let config: ConnectConfig =
         serde_json::from_value(serde_json::json!({ "driver": "duckdb", "path": ":memory:" }))
             .unwrap();
-    let driver = seaquel_engine_duckdb::engine()
-        .open(&config)
-        .await
-        .expect("open");
+    let driver = engine_switch::engine().open(&config).await.expect("open");
     for sql in [
         "CREATE TABLE t (n INTEGER PRIMARY KEY)",
         "INSERT INTO t VALUES (1), (2)",

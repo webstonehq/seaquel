@@ -21,6 +21,11 @@ use crate::state::picker::{resolve_start, Remembered};
 /// How long a step may take before the test fails.
 pub const WAIT: Duration = Duration::from_secs(20);
 
+/// The release server a harness downloads from unless its test gives
+/// one: loopback port 9 (discard), where nothing listens, so a lookup
+/// fails with `NETWORK_ERROR` instead of reaching GitHub.
+pub const NO_RELEASES: &str = "http://127.0.0.1:9";
+
 /// The polling interval the tests open with (the TUI's is 1 s).
 pub const TEST_POLL: Duration = Duration::from_millis(50);
 
@@ -42,6 +47,9 @@ pub struct HarnessOptions<'a> {
     pub connection: Option<&'a str>,
     pub remembered: Remembered,
     pub origin: &'a str,
+    /// A release server for the DuckDB helper's download (`MockReleases`'
+    /// address), instead of GitHub.
+    pub duckdb_releases: Option<String>,
 }
 
 impl<'a> HarnessOptions<'a> {
@@ -54,6 +62,7 @@ impl<'a> HarnessOptions<'a> {
             connection: None,
             remembered: Remembered::default(),
             origin: "tui-harness1",
+            duckdb_releases: Some(NO_RELEASES.to_string()),
         }
     }
 }
@@ -65,7 +74,12 @@ impl Harness {
             core::open(OpenOptions {
                 data_dir: options.data_dir.to_path_buf(),
                 store: options.store,
-                known_hosts: options.known_hosts.map(Path::to_path_buf),
+                core: seaquel_terminal::CoreOptions {
+                    known_hosts: options.known_hosts.map(Path::to_path_buf),
+                    duckdb_helper_dir: Some(options.data_dir.join("bin").join("duckdb")),
+                    duckdb_releases: options.duckdb_releases,
+                    ..seaquel_terminal::CoreOptions::default()
+                },
                 poll: TEST_POLL,
                 origin: Some(options.origin.into()),
             })
@@ -128,7 +142,17 @@ impl Harness {
     /// Feeds Core's answers and a tick every 10 ms to `update` until
     /// `done(model)`; fails after [`WAIT`] naming `what`.
     pub async fn until(&mut self, what: &str, done: impl Fn(&Model) -> bool) {
-        let deadline = Instant::now() + WAIT;
+        self.until_within(what, WAIT, done).await;
+    }
+
+    /// [`Harness::until`] with its own limit.
+    pub async fn until_within(
+        &mut self,
+        what: &str,
+        limit: Duration,
+        done: impl Fn(&Model) -> bool,
+    ) {
+        let deadline = Instant::now() + limit;
         while !done(&self.model) {
             assert!(
                 Instant::now() < deadline,
@@ -157,5 +181,17 @@ impl Harness {
     /// Closes the session.
     pub async fn close(mut self) {
         self.runner.close().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Review M3: a harness never reaches GitHub, whatever its test
+    /// forgets to set.
+    #[test]
+    fn the_release_server_defaults_to_a_closed_loopback_port() {
+        let store = crate::testing::core::memory_store();
+        let options = super::HarnessOptions::new(std::path::Path::new("/nonexistent"), store);
+        assert_eq!(options.duckdb_releases.as_deref(), Some(super::NO_RELEASES));
     }
 }

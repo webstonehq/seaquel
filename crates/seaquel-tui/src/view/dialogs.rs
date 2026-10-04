@@ -11,6 +11,7 @@ use super::panels::fit;
 use super::theme::Role;
 use crate::state::app::Model;
 use crate::state::dialogs::{Notice, PasswordPrompt, Problem, TrustPrompt};
+use crate::state::install::{self, size_text, InstallDialog};
 use crate::state::picker::{Picker, Stage};
 use crate::state::secrets::SecretKind;
 use crate::state::text;
@@ -203,6 +204,76 @@ pub fn notice(model: &Model, n: &Notice, frame: &mut Frame) {
         60,
         vec![Line::from(n.0.clone())],
     );
+}
+
+/// The DuckDB helper's install dialog (the DuckDB helper plan, Task 7).
+pub fn install(model: &Model, d: &InstallDialog, frame: &mut Frame) {
+    const WIDTH: u16 = 64;
+    let theme = &model.theme;
+    let dim = |t: &str| Line::from(Span::styled(t.to_string(), theme.style(Role::Dim)));
+    let (title, border, lines) = match &d.stage {
+        install::Stage::Checking => (
+            text::INSTALL_TITLE,
+            Role::Focus,
+            vec![
+                Line::from(text::INSTALL_CHECKING),
+                dim(&text::install_for()),
+            ],
+        ),
+        install::Stage::Ask(offer) => {
+            let mut lines = vec![
+                Line::from(text::install_ask(&size_text(offer.size))),
+                dim(&text::install_for()),
+            ];
+            if offer.repair {
+                lines.push(Line::default());
+                lines.push(Line::from(Span::styled(
+                    text::INSTALL_REPAIR,
+                    theme.style(Role::Warning),
+                )));
+            }
+            lines.push(Line::default());
+            lines.push(dim(text::INSTALL_CHECKED));
+            lines.push(Line::default());
+            lines.push(Line::from(Span::styled(
+                text::INSTALL_QUESTION,
+                theme.style(Role::Text).bold(),
+            )));
+            (text::INSTALL_ASK_TITLE, Role::Focus, lines)
+        }
+        install::Stage::Downloading { bytes, total } => {
+            // The box's inner width, as `draw_box` sizes it.
+            let area = frame.area();
+            let inner = usize::from(WIDTH.min(area.width.saturating_sub(2)).max(20) - 4);
+            let mut lines = vec![Line::from(text::INSTALL_DOWNLOADING), Line::default()];
+            if *total == 0 {
+                lines.push(dim(text::INSTALL_STARTING));
+            } else {
+                let done = (*bytes).min(*total);
+                let percent = done * 100 / total;
+                let cells = inner.saturating_sub(5);
+                let filled = (done as u128 * cells as u128 / *total as u128) as usize;
+                lines.push(Line::from(vec![
+                    Span::styled("█".repeat(filled), theme.style(Role::Focus)),
+                    Span::styled("░".repeat(cells - filled), theme.style(Role::Dim)),
+                    Span::styled(format!(" {percent:>3}%"), theme.style(Role::Text)),
+                ]));
+                lines.push(dim(&text::install_progress(
+                    &size_text(done),
+                    &size_text(*total),
+                )));
+            }
+            (text::INSTALL_TITLE, Role::Focus, lines)
+        }
+        install::Stage::Failed(f) => {
+            let mut lines = vec![Line::from(f.hint), Line::default()];
+            lines.extend(f.message.lines().map(|l| Line::from(l.to_string())));
+            lines.push(Line::default());
+            lines.push(dim(&f.code));
+            (f.title, Role::Deleted, lines)
+        }
+    };
+    draw_box(model, frame, title.to_string(), border, WIDTH, lines);
 }
 
 /// "Waiting for the keychain", over everything while a connect or a save

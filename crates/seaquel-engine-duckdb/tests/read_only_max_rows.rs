@@ -1,6 +1,9 @@
 //! `max_rows` (and `max_bytes`) on `query_read_only`, in its own test binary: `max_query_rows`
 //! reads SEAQUEL_MAX_QUERY_ROWS once per process, and these tests lower it.
 
+#[path = "common/engine.rs"]
+mod engine_switch;
+
 use seaquel_engine::ConnectConfig;
 use seaquel_engine_testkit::{run_max_bytes, run_max_rows, use_max_rows_test_cap};
 
@@ -11,7 +14,7 @@ fn memory() -> ConnectConfig {
 #[tokio::test]
 async fn max_rows_truncates() {
     use_max_rows_test_cap();
-    run_max_rows(&*seaquel_engine_duckdb::engine(), &memory()).await;
+    run_max_rows(&*engine_switch::engine(), &memory()).await;
 }
 
 /// The wrapper's `LIMIT` is `max_rows + 1`, so DuckDB stops there instead of
@@ -19,10 +22,7 @@ async fn max_rows_truncates() {
 #[tokio::test]
 async fn a_truncated_huge_result_returns_fast() {
     use_max_rows_test_cap();
-    let driver = seaquel_engine_duckdb::engine()
-        .open(&memory())
-        .await
-        .expect("open");
+    let driver = engine_switch::engine().open(&memory()).await.expect("open");
     let started = tokio::time::Instant::now();
     let r = driver
         .query_read_only("SELECT * FROM range(2000000000)", vec![], Some(10))
@@ -41,5 +41,5 @@ async fn a_truncated_huge_result_returns_fast() {
 async fn max_bytes_truncates() {
     use_max_rows_test_cap();
     let sql = "SELECT repeat('x', 100000) AS n FROM range(200)";
-    run_max_bytes(&*seaquel_engine_duckdb::engine(), &memory(), sql).await;
+    run_max_bytes(&*engine_switch::engine(), &memory(), sql).await;
 }

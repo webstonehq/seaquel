@@ -752,6 +752,8 @@
   "settings_mcp_binary_missing": "أداة سطر الأوامر غير مثبتة. ثبّتها لاستخدام أوامر MCP أدناه.",
   "settings_mcp_path_installed": "مثبَّتة: يمكنك تشغيل seaquel-cli في الطرفية.",
   "settings_mcp_path_outdated": "إن seaquel-cli الموجود في PATH الخاص بك من إصدار آخر من Seaquel. أعد تثبيته لتحديثه.",
+  "settings_mcp_duckdb_missing": "دعم DuckDB لأداة سطر الأوامر غير مُثبَّت، ولذلك لن تُفتح اتصالات DuckDB الخاصة بها. ثبِّته لإضافته.",
+  "settings_mcp_duckdb_unsafe": "دعم DuckDB لأداة سطر الأوامر موجود في مجلد يمكن لمستخدمين آخرين تغييره، لذلك لا يُستخدم. ثبِّته لجعل المجلد خاصًا مرة أخرى.",
   "settings_mcp_path_other": "seaquel-cli الموجود في PATH الخاص بك هو برنامج مختلف: {path}",
   "settings_mcp_path_missing": "seaquel-cli غير موجود في PATH الخاص بك. مضيفو MCP لا يحتاجونه، لأن المقتطفات أدناه تستخدم المسار الكامل.",
   "settings_mcp_path_missing_appimage": "لم يتم تثبيتها بعد. يتم تحميل AppImage في مكان جديد في كل مرة يتم تشغيله، لذا ثبّت الأداة أولاً: تستخدم المقتطفات أدناه النسخة المثبتة.",

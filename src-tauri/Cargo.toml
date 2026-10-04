@@ -26,7 +26,11 @@ tauri-build = { version = "2", features = [] }
 # workspace, saved rows and forms alike.
 # `ai-native` (phase 6): Core runs the assistant and calls models with
 # seaquel-http's client; `ai-system-proxy` adds the OS proxy settings to it.
-seaquel-core = { path = "../crates/seaquel-core", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports", "ai-native", "ai-system-proxy"] }
+# `duckdb-helper-install` (the DuckDB helper plan, Q4 C): "Install Command
+# Line Tool…" also installs the CLI's DuckDB helper through Core's install,
+# into the folder the terminal binaries look in. It adds the remote DuckDB
+# client to Core; the app itself keeps the native driver (Q6 A).
+seaquel-core = { path = "../crates/seaquel-core", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports", "ai-native", "ai-system-proxy", "duckdb-helper-install"] }
 seaquel-types = { path = "../crates/seaquel-types" }
 # `TokioExecutor`, Core's clock for the editor's runs (phase 5b).
 seaquel-runtime = { path = "../crates/seaquel-runtime", features = ["tokio"] }
@@ -40,7 +44,8 @@ tauri-plugin-fs = "2"
 futures = "0.3"
 # OnceCell for the lazily opened workspace. SSH moved to seaquel-ssh.
 # `time`: the bound on a stopped turn's last write (phase 6).
-tokio = { version = "1", features = ["sync", "time"] }
+# `rt`: the helper install's own runtime (cli_download.rs).
+tokio = { version = "1", features = ["sync", "time", "rt"] }
 tauri-plugin-os = "2"
 tauri-plugin-clipboard-manager = "2.3.2"
 arboard = "3.6.1"
@@ -60,7 +65,10 @@ log = { version = "0.4", features = ["kv"] }
 [dev-dependencies]
 # The assistant's tests: the mock provider and the loopback-only client.
 seaquel-ai = { path = "../crates/seaquel-ai", features = ["testing"] }
-tokio = { version = "1", features = ["sync", "time", "macros"] }
+tokio = { version = "1", features = ["sync", "time", "macros", "rt-multi-thread"] }
+# The DuckDB helper's install (cli_download.rs): `MockReleases` on
+# 127.0.0.1 and the platform triple table. Never the real network.
+seaquel-http = { path = "../crates/seaquel-http", features = ["release-asset", "testing"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

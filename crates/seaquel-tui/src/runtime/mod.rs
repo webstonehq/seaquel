@@ -29,6 +29,8 @@ mod browse_tests;
 #[cfg(test)]
 mod commit_tests;
 #[cfg(test)]
+mod install_tests;
+#[cfg(test)]
 mod query_tests;
 
 use std::io;
@@ -249,7 +251,7 @@ async fn open_core(
     let session = core::open(core::OpenOptions {
         data_dir: options.data_dir.clone(),
         store,
-        known_hosts: options.hooks.known_hosts().map(PathBuf::from),
+        core: seaquel_terminal::CoreOptions::default().with_hooks(&options.hooks),
         poll: core::EXTERNAL_POLL,
         origin: options.hooks.origin().map(str::to_string),
     })

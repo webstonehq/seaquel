@@ -9,8 +9,18 @@
 //! **The outcome rules are the GUI's** (`PendingChangesManager.apply`): a
 //! full success clears what was sent; an atomic failure keeps everything
 //! and marks the failed change; an in-order failure removes the applied
-//! prefix and marks the change it stopped at. There is no "interrupted"
-//! state: Core is in-process, so an apply always answers.
+//! prefix and marks the change it stopped at.
+//!
+//! **An apply can end without saying what ran** (the DuckDB helper plan's
+//! probe F1): with DuckDB out of process, the helper can stop mid-commit,
+//! and Core answers `CONNECTION_CLOSED` (as an error, or as the failed
+//! change of its outcome) though the COMMIT may have landed. That is the
+//! GUI's `interrupted`: the connection is lost (`connect::lost_by`), what
+//! Core says ran leaves the queue, the rest stays, unmarked, with the queue
+//! marked "may be partly applied" ([`Queue::interrupted`]), and committing
+//! it again asks first ([`Modal::ConfirmRecommit`]).
+//!
+//! [`Queue::interrupted`]: super::pending::Queue::interrupted
 //!
 //! **The TUI decides no SQL.** Every change is the `Change::Edit` Core
 //! planned; the dialog lists the statements `seaquel_core::sql`'s
@@ -230,6 +240,10 @@ impl fmt::Debug for KindLine {
             .finish_non_exhaustive()
     }
 }
+
+/// Core's code for a connection lost mid-call: an apply that ends with it
+/// may have committed (probe F1).
+const CONNECTION_CLOSED: &str = "CONNECTION_CLOSED";
 
 /// How many history rows panel 3 keeps (the GUI's 500, `HISTORY_KEEP`).
 pub const HISTORY_KEEP: usize = 500;
@@ -608,10 +622,37 @@ pub fn open(model: &mut Model) -> Vec<Effect> {
     if model.conn.core_id().is_none() {
         return vec![Model::log_effect(Some(Tag::Error), text::NOT_CONNECTED_LOG)];
     }
+    if model.queue.interrupted() {
+        model.modal = Some(Modal::ConfirmRecommit);
+        return Vec::new();
+    }
+    open_dialog(model)
+}
+
+/// The commit dialog, after asking Core to plan what isn't planned yet.
+fn open_dialog(model: &mut Model) -> Vec<Effect> {
     let requests = model.queue.replan();
     let effects = browse::plan(model, requests);
     model.modal = Some(Modal::Commit(CommitDialog::default()));
     effects
+}
+
+/// `y` in "Commit again?": the commit dialog, as `c` opens it. The mark
+/// stays until an apply answers.
+pub fn recommit(model: &mut Model) -> Vec<Effect> {
+    if model.modal.take() != Some(Modal::ConfirmRecommit) {
+        return Vec::new();
+    }
+    if let Err(effects) = idle(model) {
+        return effects;
+    }
+    if let Some(effects) = elsewhere(model) {
+        return effects;
+    }
+    if model.conn.core_id().is_none() || model.queue.is_empty() {
+        return vec![Model::log_effect(Some(Tag::Error), text::NOT_CONNECTED_LOG)];
+    }
+    open_dialog(model)
 }
 
 /// The queue belongs to a connection panel 1 doesn't have: says where.
@@ -771,6 +812,17 @@ pub fn on_applied(
     };
     let elapsed = Some(grid::elapsed_text(stamp.elapsed_ms as f64));
     let (mode, applied, results, failed, ddl, history) = match result {
+        Err(e) if e.code == CONNECTION_CLOSED => {
+            // Nothing says what ran (probe F1): keep the queue, mark it.
+            model.queue.mark_interrupted(true);
+            model.log.push(line(
+                &stamp,
+                Some(Tag::Error),
+                text::COMMIT_INTERRUPTED.to_string(),
+                None,
+            ));
+            return Vec::new();
+        }
         Err(e) => {
             model.log.push(line(
                 &stamp,
@@ -796,6 +848,9 @@ pub fn on_applied(
             history,
         }) => (mode, applied, results, failed, ddl, history),
     };
+    let cut_off = failed
+        .as_ref()
+        .is_some_and(|f| f.error.code == CONNECTION_CLOSED);
     // The command log: what ran, as Core reported it.
     let sql_of = |model: &Model, id: &str| -> Option<String> {
         match &model.queue.entry(id)?.plan {
@@ -818,6 +873,8 @@ pub fn on_applied(
                 text::committed(committing.ids.len()),
                 elapsed,
             )),
+            // Whether it rolled back isn't known.
+            Some(_) if cut_off => {}
             Some(f) => lines.push(line(
                 &stamp,
                 Some(Tag::Error),
@@ -833,7 +890,14 @@ pub fn on_applied(
             }
         }
     }
-    if let Some(f) = &failed {
+    if cut_off {
+        lines.push(line(
+            &stamp,
+            Some(Tag::Error),
+            text::COMMIT_INTERRUPTED.to_string(),
+            None,
+        ));
+    } else if let Some(f) = &failed {
         let worded = worded(model, f);
         lines.push(line(
             &stamp,
@@ -858,6 +922,9 @@ pub fn on_applied(
     if !removed.is_empty() {
         model.queue.remove_applied(&removed);
     }
+    // An answer that says what ran settles the mark; one cut off sets it
+    // (the change in flight may have landed).
+    model.queue.mark_interrupted(cut_off);
     if model.queue.is_empty() {
         model.queue.clear();
     }
@@ -866,6 +933,11 @@ pub fn on_applied(
     // Rows already shown aren't added twice; the newest 500 are kept
     // (review M3).
     add_history(model, &committing.connection_id, history);
+    if cut_off {
+        // The connection is gone (`connect::lost` follows): nothing to read
+        // again until it's back.
+        return Vec::new();
+    }
     let mut effects = Vec::new();
     let changed = applied > 0;
     if changed && ddl && model.conn.core_id() == Some(committing.core_id.as_str()) {
@@ -1474,6 +1546,125 @@ mod tests {
         let last = m.log.last(1).next().unwrap();
         assert_eq!(last.tag, Some(Tag::Error));
         assert!(last.text.contains("CONNECTION_NOT_FOUND"), "{}", last.text);
+    }
+
+    fn closed(id: Option<String>) -> Failure {
+        Failure {
+            id,
+            error: CallError::new(
+                "CONNECTION_CLOSED",
+                "The DuckDB helper stopped (signal 9). Reconnect to continue.",
+            ),
+        }
+    }
+
+    /// The connection is lost: panel 1 says closed and `r` reconnects.
+    fn assert_lost(m: &Model) {
+        assert!(matches!(m.conn, Conn::Closed { .. }), "{:?}", m.conn);
+        let Some(Modal::Problem(p)) = &m.modal else {
+            panic!("{:?}", m.modal)
+        };
+        assert_eq!(p.code, "CONNECTION_CLOSED");
+        assert!(p.reconnect.is_some());
+    }
+
+    // DuckDB helper probe F1: the helper died mid-commit, so Core's outcome
+    // fails with CONNECTION_CLOSED, but the COMMIT may have landed. The
+    // connection is lost and the queue is kept, marked, not failed.
+    #[test]
+    fn a_connection_closed_mid_commit_is_lost_and_the_queue_may_be_applied() {
+        let mut m = staged(false);
+        let ids: Vec<String> = m.queue.entries().iter().map(|e| e.id.clone()).collect();
+        commit_with(
+            &mut m,
+            Ok(applied(
+                0,
+                Some(closed(Some(ids[3].clone()))),
+                Vec::new(),
+                ApplyMode::Atomic,
+            )),
+        );
+        assert_lost(&m);
+        assert!(m.committing.is_none());
+        assert_eq!(m.queue.entries().len(), 4, "the queue is kept");
+        assert!(m.queue.interrupted());
+        assert!(m.queue.failure(&ids[3]).is_none(), "not marked as failed");
+        let texts: Vec<String> = m.log.last(6).map(|l| l.text.clone()).collect();
+        assert!(
+            texts.contains(&text::COMMIT_INTERRUPTED.to_string()),
+            "{texts:?}"
+        );
+        assert!(
+            !texts.contains(&text::rolled_back("CONNECTION_CLOSED")),
+            "a rollback isn't known: {texts:?}"
+        );
+    }
+
+    #[test]
+    fn a_connection_closed_error_mid_commit_is_lost_too() {
+        let mut m = staged(false);
+        commit_with(&mut m, Err(closed(None).error));
+        assert_lost(&m);
+        assert_eq!(m.queue.entries().len(), 4);
+        assert!(m.queue.interrupted());
+    }
+
+    // In order: what Core says ran leaves the queue; the change in flight
+    // may have landed, so the rest is marked.
+    #[test]
+    fn an_in_order_commit_cut_off_drops_what_ran_and_marks_the_rest() {
+        let mut m = staged(false);
+        let ids: Vec<String> = m.queue.entries().iter().map(|e| e.id.clone()).collect();
+        commit_with(
+            &mut m,
+            Ok(applied(
+                2,
+                Some(closed(Some(ids[2].clone()))),
+                vec![ids[0].clone(), ids[1].clone()],
+                ApplyMode::InOrder,
+            )),
+        );
+        assert_lost(&m);
+        let left: Vec<String> = m.queue.entries().iter().map(|e| e.id.clone()).collect();
+        assert_eq!(left, ids[2..]);
+        assert!(m.queue.interrupted());
+        assert!(m.queue.failure(&ids[2]).is_none());
+    }
+
+    // Committing a marked queue again asks first; Esc keeps it; a
+    // definite answer clears the mark.
+    #[test]
+    fn committing_a_queue_that_may_be_applied_asks_first() {
+        let mut m = staged(false);
+        let Conn::Connected { id, core_id } = m.conn.clone() else {
+            panic!("{:?}", m.conn)
+        };
+        commit_with(&mut m, Err(closed(None).error));
+        // Reconnected.
+        m.modal = None;
+        m.conn = Conn::Connected { id, core_id };
+        focus_pending(&mut m);
+        keys(&mut m, "c");
+        assert_eq!(m.modal, Some(Modal::ConfirmRecommit));
+        assert_eq!(m.bar_context(), BarContext::ConfirmRecommit);
+        esc(&mut m);
+        assert_eq!(m.modal, None);
+        keys(&mut m, "c");
+        assert!(applies(&keys(&mut m, "y")).is_empty(), "y opens the dialog");
+        assert!(matches!(m.modal, Some(Modal::Commit(_))), "{:?}", m.modal);
+        let op = applies(&enter(&mut m))[0].op;
+        update(
+            &mut m,
+            Msg::Applied {
+                op,
+                result: Ok(applied(4, None, Vec::new(), ApplyMode::Atomic)),
+                stamp: Stamp {
+                    time: "12:06:00".into(),
+                    elapsed_ms: 6,
+                },
+            },
+        );
+        assert!(!m.queue.interrupted());
     }
 
     // A late answer (another op) is dropped; staging waits for the apply.

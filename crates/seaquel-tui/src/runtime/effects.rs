@@ -79,6 +79,9 @@ pub struct Runner {
     explains: HashMap<u64, AbortHandle>,
     /// Ask AI's request in flight: a new one, or Esc, drops it.
     generate: Option<AbortHandle>,
+    /// The DuckDB helper's lookup or download in flight, by op: Esc drops
+    /// it (and with it the partial file).
+    install: Option<(u64, AbortHandle)>,
 }
 
 impl Runner {
@@ -95,6 +98,7 @@ impl Runner {
             runs: HashMap::new(),
             explains: HashMap::new(),
             generate: None,
+            install: None,
         };
         (runner, rx)
     }
@@ -202,6 +206,13 @@ impl Runner {
         Some(self.tasks.spawn(async move {
             let _ = tx.send(task.await);
         }))
+    }
+
+    /// Drops the DuckDB helper's lookup or download in flight.
+    fn stop_install(&mut self) {
+        if let Some((_, handle)) = self.install.take() {
+            handle.abort();
+        }
     }
 
     /// Drops a tab's run (or page) in flight: dropping its stream cancels it
@@ -332,6 +343,33 @@ impl Runner {
                         .map(crate::state::ask::Names);
                     Msg::Mentions { project_id, result }
                 });
+            }
+            Effect::CheckDuckdb { op } => {
+                self.stop_install();
+                let handle = self.call(|s| async move {
+                    let result = s.duckdb_offer().await;
+                    Msg::DuckdbOffer { op, result }
+                });
+                self.install = handle.map(|h| (op, h));
+            }
+            Effect::InstallDuckdb { op } => {
+                self.stop_install();
+                let tx = self.tx.clone();
+                let handle = self.spawn_with(|s| async move {
+                    let progress = tx.clone();
+                    let result = s
+                        .install_duckdb(move |bytes, total| {
+                            let _ = progress.send(Msg::InstallProgress { op, bytes, total });
+                        })
+                        .await;
+                    let _ = tx.send(Msg::Installed { op, result });
+                });
+                self.install = handle.map(|h| (op, h));
+            }
+            Effect::CancelInstall { op } => {
+                if self.install.as_ref().is_some_and(|(o, _)| *o == op) {
+                    self.stop_install();
+                }
             }
             Effect::LoadLibrary => {
                 self.call(|s| async move { Msg::Library(s.library().await) });

@@ -1,0 +1,3 @@
+# seaquel-duckdb is a native binary, not Core: it runs DuckDB on threads of
+# its own, and its tests time the process they start. This file shadows
+# crates/clippy.toml.

@@ -1,11 +1,17 @@
-//! DuckDB-WASM's results as Arrow IPC bytes, read into rows by the shared
-//! decoder ([`crate::decode`]).
+//! DuckDB results as Arrow IPC bytes, read into rows by the shared decoder
+//! ([`crate::decode`]): DuckDB-WASM's for the browser driver, and the DuckDB
+//! helper's for its client (the `remote` feature).
 //!
 //! DuckDB-WASM hands out two formats: `runQuery` returns a whole result in
 //! IPC **file** format (`ARROW1…`), and a pending query returns its schema
 //! message first and then one chunk of **stream** messages per fetch. Both
-//! are read by `arrow-ipc` with validation on. The driver uses only the
-//! stream form.
+//! are read by `arrow-ipc` with validation on. The browser driver uses only
+//! the stream form; the helper sends stream messages too.
+
+#![cfg_attr(
+    not(all(feature = "browser", target_arch = "wasm32")),
+    allow(dead_code)
+)]
 
 use std::sync::Arc;
 
@@ -51,6 +57,25 @@ impl Columns {
                 .map(|f| Kind::of_field(f, rules.decimal38_is_hugeint))
                 .collect(),
         }
+    }
+
+    /// The columns with kinds given by the DuckDB helper (from DuckDB's
+    /// logical types), one per field: the client decodes by them instead
+    /// of guessing from the fields. Kinds that don't match the fields are
+    /// `HELPER_PROTOCOL`.
+    #[cfg(any(feature = "remote", test))]
+    pub(crate) fn with_kinds(schema: &Schema, kinds: Vec<Kind>) -> Result<Self, DbError> {
+        if kinds.len() != schema.fields().len() {
+            return Err(crate::wire::protocol_error(format!(
+                "{} column kinds for {} columns",
+                kinds.len(),
+                schema.fields().len()
+            )));
+        }
+        Ok(Columns {
+            names: schema.fields().iter().map(|f| f.name().clone()).collect(),
+            kinds,
+        })
     }
 
     /// Row `row` of `batch`, decoded. An Arrow type the decoder doesn't read
@@ -127,6 +152,23 @@ impl IpcStream {
         header: Vec<u8>,
         rules: KindRules,
     ) -> Result<(Self, Vec<RecordBatch>), DbError> {
+        Self::start_from(header, |schema| Ok(Columns::of(schema, rules)))
+    }
+
+    /// [`IpcStream::start`] with the columns' kinds given (the DuckDB
+    /// helper's, from DuckDB's logical types: [`Columns::with_kinds`]).
+    #[cfg(any(feature = "remote", test))]
+    pub(crate) fn start_with_kinds(
+        header: Vec<u8>,
+        kinds: Vec<Kind>,
+    ) -> Result<(Self, Vec<RecordBatch>), DbError> {
+        Self::start_from(header, |schema| Columns::with_kinds(schema, kinds))
+    }
+
+    fn start_from(
+        header: Vec<u8>,
+        columns: impl FnOnce(&Schema) -> Result<Columns, DbError>,
+    ) -> Result<(Self, Vec<RecordBatch>), DbError> {
         // `StreamDecoder` holds a message back until bytes after it arrive
         // (a schema message has an empty body), so the schema is read here
         // on its own, and the decoder gets the same bytes.
@@ -140,7 +182,7 @@ impl IpcStream {
             .map(|f| f.name().clone());
         let mut stream = IpcStream {
             decoder: StreamDecoder::new(),
-            columns: Arc::new(Columns::of(&schema, rules)),
+            columns: Arc::new(columns(&schema)?),
             dictionary_column,
         };
         let batches = stream.push(header)?;
@@ -275,7 +317,7 @@ mod tests {
     use seaquel_engine::Value;
     use seaquel_engine_testkit::same_value;
 
-    use crate::browser::cells;
+    use crate::test_cells as cells;
 
     fn connection() -> duckdb::Connection {
         let conn = duckdb::Connection::open_in_memory().unwrap();
@@ -368,6 +410,51 @@ mod tests {
             selects.len() * 2,
             failures.join("\n")
         );
+    }
+
+    /// The DuckDB helper's client reads the kinds the helper sent (from
+    /// DuckDB's logical types), not the fields: with
+    /// `arrow_lossless_conversion` reset, UHUGEINT is a bare
+    /// `Decimal128(38, 0)` and BIT a plain binary, which the fields read as
+    /// a signed decimal and bytes. Kinds that don't match the schema's
+    /// columns are a broken wire.
+    #[test]
+    fn given_kinds_decide_over_the_fields() {
+        let conn = connection();
+        conn.execute_batch("RESET arrow_lossless_conversion")
+            .unwrap();
+        let sql = "SELECT '340282366920938463463374607431768211455'::UHUGEINT AS u, \
+                   '101'::BIT AS b, ['1'::BIT] AS l";
+        let native = crate::driver::native_rows(&conn, sql).unwrap();
+        let max = "340282366920938463463374607431768211455";
+        let expected = vec![
+            Value::Decimal(max.into()),
+            Value::Text("101".into()),
+            Value::Array(vec![Value::Text("1".into())]),
+        ];
+        assert_eq!(native.rows, vec![expected.clone()]);
+
+        let ipc = ipc_of(&conn, sql, false);
+        let kinds = vec![Kind::UHugeInt, Kind::Bit, Kind::List(Box::new(Kind::Bit))];
+        let (mut stream, mut batches) = IpcStream::start_with_kinds(ipc.clone(), kinds).unwrap();
+        batches.extend(stream.finish().unwrap());
+        let columns = stream.columns();
+        let mut rows = Vec::new();
+        let mut kept = 0;
+        for b in &batches {
+            columns
+                .collect(b, RowCap::fail(10), &mut rows, &mut kept)
+                .unwrap();
+        }
+        assert_eq!(rows, vec![expected]);
+        assert_eq!(columns.names, native.columns);
+
+        for kinds in [vec![], vec![Kind::Plain; 2], vec![Kind::Plain; 4]] {
+            let e = IpcStream::start_with_kinds(ipc.clone(), kinds)
+                .err()
+                .expect("kinds that don't match the columns");
+            assert_eq!(e.code, crate::wire::HELPER_PROTOCOL, "{e:?}");
+        }
     }
 
     /// As DuckDB-WASM sends a pending query: the schema message alone, then

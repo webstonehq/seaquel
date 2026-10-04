@@ -5,10 +5,16 @@ edition = "2021"
 description = "Seaquel's MCP server: the rmcp ServerHandler and tool set behind `seaquel-cli mcp`."
 
 [dependencies]
+# `join_all`: the server closes its connections at once on exit.
+futures = { workspace = true }
 # `ai`: the tool registry (arguments, schemas, renderers and the runner,
 # `ai::tools::call`) and the sharing rule (phase 6). Not `ai-native`: the
-# server makes no model calls.
-seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace", "ai"] }
+# server makes no model calls. No default features (every engine, with
+# native DuckDB): the server registers no engine; `seaquel-cli` builds its
+# Core through seaquel-terminal, with DuckDB in the helper.
+# `engine-duckdb-remote` (no DuckDB linked) for `Core::duckdb_helper_status`,
+# which words a missing helper's tool error (the DuckDB helper plan, Task 8).
+seaquel-core = { path = "../seaquel-core", default-features = false, features = ["storage", "secrets", "ssh", "workspace", "ai", "engine-duckdb-remote"] }
 seaquel-types = { path = "../seaquel-types" }
 rmcp = { workspace = true }
 serde = { workspace = true }
@@ -17,6 +23,19 @@ log = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "macros", "io-util", "io-std"] }
 
 [dev-dependencies]
+# tests/tools.rs runs its DuckDB cases on either driver
+# (`SEAQUEL_TEST_DUCKDB_DRIVER`): `engine-duckdb` for the native one
+# (`with_default_plugins()`, now that the normal dependency has no
+# defaults; Task 5's note), `engine-duckdb-remote` for
+# `CoreBuilder::duckdb_helper`, and the other engines the cases use.
+seaquel-core = { path = "../seaquel-core", features = [
+    "engine-postgres",
+    "engine-mysql",
+    "engine-sqlite",
+    "engine-mssql",
+    "engine-duckdb",
+    "engine-duckdb-remote",
+] }
 # `#[seaquel_runtime::async_trait]`, for the tests' `SecretStore`s.
 seaquel-runtime = { path = "../seaquel-runtime" }
 # The in-process client over `tokio::io::duplex` (tests/tools.rs). The

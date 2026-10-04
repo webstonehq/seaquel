@@ -539,7 +539,8 @@ impl Workspace {
     /// types), then pages it as a run's SELECT: `pageSize + 1` rows at the
     /// page's offset, and the count (`count_query` over the SELECT) only
     /// when the page came back full or empty past the first page, estimated
-    /// and flagged when it fails.
+    /// and flagged when it fails (`CONNECTION_CLOSED` or
+    /// `CONNECTION_NOT_FOUND` fail the statement instead).
     ///
     /// Events: `statementStart` (`kind: page`, the built SQL and binds as
     /// its source), a `batch`, `statementDone` or `statementError`, then
