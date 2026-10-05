@@ -1805,7 +1805,15 @@ async fn an_unreadable_secret_is_a_tool_error() {
         .await;
     assert_code(&text, "SECRET_UNREADABLE");
     assert!(text.contains("pg denied"), "{text}");
-    assert!(text.to_lowercase().contains("keychain"), "{text}");
+    // The message names the platform's store.
+    let store = if cfg!(target_os = "macos") {
+        "the keychain"
+    } else if cfg!(windows) {
+        "Windows Credential Manager"
+    } else {
+        "the system keyring (Secret Service)"
+    };
+    assert!(text.contains(store), "{text}");
     assert_eq!(h.core.connection_count(), 0);
     h.stop().await;
 }
