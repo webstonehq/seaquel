@@ -1,0 +1,5 @@
+# seaquel-license
+
+Moved from the root `CLAUDE.md`, which has the overview and the crate map. "Above" and "below" may point at sections that now live in another `CLAUDE.md`.
+
+- `seaquel-license` — two parts that share only the HTTP client (`seaquel_http::client`'s `LazyClient`, below; its log lines keep `activity = "license.http"`). `desktop` is the activation client (`DesktopClient`: activate, validate, deactivate); the 12-hour revalidation stays in `license.svelte.ts`. `server` is the web build's gate (`LicenseServer`): the install id, the control-plane client, the soft/hard TTL ladder (`SEAQUEL_LICENSE_SOFT_TTL`/`SEAQUEL_LICENSE_GRACE_TTL`, 24 h and 14 d), member licenses and air-gap bundles (Ed25519; canonical JSON byte-identical to what seaquel-app signs). It reads and writes the license tables in `auth.db` with sqlx, but Node keeps applying migrations 006–012 through `auth.ts`: until they have run, every call answers `NOT_READY` (503). The control-plane client adds the PEMs in `NODE_EXTRA_CA_CERTS` as roots and honours `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`. License keys never reach a log line, an error or `Debug`.
