@@ -84,7 +84,10 @@ fn the_cells_fixture_matches_the_cases() {
         std::fs::write(FIXTURE, &now).unwrap();
         return;
     }
-    let stored = std::fs::read_to_string(FIXTURE).unwrap_or_default();
+    // A Windows checkout can turn the fixture's line ends into `\r\n`.
+    let stored = std::fs::read_to_string(FIXTURE)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     assert!(
         stored == now,
         "tests/fixtures/cells.json doesn't match tests/common/cells.rs; rewrite it with \

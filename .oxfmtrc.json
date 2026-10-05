@@ -7,6 +7,7 @@
     "src/lib/wasm/browser-pkg",
     "src/lib/wasm/browser-test-pkg",
     "crates/seaquel-engine-duckdb/tests/fixtures/cells.json",
+    "crates/seaquel-engine-duckdb/tests/fixtures/kinds.json",
     "crates/seaquel-browser/tests/fixtures",
     "crates/seaquel-engine-postgres/tests/fixtures",
     "crates/seaquel-sql/tests/fixtures",

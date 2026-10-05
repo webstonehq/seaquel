@@ -228,7 +228,9 @@ jobs:
         options: >-
           --health-cmd "healthcheck.sh --connect --innodb_initialized"
           --health-interval 5s --health-timeout 5s --health-retries 20
-      mssql:
+      # Named as in the compose file: the SSH bastion reaches it as
+      # `sqlserver` (Core's tests/connect.rs, MSSQL_SERVICE).
+      sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
         env:
           ACCEPT_EULA: "Y"
@@ -244,8 +246,8 @@ jobs:
       SEAQUEL_TEST_MYSQL: '{"driver":"mysql","connection_string":"mysql://root@127.0.0.1:3306/seaquel_test"}'
       SEAQUEL_TEST_MARIADB: '{"driver":"mysql","connection_string":"mysql://root@127.0.0.1:3307/seaquel_test"}'
       SEAQUEL_TEST_MSSQL: '{"driver":"mssql","host":"127.0.0.1","port":1433,"username":"sa","password":"Seaquel_Test_123!","encrypt":true,"trust_cert":true}'
-      # The SSH bastion started below reaches the postgres service by its
-      # name on the services' network.
+      # The SSH bastion started below reaches the services by their names on
+      # the services' network.
       SEAQUEL_TEST_SSH: '{"host":"127.0.0.1","port":2222,"remote_host":"postgres","remote_port":5432}'
     steps:
       - uses: actions/checkout@v4

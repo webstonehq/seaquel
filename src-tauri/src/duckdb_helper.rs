@@ -4,9 +4,9 @@
 //! - [`duckdb_helper_offer`]: this version's helper's status and download
 //!   size (no request with the pinned asset);
 //! - [`duckdb_helper_install`]: download and install it, with progress over
-//!   a `Channel`. A second install while one runs (the prefetch and the dialog)
-//!  joins it: its progress from where it is, and the
-//!   same answer, from one download;
+//!   a `Channel`. A second install while one runs (the prefetch and the
+//!   dialog) joins it: its progress from where it is, and the same answer,
+//!   from one download;
 //! - [`duckdb_helper_cancel`]: aborts the running install, so Core's future
 //!   drops and the partial file goes; the install answers `CANCELLED`;
 //! - [`duckdb_helper_install_file`]: "Install from a file…", checked

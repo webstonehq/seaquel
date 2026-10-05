@@ -101,7 +101,10 @@ pub(crate) fn check_snapshot(got: Vec<Json>) {
         std::fs::write(SNAPSHOT, &text).unwrap();
         return;
     }
-    let stored = std::fs::read_to_string(SNAPSHOT).unwrap_or_default();
+    // A Windows checkout can turn the fixture's line ends into `\r\n`.
+    let stored = std::fs::read_to_string(SNAPSHOT)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     if stored != text {
         let stored: Json = serde_json::from_str(&stored).unwrap_or(Json::Null);
         let stored = stored["cases"].as_array().cloned().unwrap_or_default();

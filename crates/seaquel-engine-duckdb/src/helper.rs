@@ -658,20 +658,25 @@ impl Output {
     }
 
     /// Takes no more frames, waits up to `wait` for the queued ones to be
-    /// written, then closes the output.
+    /// written, then closes the output. The wait is measured on a clock, not
+    /// counted in waits: where timers are coalesced (a busy CI machine, a
+    /// background process on macOS) a 10 ms wait can last far longer.
     fn finish(&self, wait: Duration) {
-        const SLICE: Duration = Duration::from_millis(10);
+        // tokio's clock (std's `Instant` is kept out of the engine crates).
+        let deadline = tokio::time::Instant::now() + wait;
         let mut queue = self.lock();
         queue.closing = true;
         self.changed.notify_all();
-        let mut left = wait;
-        while (!queue.frames.is_empty() || queue.writing) && !queue.closed && !left.is_zero() {
+        while (!queue.frames.is_empty() || queue.writing) && !queue.closed {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
             queue = self
                 .changed
-                .wait_timeout(queue, SLICE)
+                .wait_timeout(queue, left)
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
-            left = left.saturating_sub(SLICE);
         }
         queue.closed = true;
         queue.frames.clear();

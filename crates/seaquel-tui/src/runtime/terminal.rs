@@ -20,7 +20,7 @@
 //! - **Ctrl+Z** and an outside **SIGTSTP** (Unix): [`suspend`] restores,
 //!   stops the process (SIGSTOP), and on SIGCONT enters again; the loop then
 //!   draws on a fresh `Terminal`, never through `Terminal::clear()` (spike
-//! Its cursor query hangs where nothing answers). An outside SIGSTOP
+//!   its cursor query hangs where nothing answers). An outside SIGSTOP
 //!   can't be caught: the terminal stays raw until SIGCONT.
 //! - **`$EDITOR`** (Ctrl+O): [`outside`] restores, runs the editor, and
 //!   enters again whatever the editor did (one that can't start, or exits
@@ -33,12 +33,11 @@
 //!   or the event reader, which [`gone`] tells apart, as
 //!   `Exit::TerminalClosed`); the restore writes fail harmlessly, and Core's
 //!   connections close and the state file is written as on any other
-//!   exit (bounded: the tasks are aborted and closing gets at most `SETTLE_WITHIN`).
-//!  Nothing that writes to the terminal or
-//!   stderr may panic on the
-//!   way out: stderr lines go through `crate::say`, and a `Terminal` is
-//!   given up through [`release`], never ratatui's `Drop` (its
-//!   `eprintln!`).
+//!   exit (bounded: the tasks are aborted and closing gets at most
+//!   `SETTLE_WITHIN`). Nothing that writes to the terminal or stderr may
+//!   panic on the way out: stderr lines go through `crate::say`, and a
+//!   `Terminal` is given up through [`release`], never ratatui's `Drop`
+//!   (its `eprintln!`).
 //! - **SIGKILL:** nothing can; `reset` fixes the shell.
 //! - **Windows console close:** the process ends; crossterm restores on
 //!   drop where it can. (Not probed.)

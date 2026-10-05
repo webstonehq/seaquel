@@ -412,7 +412,15 @@ async fn an_unreadable_db_password_fails_before_connecting() {
         "{}",
         err.message
     );
-    assert!(err.message.contains("keychain"), "{}", err.message);
+    // The message names the platform's store.
+    let store = if cfg!(target_os = "macos") {
+        "the keychain"
+    } else if cfg!(windows) {
+        "Windows Credential Manager"
+    } else {
+        "the system keyring (Secret Service)"
+    };
+    assert!(err.message.contains(store), "{}", err.message);
     assert_eq!(f.core.connection_count(), 0);
 }
 
