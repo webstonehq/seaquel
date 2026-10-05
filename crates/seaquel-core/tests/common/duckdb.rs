@@ -73,9 +73,23 @@ pub fn install(bin: &Path) -> (tempfile::TempDir, DuckdbHelper) {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
+    // On Windows the start reads each level's DACL, up to the folder above
+    // `bin`; a temp folder inherits whatever the checkout's has.
+    #[cfg(windows)]
+    for d in [dir.path(), root.parent().unwrap(), &root, &folder] {
+        seaquel_runtime::acl::make_private(d, true).unwrap();
+    }
     let to = folder.join(format!("seaquel-duckdb{}", std::env::consts::EXE_SUFFIX));
+    // A hard link would share the built file's DACL, so Windows copies it
+    // and makes the copy private.
+    #[cfg(unix)]
     if std::fs::hard_link(bin, &to).is_err() {
         std::fs::copy(bin, &to).unwrap();
+    }
+    #[cfg(windows)]
+    {
+        std::fs::copy(bin, &to).unwrap();
+        seaquel_runtime::acl::make_private(&to, false).unwrap();
     }
     (dir, DuckdbHelper { dir: root, version })
 }

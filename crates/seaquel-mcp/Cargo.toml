@@ -33,8 +33,9 @@ seaquel-core = { path = "../seaquel-core", features = [
     "engine-mssql",
     "engine-duckdb-remote",
 ] }
-# `#[seaquel_runtime::async_trait]`, for the tests' `SecretStore`s.
-seaquel-runtime = { path = "../seaquel-runtime" }
+# `#[seaquel_runtime::async_trait]`, for the tests' `SecretStore`s; `acl`
+# makes the DuckDB helper's folder private on Windows.
+seaquel-runtime = { path = "../seaquel-runtime", features = ["acl"] }
 # The in-process client over `tokio::io::duplex` (tests/tools.rs). The
 # child-process client is in seaquel-cli's tests/stdio.rs, which owns the
 # binary.

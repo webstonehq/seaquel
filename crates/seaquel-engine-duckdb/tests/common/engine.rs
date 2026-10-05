@@ -247,10 +247,24 @@ mod remote {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
+        // On Windows it reads each level's DACL, up to the folder above
+        // `bin`; a temp folder inherits whatever the checkout's has.
+        #[cfg(windows)]
+        for d in [dir.path(), &bin_dir, &root, &folder] {
+            seaquel_runtime::acl::make_private(d, true).unwrap();
+        }
         let locator = HelperLocator { dir: root, version };
         let to = locator.path();
+        // A hard link would share the built file's DACL, so Windows copies
+        // it and makes the copy private.
+        #[cfg(unix)]
         if std::fs::hard_link(&bin, &to).is_err() {
             std::fs::copy(&bin, &to).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            std::fs::copy(&bin, &to).unwrap();
+            seaquel_runtime::acl::make_private(&to, false).unwrap();
         }
         Arc::new(Installed {
             inner: remote_engine(locator),

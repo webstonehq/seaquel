@@ -174,8 +174,22 @@ fn install_helper(root: &Path) -> seaquel_core::DuckdbHelper {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
+        // On Windows the start reads each level's DACL, up to the folder
+        // above `bin`; a temp folder inherits whatever the checkout's has.
+        #[cfg(windows)]
+        for d in [root, &root.join("bin"), &duckdb, &folder] {
+            seaquel_runtime::acl::make_private(d, true).unwrap();
+        }
+        // A hard link would share the built file's DACL, so Windows copies
+        // it and makes the copy private.
+        #[cfg(unix)]
         if std::fs::hard_link(&bin, &to).is_err() {
             std::fs::copy(&bin, &to).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            std::fs::copy(&bin, &to).unwrap();
+            seaquel_runtime::acl::make_private(&to, false).unwrap();
         }
     }
     helper
@@ -1295,14 +1309,18 @@ async fn a_database_error_is_a_tool_error() {
 
 #[tokio::test]
 async fn a_call_past_the_timeout_is_cancelled() {
+    const TIMEOUT: Duration = Duration::from_secs(3);
     let seeded = seed(None).await;
     let h = start_with(
         seeded,
         standard(),
-        ServerOptions::default().with_call_timeout(Duration::from_millis(300)),
+        ServerOptions::default().with_call_timeout(TIMEOUT),
     )
     .await;
-    // Warm the connection up so the timeout covers the query only.
+    // Warm the connection up so the timeout covers the query only. The
+    // warm-up connects (starts the helper, opens the file) under the same
+    // timeout, which took about 900 ms on slow cores: hence seconds, not
+    // milliseconds. The query below runs for minutes.
     h.ok(
         "run_query",
         json!({ "connection": "duck", "sql": "SELECT 1 AS one" }),
@@ -1317,7 +1335,7 @@ async fn a_call_past_the_timeout_is_cancelled() {
         .await;
     assert_code(&text, "TIMEOUT");
     assert!(
-        started.elapsed() < Duration::from_secs(5),
+        started.elapsed() < TIMEOUT + Duration::from_secs(5),
         "{:?}",
         started.elapsed()
     );

@@ -124,7 +124,8 @@ git2 = { workspace = true }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 # `TokioExecutor` for tests/run_live.rs.
-seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }
+# `acl`: the DuckDB tests make their helper folder private on Windows.
+seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio", "acl"] }
 # Seeding and reading the metadata file with plain SQL (tests/library.rs,
 # tests/string_secrets.rs), as the library fixtures' replay rules ask.
 sqlx = { workspace = true }
