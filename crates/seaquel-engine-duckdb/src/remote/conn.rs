@@ -31,10 +31,24 @@
 //! control frame has arrived and its [`Call`] is dropped; ids are never
 //! reused while live, so a late `cancel` or `credit` can't reach another
 //! call.
+//!
+//! **Read-only slots** (the desktop DuckDB helper plan, Decision 5). The
+//! helper runs at most [`MAX_READ_ONLY_CALLS`] read-only calls at once and
+//! refuses more, so the client sends no more than that: a read-only call
+//! waits for a permit ([`Conn::start_read_only`]), and the permit is held
+//! in the call's slot until the call's last frame arrives, also when its
+//! handle was dropped and its `cancel` posted. The helper counts a call off
+//! before it sends that frame, so a freed permit always finds a free slot
+//! there.
+//!
+//! **How the connection ended** ([`Conn::closed`], Decision 7 of the same
+//! plan): the exit watcher says whether the helper was lost (it ended
+//! without `close`: a signal, an exit of its own, a broken protocol) or
+//! ended as asked. A dropped driver aborts the watcher, which counts as
+//! asked.
 
 use std::collections::HashMap;
 use std::io;
-use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -44,14 +58,15 @@ use log::{info, warn};
 use seaquel_engine::DbError;
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, watch, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::{timeout, Instant};
 
-use super::closing;
+use super::closing::{self, Claim};
 use super::process::{self, HelperChild, Started, OPEN_CALL};
 use crate::wire::{
-    read_frame_async, write_frame, Frame, FrameKind, Reply, Request, MAX_PAYLOAD, STREAM_CREDIT,
+    read_frame_async, write_frame, Frame, FrameKind, Reply, Request, MAX_PAYLOAD,
+    MAX_READ_ONLY_CALLS, STREAM_CREDIT,
 };
 
 /// A call's channel: its schema frame, the batch frames its credit lets
@@ -96,6 +111,8 @@ enum Slot {
 
 struct State {
     calls: HashMap<u32, Slot>,
+    /// The read-only slots held by calls whose last frame hasn't arrived.
+    permits: HashMap<u32, OwnedSemaphorePermit>,
     next: u32,
     /// Why every call fails now: the helper is gone or the connection was
     /// closed.
@@ -123,6 +140,8 @@ impl State {
         let incoming = match frame.kind {
             FrameKind::Control => {
                 let reply = Reply::decode(&frame.payload).map_err(|e| e.message)?;
+                // The helper counted the call off before this frame.
+                self.permits.remove(&frame.call);
                 match std::mem::replace(slot, Slot::Answered) {
                     Slot::Waiting(tx) => {
                         // Room is always left for the last frame; a full
@@ -157,6 +176,16 @@ impl State {
     }
 }
 
+/// How the connection ended, as [`Conn::closed`] reports it.
+#[derive(Clone)]
+enum Ending {
+    Open,
+    /// `close`, or the helper let go while closing.
+    AsAsked,
+    /// The helper ended without being asked: what every call is told.
+    Lost(String),
+}
+
 /// Why the exit watcher should stop waiting for the helper.
 enum Signal {
     /// The helper's output ended or a write to it failed.
@@ -187,6 +216,17 @@ pub(super) struct Conn {
     closing: std::sync::atomic::AtomicBool,
     /// The helper's output ended: after `close`, the helper took it.
     output_ended: std::sync::atomic::AtomicBool,
+    /// [`MAX_READ_ONLY_CALLS`] permits; closed once the connection is dead
+    /// or closing, so a waiting call stops waiting.
+    read_only: Arc<Semaphore>,
+    /// Set by the exit watcher; its sender goes with the watcher.
+    ending: watch::Receiver<Ending>,
+    /// The file's hold against a second open from this process
+    /// ([`closing::claim`]), let go by whichever comes first: the exit
+    /// watcher, once the helper is gone or handed to the closing list, or
+    /// the driver's drop ([`Conn::let_go`]; aborting the watcher is
+    /// asynchronous).
+    claim: Mutex<Option<Claim>>,
 }
 
 fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
@@ -205,7 +245,13 @@ impl Conn {
     /// the driver holds.
     /// `key` is the database's file ([`closing::key`]): a helper let go
     /// while closing it is kept there until it exits.
-    pub(super) fn run(started: Started, key: Option<PathBuf>) -> (Arc<Conn>, JoinSet<()>) {
+    /// `claim` holds the file against a second open from this process
+    /// until the helper is gone (or, closing, handed to the closing list).
+    pub(super) fn run(
+        started: Started,
+        key: Option<closing::FileKey>,
+        claim: Option<Claim>,
+    ) -> (Arc<Conn>, JoinSet<()>) {
         let Started {
             child,
             stdin,
@@ -219,9 +265,11 @@ impl Conn {
         let stdin = Arc::new(Mutex::new(stdin));
         let (signals, signals_rx) = mpsc::unbounded_channel();
         let (exited_tx, exited) = watch::channel(false);
+        let (ending_tx, ending) = watch::channel(Ending::Open);
         let conn = Arc::new(Conn {
             state: Mutex::new(State {
                 calls: HashMap::new(),
+                permits: HashMap::new(),
                 next: OPEN_CALL + 1,
                 dead: None,
             }),
@@ -233,6 +281,9 @@ impl Conn {
             stderr_bytes,
             closing: std::sync::atomic::AtomicBool::new(false),
             output_ended: std::sync::atomic::AtomicBool::new(false),
+            read_only: Arc::new(Semaphore::new(MAX_READ_ONLY_CALLS)),
+            ending,
+            claim: Mutex::new(claim),
         });
         // Spawned on the runtime the open ran on (`JoinSet::spawn` needs
         // one, which `process::start` checked).
@@ -243,7 +294,10 @@ impl Conn {
             key,
             conn.clone(),
             signals_rx,
-            exited_tx,
+            Announce {
+                exited: exited_tx,
+                ending: ending_tx,
+            },
             started,
         ));
         (conn, tasks)
@@ -262,6 +316,44 @@ impl Conn {
     /// Sends `request` as a new call. Refused before anything is sent when
     /// the connection is dead or the request can't fit a frame.
     pub(super) fn start(self: &Arc<Self>, request: &Request) -> Result<Call, DbError> {
+        self.start_with(request, None)
+    }
+
+    /// [`Conn::start`] for a call the helper runs on a clone of its own
+    /// (`readOnly`, `explainReadOnly`): first waits for one of the
+    /// [`MAX_READ_ONLY_CALLS`] slots, which the call holds until its last
+    /// frame arrives. Dropping the future while it waits takes no slot.
+    pub(super) async fn start_read_only(
+        self: &Arc<Self>,
+        request: &Request,
+    ) -> Result<Call, DbError> {
+        // Refused before waiting, as `start` would: a request too large
+        // for a frame, or a dead connection.
+        let payload = request.encode()?;
+        if payload.len() > MAX_PAYLOAD {
+            return self.start_with(request, None);
+        }
+        match self.read_only.clone().acquire_owned().await {
+            Ok(permit) => self.start_with(request, Some(permit)),
+            // Closed: the connection is dead or closing.
+            Err(_) => Err(self.refusal()),
+        }
+    }
+
+    /// Why a new call is refused now.
+    fn refusal(&self) -> DbError {
+        if self.closing.load(Ordering::SeqCst) {
+            closed(CLOSED_MESSAGE)
+        } else {
+            self.closed_error()
+        }
+    }
+
+    fn start_with(
+        self: &Arc<Self>,
+        request: &Request,
+        permit: Option<OwnedSemaphorePermit>,
+    ) -> Result<Call, DbError> {
         let payload = request.encode()?;
         if payload.len() > MAX_PAYLOAD {
             return Err(DbError {
@@ -289,6 +381,9 @@ impl Conn {
         };
         let (tx, rx) = mpsc::channel(CHANNEL);
         state.calls.insert(id, Slot::Waiting(tx));
+        if let Some(permit) = permit {
+            state.permits.insert(id, permit);
+        }
         // Under the lock, so it is ordered with every cancel: written now
         // when nothing is queued ahead of it, else queued.
         let frame = control_frame(id, &payload)?;
@@ -299,6 +394,7 @@ impl Conn {
         };
         if written < frame.len() && !self.queue(frame[written..].to_vec()) {
             state.calls.remove(&id);
+            state.permits.remove(&id);
             drop(state);
             return Err(self.closed_error());
         }
@@ -358,14 +454,48 @@ impl Conn {
     /// Every call fails from now on with `why`; the waiting ones see their
     /// channel close. The first reason stays.
     fn fail(&self, why: String) {
-        let calls = {
+        let (calls, permits) = {
             let mut state = lock(&self.state);
             if state.dead.is_none() {
                 state.dead = Some(why);
             }
-            std::mem::take(&mut state.calls)
+            (
+                std::mem::take(&mut state.calls),
+                std::mem::take(&mut state.permits),
+            )
         };
+        self.read_only.close();
         drop(calls);
+        drop(permits);
+    }
+
+    /// Lets go of the file's claim: a new open of it may start a helper (it
+    /// waits out DuckDB's lock while a killed helper is still exiting).
+    pub(super) fn let_go(&self) {
+        let claim = self
+            .claim
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        drop(claim);
+    }
+
+    /// Ends when the connection does: `Some` with the error every call now
+    /// gets when the helper was lost, `None` when it ended as asked (see
+    /// the module docs). Holds no part of the connection.
+    pub(super) fn closed(&self) -> seaquel_runtime::BoxFuture<'static, Option<DbError>> {
+        let mut ending = self.ending.clone();
+        Box::pin(async move {
+            let ended = ending
+                .wait_for(|e| !matches!(e, Ending::Open))
+                .await
+                .map(|e| e.clone());
+            match ended {
+                Ok(Ending::Lost(why)) => Some(closed(why)),
+                // As asked, or the watcher was aborted (the driver dropped).
+                Ok(_) | Err(_) => None,
+            }
+        })
     }
 
     /// Asks the helper to close the database and exit, and waits for it at
@@ -380,6 +510,12 @@ impl Conn {
             // Under the lock, so no call starts after `close` is queued.
             let _state = lock(&self.state);
             self.closing.store(true, Ordering::SeqCst);
+            // An open of the same file waits for this helper from now on.
+            if let Some(claim) = &*self.claim.lock().unwrap_or_else(PoisonError::into_inner) {
+                claim.closing();
+            }
+            // Read-only calls still waiting for a slot are refused now.
+            self.read_only.close();
             // `close` is answered by the helper's exit; its id is never
             // used.
             self.post(0, &Request::Close);
@@ -545,16 +681,30 @@ enum Ended {
     Detached,
 }
 
+/// What the exit watcher announces once the helper is gone.
+struct Announce {
+    /// For `close`, which waits for it.
+    exited: watch::Sender<bool>,
+    /// For [`Conn::closed`]: dropped with the watcher when the driver is.
+    ending: watch::Sender<Ending>,
+}
+
 /// The exit watcher: once the helper is gone, every call fails, naming how
-/// it ended.
+/// it ended. The file's claim is let go first, then the calls fail, then
+/// [`Conn::closed`] hears how it ended, so whoever reacts to either finds
+/// the file free (or in the closing list).
 async fn watch_exit(
     mut child: HelperChild,
-    key: Option<PathBuf>,
+    key: Option<closing::FileKey>,
     conn: Arc<Conn>,
     mut signals: mpsc::UnboundedReceiver<Signal>,
-    exited: watch::Sender<bool>,
+    announce: Announce,
     started: Instant,
 ) {
+    let Announce {
+        exited,
+        ending: ending_tx,
+    } = announce;
     let first = tokio::select! {
         status = child.wait() => Ok(status),
         signal = signals.recv() => Err(signal),
@@ -606,8 +756,12 @@ async fn watch_exit(
                 // The next open of this file waits for it.
                 closing::register(key, child);
             }
+            // Registered first, so an open never finds the file in neither
+            // list.
+            conn.let_go();
             info!(activity = "duckdb.helper", event = "detach", stderr_bytes = stderr, ms = ms; "DuckDB helper still closing its database; left to finish");
             conn.fail(CLOSED_MESSAGE.to_string());
+            ending_tx.send_replace(Ending::AsAsked);
             let _ = exited.send(true);
             return;
         }
@@ -617,13 +771,22 @@ async fn watch_exit(
     } else {
         warn!(activity = "duckdb.helper", event = "crash", status = how.as_str(), stderr_bytes = stderr, ms = ms, protocol = broken.is_some(); "DuckDB helper stopped");
     }
-    conn.fail(match broken {
-        None if closing() => CLOSED_MESSAGE.to_string(),
+    conn.let_go();
+    // Read once: `close` racing this exit makes it asked for, never lost.
+    let asked = closing();
+    let why = match broken {
+        None if asked => CLOSED_MESSAGE.to_string(),
         Some(why) => format!(
             "The DuckDB helper broke the protocol ({why}) and was stopped ({how}). Reconnect to \
              continue."
         ),
         None => format!("The DuckDB helper stopped ({how}). Reconnect to continue."),
+    };
+    conn.fail(why.clone());
+    ending_tx.send_replace(if asked {
+        Ending::AsAsked
+    } else {
+        Ending::Lost(why)
     });
     let _ = exited.send(true);
 }
@@ -644,6 +807,7 @@ mod tests {
     fn state() -> State {
         State {
             calls: HashMap::new(),
+            permits: HashMap::new(),
             next: OPEN_CALL + 1,
             dead: None,
         }
@@ -772,7 +936,7 @@ mod tests {
             stderr_bytes: Arc::new(AtomicU64::new(0)),
             started: Instant::now(),
         };
-        let (conn, _tasks) = Conn::run(started, None);
+        let (conn, _tasks) = Conn::run(started, None, None);
         let query = |sql: &str| Request::Query {
             sql: sql.into(),
             params: vec![],

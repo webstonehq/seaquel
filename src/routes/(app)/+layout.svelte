@@ -103,6 +103,17 @@
               }
             : null;
 
+    /**
+     * DuckDB support's install dialog (desktop DuckDB helper plan, Task 5):
+     * desktop only. The branch is on the build-time constant, so the web
+     * and demo bundles don't contain the dialog or its store.
+     */
+    const loadDuckdbInstallDialog =
+        import.meta.env.VITE_BUILD_TARGET !== "web" &&
+        import.meta.env.VITE_BUILD_TARGET !== "demo"
+            ? () => import("$lib/components/duckdb-install-dialog.svelte")
+            : null;
+
     // Initialize stores on mount
     onMount(async () => {
         // Web-mode auth gate: every non-auth page requires a session. If
@@ -386,6 +397,11 @@
     {/if}
     {#if sshHostKeyPromptStore.open}
         {#await import("$lib/components/ssh-host-key-dialog.svelte") then module}
+            <module.default />
+        {/await}
+    {/if}
+    {#if loadDuckdbInstallDialog && isTauri()}
+        {#await loadDuckdbInstallDialog() then module}
             <module.default />
         {/await}
     {/if}

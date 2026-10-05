@@ -39,6 +39,10 @@ pub struct CoreOptions {
     /// instead of GitHub. Only with the `duckdb-helper-install` feature,
     /// and ignored in a release build.
     pub duckdb_releases: Option<String>,
+    /// `_SLOW_READ_MS`: a pause before each read of a file `install --from`
+    /// copies. Only with the `duckdb-helper-install` feature, and ignored
+    /// in a release build.
+    pub slow_file_reads: Option<std::time::Duration>,
 }
 
 impl CoreOptions {
@@ -55,6 +59,9 @@ impl CoreOptions {
         }
         if let Some(base) = hooks.duckdb_releases() {
             self.duckdb_releases = Some(base.to_string());
+        }
+        if let Some(pause) = hooks.slow_read() {
+            self.slow_file_reads = Some(pause);
         }
         self
     }
@@ -115,6 +122,10 @@ pub fn core_builder(options: CoreOptions) -> CoreBuilder {
             }
         }
         builder = builder.duckdb_helper(helper);
+    }
+    #[cfg(all(feature = "duckdb-helper-install", debug_assertions))]
+    if let Some(pause) = options.slow_file_reads {
+        builder = builder.duckdb_helper_slow_file_reads(pause);
     }
     #[cfg(all(feature = "duckdb-helper-install", debug_assertions))]
     if let Some(base) = &options.duckdb_releases {

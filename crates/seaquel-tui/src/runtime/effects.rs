@@ -147,10 +147,11 @@ impl Runner {
                     WorkspaceEvent::ConnectionClosed {
                         connection_id,
                         code,
-                        ..
+                        message,
                     } => Msg::Closed {
                         core_id: connection_id,
                         code,
+                        message,
                     },
                     _ => continue,
                 };

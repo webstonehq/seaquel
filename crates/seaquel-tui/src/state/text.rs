@@ -727,8 +727,9 @@ pub fn install_failure(code: &str) -> (&'static str, &'static str) {
         ),
         "UNSAFE_FOLDER" => (
             "Seaquel's data folder can't be used",
-            "A folder on the way to the DuckDB helper belongs to another user or is a link. Fix \
-             or remove it, then retry.",
+            "A folder on the way to the DuckDB helper belongs to another user or is a link. \
+             Remove the bin/duckdb folder in Seaquel's data folder and install again; if \
+             SEAQUEL_DATA_DIR is set, point it at a folder of your own on this computer.",
         ),
         "NOT_SUPPORTED" => (
             "DuckDB support can't be downloaded here",

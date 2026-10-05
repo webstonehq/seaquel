@@ -18,7 +18,9 @@
 //! - `<prefix>_DUCKDB_RELEASES`: a release server on a loopback address
 //!   (`http://127.0.0.1:<port>`, serving `/api/v<version>` and
 //!   `/download/v<version>/<asset>` as `seaquel-http`'s `MockReleases`
-//!   does), in place of GitHub's, for the helper's download.
+//!   does), in place of GitHub's, for the helper's download;
+//! - `<prefix>_SLOW_READ_MS`: a pause before each 64 KiB read of a file
+//!   `duckdb install --from` copies, so a test can signal it mid-copy.
 //!
 //! An empty value counts as unset. The tests set these (with
 //! `SEAQUEL_DATA_DIR`), so they never touch the real keychain, data dir or
@@ -40,6 +42,7 @@ pub struct TestHooks {
     panic: Option<String>,
     duckdb_helper: Option<String>,
     duckdb_releases: Option<String>,
+    slow_read: Option<String>,
 }
 
 /// Which hooks are set, never their values (paths and origins stay out of
@@ -55,6 +58,7 @@ impl std::fmt::Debug for TestHooks {
             .field("panic", &self.panic.is_some())
             .field("duckdb_helper", &self.duckdb_helper.is_some())
             .field("duckdb_releases", &self.duckdb_releases.is_some())
+            .field("slow_read", &self.slow_read.is_some())
             .finish()
     }
 }
@@ -83,6 +87,7 @@ impl TestHooks {
         let panic = read("PANIC");
         let duckdb_helper = read("DUCKDB_HELPER");
         let duckdb_releases = read("DUCKDB_RELEASES");
+        hooks.slow_read = read("SLOW_READ_MS");
         hooks.duckdb_helper = duckdb_helper;
         hooks.duckdb_releases = duckdb_releases;
         hooks.secrets = secrets;
@@ -124,6 +129,14 @@ impl TestHooks {
     /// `<prefix>_DUCKDB_HELPER`: a built helper's file.
     pub fn duckdb_helper(&self) -> Option<&str> {
         self.duckdb_helper.as_deref()
+    }
+
+    /// `<prefix>_SLOW_READ_MS`, when it's a whole number of milliseconds.
+    pub fn slow_read(&self) -> Option<Duration> {
+        self.slow_read
+            .as_deref()
+            .and_then(|v| v.parse().ok())
+            .map(Duration::from_millis)
     }
 
     /// `<prefix>_DUCKDB_RELEASES`: the release server's base address.

@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use log::{debug, info};
 pub use seaquel_ssh::{Tunnel, TunnelError, TunnelOptions};
@@ -23,11 +23,13 @@ pub const TUNNEL_NOT_FOUND: &str = "TUNNEL_NOT_FOUND";
 #[derive(Default)]
 pub(crate) struct TunnelManager {
     options: TunnelOptions,
-    tunnels: Mutex<HashMap<String, Tunnel>>,
+    /// `Arc`, so a lost connection's watcher ([`LostTunnels`]) can close
+    /// its tunnel without holding Core.
+    tunnels: Arc<Mutex<HashMap<String, Tunnel>>>,
     next_id: AtomicU64,
     /// Tunnel ids by the id of the connection that owns them
     /// (`Workspace::connect`), so `disconnect` closes the tunnel too.
-    owned: Mutex<HashMap<String, String>>,
+    owned: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl TunnelManager {
@@ -35,6 +37,42 @@ impl TunnelManager {
         Self {
             options,
             ..Self::default()
+        }
+    }
+
+    /// What a lost connection's watcher needs to close its tunnel: weak,
+    /// so the watcher doesn't keep the tunnels past Core.
+    pub(crate) fn lost_handles(&self) -> LostTunnels {
+        LostTunnels {
+            tunnels: Arc::downgrade(&self.tunnels),
+            owned: Arc::downgrade(&self.owned),
+        }
+    }
+}
+
+/// See [`TunnelManager::lost_handles`].
+pub(crate) struct LostTunnels {
+    tunnels: Weak<Mutex<HashMap<String, Tunnel>>>,
+    owned: Weak<Mutex<HashMap<String, String>>>,
+}
+
+impl LostTunnels {
+    /// Closes the tunnel `connection_id` owns, if any (dropping a `Tunnel`
+    /// stops its listener and aborts its forwards).
+    pub(crate) fn drop_tunnel_of(&self, connection_id: &str) {
+        let (Some(owned), Some(tunnels)) = (self.owned.upgrade(), self.tunnels.upgrade()) else {
+            return;
+        };
+        let tunnel_id = owned
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(connection_id);
+        if let Some(tunnel_id) = tunnel_id {
+            let tunnel = tunnels
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&tunnel_id);
+            drop(tunnel);
         }
     }
 }

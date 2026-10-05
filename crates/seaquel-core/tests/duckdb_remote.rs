@@ -5,17 +5,17 @@
 //! table page and a grid edit go through the helper. The SQL is the native
 //! cases' (`run_live.rs`, `edits_live.rs`).
 //!
-//! `SEAQUEL_TEST_DUCKDB_HELPER` names a built helper (`cargo build -p
-//! seaquel-duckdb`); without it these tests are skipped, and with
-//! `SEAQUEL_TEST_REQUIRE_ENGINES` set they fail. The helper is installed
-//! into a folder of the test's own under `CARGO_TARGET_TMPDIR`.
+//! The helper is `SEAQUEL_TEST_DUCKDB_HELPER`, else the one built beside
+//! the test binary (`common/duckdb.rs`); without either these tests are
+//! skipped, and with `SEAQUEL_TEST_REQUIRE_ENGINES` set they fail. It is
+//! installed into a folder of the test's own under `CARGO_TARGET_TMPDIR`.
 #![cfg(all(
     feature = "workspace",
     feature = "storage",
     feature = "engine-duckdb-remote"
 ))]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,54 +29,10 @@ use serde_json::{json, Value as Json};
 
 const LIMIT: Duration = Duration::from_secs(60);
 
-fn built_helper() -> Option<PathBuf> {
-    match std::env::var_os("SEAQUEL_TEST_DUCKDB_HELPER") {
-        Some(path) => Some(PathBuf::from(path)),
-        None if std::env::var_os("SEAQUEL_TEST_REQUIRE_ENGINES").is_some() => {
-            panic!("SEAQUEL_TEST_DUCKDB_HELPER is not set")
-        }
-        None => {
-            eprintln!("skipping: SEAQUEL_TEST_DUCKDB_HELPER is not set");
-            None
-        }
-    }
-}
+#[path = "common/duckdb.rs"]
+mod duckdb_helper;
 
-/// The app version the helper reports.
-fn helper_version(bin: &Path) -> String {
-    let out = std::process::Command::new(bin)
-        .arg("--version")
-        .output()
-        .unwrap();
-    String::from_utf8(out.stdout)
-        .unwrap()
-        .trim()
-        .strip_prefix("seaquel-duckdb ")
-        .unwrap()
-        .to_string()
-}
-
-/// `bin/duckdb/<version>/seaquel-duckdb` in a folder of its own, 0700.
-fn install(bin: &Path) -> (tempfile::TempDir, DuckdbHelper) {
-    let dir = tempfile::Builder::new()
-        .prefix("duckdb-remote-")
-        .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
-        .unwrap();
-    let version = helper_version(bin);
-    let root = dir.path().join("bin").join("duckdb");
-    let folder = root.join(&version);
-    std::fs::create_dir_all(&folder).unwrap();
-    #[cfg(unix)]
-    for d in [root.parent().unwrap(), &root, &folder] {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
-    }
-    let to = folder.join(format!("seaquel-duckdb{}", std::env::consts::EXE_SUFFIX));
-    if std::fs::hard_link(bin, &to).is_err() {
-        std::fs::copy(bin, &to).unwrap();
-    }
-    (dir, DuckdbHelper { dir: root, version })
-}
+use duckdb_helper::{built_helper, install};
 
 struct Live {
     core: Core,
@@ -228,6 +184,24 @@ fn the_helper_is_the_duckdb_engine() {
         1
     );
     assert_eq!(core.duckdb_helper().unwrap().version, "2026.1.1");
+}
+
+/// The default plugins are the four engines without DuckDB (the native
+/// driver is gone); DuckDB comes only from the helper's locator, once.
+#[test]
+fn default_plugins_have_no_duckdb_until_the_helper_is_added() {
+    let mut ids = seaquel_core::with_default_plugins().build().engine_ids();
+    ids.sort();
+    assert_eq!(ids, ["mssql", "mysql", "postgres", "sqlite"]);
+    let mut ids = seaquel_core::with_default_plugins()
+        .duckdb_helper(DuckdbHelper {
+            dir: PathBuf::from("/nonexistent/bin/duckdb"),
+            version: "2026.1.1".to_string(),
+        })
+        .build()
+        .engine_ids();
+    ids.sort();
+    assert_eq!(ids, ["duckdb", "mssql", "mysql", "postgres", "sqlite"]);
 }
 
 /// No helper installed: the connect fails at once, not after the connect's
@@ -415,4 +389,144 @@ async fn table_pages_and_grid_edits() {
         )]))
         .await;
     assert_eq!(got["failed"]["code"], "NO_ROWS_AFFECTED", "{got}");
+}
+
+impl Live {
+    /// The pids of this test's helpers (started from its own install).
+    #[cfg(unix)]
+    fn helper_pids(&self) -> Vec<u32> {
+        let out = std::process::Command::new("pgrep")
+            .arg("-f")
+            .arg(self._install.path())
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .lines()
+            .map(|l| l.trim().parse().unwrap())
+            .collect()
+    }
+}
+
+/// The `ConnectionClosed` events that arrive within `within` (the tests
+/// that use it kill or watch helpers by pid: Unix only).
+#[cfg(unix)]
+async fn closed_events(
+    events: &mut futures::stream::BoxStream<'static, seaquel_core::WorkspaceEvent>,
+    within: Duration,
+) -> Vec<(String, String, String)> {
+    let mut seen = Vec::new();
+    let deadline = tokio::time::Instant::now() + within;
+    while let Ok(Some(event)) = tokio::time::timeout_at(deadline, events.next()).await {
+        if let seaquel_core::WorkspaceEvent::ConnectionClosed {
+            connection_id,
+            code,
+            message,
+        } = event
+        {
+            seen.push((connection_id, code, message));
+        }
+    }
+    seen
+}
+
+/// The desktop DuckDB helper plan, Decision 7: a helper killed under a
+/// connection makes Core take the connection out and announce it once as
+/// `ConnectionClosed` with `CONNECTION_CLOSED` and the helper's message
+/// (which the GUI's `handleConnectionClosed` shows); `db.alive` then leaves
+/// it out and the next call is `CONNECTION_NOT_FOUND`.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_killed_helper_closes_its_connection_once() {
+    let Some(live) = live().await else { return };
+    let mut events = live.ws.events();
+    live.exec("SELECT 1").await;
+    let pids = live.helper_pids();
+    assert_eq!(pids.len(), 1, "{pids:?}");
+    assert!(std::process::Command::new("kill")
+        .args(["-9", &pids[0].to_string()])
+        .status()
+        .unwrap()
+        .success());
+    let seen = closed_events(&mut events, Duration::from_secs(5)).await;
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    let (id, code, message) = &seen[0];
+    assert_eq!(id, &live.id);
+    assert_eq!(code, "CONNECTION_CLOSED");
+    assert!(message.contains("signal 9"), "{message}");
+    assert!(live
+        .ws
+        .alive(&live.core, std::slice::from_ref(&live.id))
+        .is_empty());
+    let e = live
+        .ws
+        .query(&live.core, &live.id, "SELECT 1", vec![])
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, "CONNECTION_NOT_FOUND", "{e:?}");
+}
+
+/// A disconnect (and the helper's clean exit after it) announces nothing.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_disconnect_announces_nothing() {
+    let Some(live) = live().await else { return };
+    let mut events = live.ws.events();
+    live.exec("SELECT 1").await;
+    live.ws.disconnect(&live.core, &live.id).await.unwrap();
+    assert!(closed_events(&mut events, Duration::from_secs(1))
+        .await
+        .is_empty());
+    assert!(
+        live.helper_pids().is_empty(),
+        "the helper outlived its close"
+    );
+}
+
+/// Review I1 (b): a window that connects the same saved DuckDB file again
+/// (a reload's reconnect) gets the new connection: the old one, which
+/// holds the file, is closed first and announced `CONNECTION_REPLACED`
+/// once, and one connection is left.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_window_reconnecting_a_duckdb_file_replaces_its_old_connection() {
+    let Some(live) = live().await else { return };
+    let file = live._data.path().join("saved.duckdb");
+    // A form connect doesn't create a DuckDB file: made through ATTACH.
+    live.exec(&format!(
+        "ATTACH '{}' AS f; CREATE TABLE f.t AS SELECT 5 AS a; DETACH f",
+        file.display()
+    ))
+    .await;
+    let form: ConnectionForm = serde_json::from_value(json!({
+        "name": "saved", "type": "duckdb", "databaseName": file.to_str().unwrap()
+    }))
+    .unwrap();
+    let request = || {
+        ConnectRequest::form(form.clone())
+            .with_secrets(SuppliedSecrets::none())
+            .with_saved_connection_id(Some("conn-saved".to_string()))
+            .with_origin(seaquel_core::WriteOrigin::new(Some("win-1")))
+    };
+    let mut events = live.ws.events();
+    let old = live.ws.connect(&live.core, request()).await.unwrap();
+    let new = match live.ws.connect(&live.core, request()).await {
+        Ok(id) => id,
+        Err(e) => panic!("the reconnect failed: {e:?}"),
+    };
+    let seen = closed_events(&mut events, Duration::from_millis(500)).await;
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    assert_eq!(seen[0].0, old);
+    assert_eq!(seen[0].1, "CONNECTION_REPLACED");
+    let mut ids = live.ws.connection_ids(&live.core);
+    ids.sort();
+    let mut want = vec![live.id.clone(), new.clone()];
+    want.sort();
+    assert_eq!(ids, want);
+    let r = live
+        .ws
+        .query(&live.core, &new, "SELECT a FROM t", vec![])
+        .await
+        .unwrap();
+    assert_eq!(r.rows.len(), 1);
 }

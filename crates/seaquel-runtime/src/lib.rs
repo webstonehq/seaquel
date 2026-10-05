@@ -19,6 +19,11 @@ use std::time::Duration;
 
 pub use seaquel_macros::async_trait;
 
+/// Windows file security for the DuckDB helper's folders (the `acl`
+/// feature): the pure rule everywhere, the Win32 calls on Windows.
+#[cfg(feature = "acl")]
+pub mod acl;
+
 #[doc(hidden)]
 pub mod __private {
     pub use async_trait;

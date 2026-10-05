@@ -299,7 +299,11 @@ fn real_engines() -> Vec<Arc<dyn Engine>> {
         seaquel_engine_mysql::engine(),
         seaquel_engine_sqlite::engine(),
         seaquel_engine_mssql::engine(),
-        seaquel_engine_duckdb::engine(),
+        // For its dialect only, which needs no helper.
+        seaquel_engine_duckdb::remote_engine(seaquel_engine_duckdb::HelperLocator {
+            dir: std::path::PathBuf::from("/nonexistent/bin/duckdb"),
+            version: "0.0.0".into(),
+        }),
     ]
 }
 

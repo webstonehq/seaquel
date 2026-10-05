@@ -23,17 +23,14 @@ log = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "macros", "io-util", "io-std"] }
 
 [dev-dependencies]
-# tests/tools.rs runs its DuckDB cases on either driver
-# (`SEAQUEL_TEST_DUCKDB_DRIVER`): `engine-duckdb` for the native one
-# (`with_default_plugins()`, now that the normal dependency has no
-# defaults; Task 5's note), `engine-duckdb-remote` for
-# `CoreBuilder::duckdb_helper`, and the other engines the cases use.
+# tests/tools.rs runs its DuckDB cases through the helper
+# (`engine-duckdb-remote`, `CoreBuilder::duckdb_helper`), with the other
+# engines the cases use.
 seaquel-core = { path = "../seaquel-core", features = [
     "engine-postgres",
     "engine-mysql",
     "engine-sqlite",
     "engine-mssql",
-    "engine-duckdb",
     "engine-duckdb-remote",
 ] }
 # `#[seaquel_runtime::async_trait]`, for the tests' `SecretStore`s.

@@ -16,6 +16,12 @@
 //!   removes version folders older than the two newest, never the running
 //!   version's.
 //!
+//! With a pin ([`crate::CoreBuilder::duckdb_helper_pinned`], the app's
+//! release build: the desktop DuckDB helper plan, Decision 4) the asset's
+//! size and SHA-256 come from the binary: the asset is answered with no
+//! request, the install fetches only the download (never the release
+//! metadata), and a copied file with no hash given is checked against it.
+//!
 //! The interface installs before it connects again: `RemoteEngine::open`
 //! fails at once with `ENGINE_NOT_INSTALLED`, so Core's connect timeout
 //! never covers a download. The first start of a newly installed file gets
@@ -69,6 +75,31 @@ pub struct DuckdbHelperAsset {
     pub name: String,
     /// Compressed, in bytes: what the download will be.
     pub size: u64,
+}
+
+/// The helper asset's size and digest, built into the binary
+/// ([`crate::CoreBuilder::duckdb_helper_pinned`]).
+#[cfg(feature = "duckdb-helper-install")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DuckdbHelperPin {
+    /// Compressed, in bytes.
+    pub size: u64,
+    /// Of the compressed file, 64 lowercase hex digits.
+    pub sha256: String,
+}
+
+#[cfg(feature = "duckdb-helper-install")]
+impl DuckdbHelperPin {
+    /// A pin, if `size` is a possible asset size (1 byte up to the
+    /// download cap) and `sha256` is 64 hex digits (kept lowercase).
+    pub fn new(size: u64, sha256: &str) -> Option<Self> {
+        let hex = sha256.len() == 64 && sha256.bytes().all(|b| b.is_ascii_hexdigit());
+        let sized = size > 0 && size <= seaquel_http::release_asset::MAX_ASSET_BYTES;
+        (hex && sized).then(|| Self {
+            size,
+            sha256: sha256.to_ascii_lowercase(),
+        })
+    }
 }
 
 /// A finished install.
@@ -145,7 +176,7 @@ mod install {
     use super::*;
     use log::{info, warn};
     use seaquel_http::release_asset::{
-        install_file_cancellable, installed, prepare_target, target_triple, Fetcher, InstallError,
+        install_file_paced, installed, prepare_target, target_triple, Asset, Fetcher, InstallError,
         InstallTarget,
     };
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -188,6 +219,39 @@ mod install {
         Ok(format!(
             "seaquel-duckdb-{triple}{}.gz",
             std::env::consts::EXE_SUFFIX
+        ))
+    }
+
+    /// Whether `file` could be the pinned asset before it is hashed: a
+    /// regular file (a FIFO, device or folder isn't, and isn't opened in a
+    /// way that blocks: Task 4 review I1), whose length is the pinned size
+    /// and which starts as gzip does. A file that can't be read counts as
+    /// one (the install then says why).
+    fn looks_like_the_asset(file: &Path, size: u64) -> bool {
+        use std::io::Read;
+        let mut f = match seaquel_http::release_asset::open_regular(file) {
+            Ok(f) => f,
+            Err(e) => return e.kind() != std::io::ErrorKind::InvalidInput,
+        };
+        match f.metadata() {
+            Ok(m) if m.len() != size => return false,
+            Err(_) => return true,
+            Ok(_) => {}
+        }
+        let mut magic = [0u8; 2];
+        f.read_exact(&mut magic)
+            .map_or(true, |()| magic == [0x1f, 0x8b])
+    }
+
+    /// `WRONG_FILE` for a copied file that isn't this build's asset, naming
+    /// the asset to pick (review 3, for the app's dialog).
+    fn wrong_file(version: &str) -> Result<CoreError, CoreError> {
+        Ok(CoreError::new(
+            "WRONG_FILE",
+            format!(
+                "This isn't {} from the v{version} release. Pick that file from the release page.",
+                asset_name()?
+            ),
         ))
     }
 
@@ -267,9 +331,18 @@ mod install {
 
         /// This platform's helper in this version's release: its name and
         /// download size, from the release metadata (one request).
+        ///
+        /// With a pin ([`crate::CoreBuilder::duckdb_helper_pinned`]) the
+        /// size is the pinned one and nothing is requested.
         pub async fn duckdb_helper_asset(&self) -> Result<DuckdbHelperAsset, CoreError> {
             let helper = self.helper()?;
             let name = asset_name()?;
+            if let Some(pin) = &self.duckdb_helper_pin {
+                return Ok(DuckdbHelperAsset {
+                    name,
+                    size: pin.size,
+                });
+            }
             let asset = self
                 .fetcher(helper)
                 .asset(&helper.version, &name)
@@ -286,11 +359,19 @@ mod install {
         ///
         /// A folder that went loose since (review M5) is tightened first, as
         /// an install would, so this works offline too.
+        ///
+        /// Under a pin, a record naming another asset digest than the
+        /// pinned one doesn't count: that helper came from another asset
+        /// (review 1), so the pinned one is downloaded over it. A record
+        /// without an asset digest is kept.
         async fn already_installed(&self, target: &InstallTarget, helper: &DuckdbHelper) -> bool {
             let (target, helper) = (target.clone(), helper.clone());
+            let pinned = self.duckdb_helper_pin.as_ref().map(|p| p.sha256.clone());
             blocking(move || {
-                installed(&target).is_some()
-                    && prepare_target(&target).is_ok()
+                installed(&target).is_some_and(|i| match (&pinned, &i.asset_sha256) {
+                    (Some(pin), Some(recorded)) => pin == recorded,
+                    _ => true,
+                }) && prepare_target(&target).is_ok()
                     && helper.check().is_ok()
             })
             .await
@@ -339,7 +420,18 @@ mod install {
             let name = asset_name()?;
             let fetcher = self.fetcher(helper);
             let result = async {
-                let asset = fetcher.asset(&helper.version, &name).await?;
+                // A pinned asset is fetched from the download path alone:
+                // the release metadata (GitHub's API) isn't asked, and the
+                // file must have the pinned size and digest.
+                let asset = match &self.duckdb_helper_pin {
+                    Some(pin) => Asset {
+                        name,
+                        version: helper.version.clone(),
+                        size: pin.size,
+                        sha256: pin.sha256.clone(),
+                    },
+                    None => fetcher.asset(&helper.version, &name).await?,
+                };
                 fetcher.install(&asset, &target, progress).await
             }
             .await;
@@ -357,6 +449,11 @@ mod install {
         /// against `sha256`, the asset's digest as the release page shows
         /// it. A file already gunzipped is checked against its own hash.
         ///
+        /// With no `sha256` (the app's "Install from a file…") the file is
+        /// checked against the pin ([`crate::CoreBuilder::duckdb_helper_pinned`]),
+        /// so it must be the `.gz` this build was released with; with
+        /// neither, `INVALID_ARGUMENT` before anything is read or made.
+        ///
         /// The copy runs on the blocking pool. Dropping the future tells it
         /// to stop at its next read (`CANCELLED`, the partial file deleted);
         /// a caller about to exit should give the pool a moment
@@ -364,16 +461,33 @@ mod install {
         pub async fn duckdb_helper_install_from_file(
             &self,
             file: &Path,
-            sha256: &str,
+            sha256: Option<&str>,
         ) -> Result<DuckdbHelperInstalled, CoreError> {
             let helper = self.helper()?;
             let target = target(helper)?;
+            let given = sha256;
+            let sha256 =
+                match (sha256, &self.duckdb_helper_pin) {
+                    (Some(given), _) => given,
+                    (None, Some(pin)) => pin.sha256.as_str(),
+                    (None, None) => return Err(CoreError::new(
+                        "INVALID_ARGUMENT",
+                        "no SHA-256 was given for the DuckDB helper's file, and none is built in",
+                    )),
+                };
+            if let (None, Some(pin)) = (given, &self.duckdb_helper_pin) {
+                let (file, size) = (file.to_path_buf(), pin.size);
+                if !blocking(move || looks_like_the_asset(&file, size)).await? {
+                    return Err(Self::failed(wrong_file(&helper.version)?));
+                }
+            }
             let _turn = self.duckdb_helper_installing.lock().await;
             let (file, sha256) = (file.to_path_buf(), sha256.to_string());
+            let pause = self.duckdb_helper_read_pause;
             let cancel = CancelOnDrop(Arc::new(AtomicBool::new(false)));
             let flag = cancel.0.clone();
             let done =
-                blocking(move || install_file_cancellable(&file, &sha256, &target, &flag)).await?;
+                blocking(move || install_file_paced(&file, &sha256, &target, &flag, pause)).await?;
             drop(cancel);
             match done {
                 Ok(_) => self.finish(helper, true),

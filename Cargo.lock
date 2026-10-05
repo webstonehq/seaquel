@@ -6692,8 +6692,10 @@ dependencies = [
  "gloo-timers 0.3.0",
  "js-sys",
  "seaquel-macros",
+ "tempfile",
  "tokio",
  "wasm-bindgen-futures",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

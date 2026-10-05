@@ -1,9 +1,9 @@
 //! The remote driver (the DuckDB helper plan, Task 3): a `Driver` over a
 //! `seaquel-duckdb` child process.
 //!
-//! `SEAQUEL_TEST_DUCKDB_HELPER` names a built helper (`cargo build -p
-//! seaquel-duckdb`); without it the tests that need one are skipped, and
-//! with `SEAQUEL_TEST_REQUIRE_ENGINES` set they fail. Each test installs the
+//! The helper is `SEAQUEL_TEST_DUCKDB_HELPER`, else the `seaquel-duckdb`
+//! built beside the test binary (`common/engine.rs`); with neither the
+//! tests fail naming `cargo build -p seaquel-duckdb`. Each test installs the
 //! helper (a hard link, else a copy) into a folder of its own under
 //! `CARGO_TARGET_TMPDIR`, laid out as the install does
 //! (`bin/duckdb/<version>/seaquel-duckdb`), so its processes can be found by
@@ -25,6 +25,8 @@ use tokio::time::{timeout, Instant};
 
 #[path = "common/cast.rs"]
 mod cast;
+#[path = "common/engine.rs"]
+mod suite;
 
 /// How long any one test may take.
 const LIMIT: Duration = Duration::from_secs(60);
@@ -34,19 +36,11 @@ fn file_name() -> String {
     format!("seaquel-duckdb{}", std::env::consts::EXE_SUFFIX)
 }
 
-/// The built helper, or `None` (skipped) when `SEAQUEL_TEST_DUCKDB_HELPER`
-/// isn't set.
+/// The built helper (`common/engine.rs`'s lookup). Always `Some`: without
+/// a helper the lookup panics with the build hint, so no test here passes
+/// by skipping.
 fn built_helper() -> Option<PathBuf> {
-    match std::env::var_os("SEAQUEL_TEST_DUCKDB_HELPER") {
-        Some(path) => Some(PathBuf::from(path)),
-        None if std::env::var_os("SEAQUEL_TEST_REQUIRE_ENGINES").is_some() => {
-            panic!("SEAQUEL_TEST_DUCKDB_HELPER is not set")
-        }
-        None => {
-            eprintln!("skipping: SEAQUEL_TEST_DUCKDB_HELPER is not set");
-            None
-        }
-    }
+    Some(suite::helper())
 }
 
 /// The app version the built helper reports (`--version`).
@@ -133,6 +127,7 @@ impl Install {
         remote_engine(self.locator.clone()).open(&memory()).await
     }
 
+    #[cfg(unix)]
     async fn open_config(&self, config: &ConnectConfig) -> Result<Arc<dyn Driver>, DbError> {
         remote_engine(self.locator.clone()).open(config).await
     }
@@ -301,6 +296,7 @@ fn marking_script(version: &str) -> (Install, PathBuf) {
     (install, marker)
 }
 
+#[cfg(unix)]
 fn uuid_like() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -345,6 +341,28 @@ async fn a_folder_others_can_write_is_refused() {
         // So is the file itself.
         std::fs::set_permissions(install.path(), std::fs::Permissions::from_mode(0o722)).unwrap();
         refused_without_spawning(&install, &marker).await;
+    })
+    .await;
+}
+
+/// Task 10's P1: a helper file its owner can't execute (a restore or a
+/// copy tool that dropped the mode) is refused before anything is spawned,
+/// as unsafe, so the status says so and an install replaces it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_file_its_owner_cant_execute_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    limit(async {
+        let (install, marker) = marking_script("2026.1.1");
+        for mode in [0o600, 0o400, 0o644, 0o610, 0o601] {
+            std::fs::set_permissions(install.path(), std::fs::Permissions::from_mode(mode))
+                .unwrap();
+            refused_without_spawning(&install, &marker).await;
+        }
+        // Owner execute alone is enough.
+        std::fs::set_permissions(install.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+        let _ = install.open().await;
+        assert!(marker.exists(), "the script didn't run");
     })
     .await;
 }
@@ -567,6 +585,7 @@ async fn dropping_the_driver_kills_a_helper_that_ignores_its_input() {
 }
 
 /// A file database's config, created if missing, on one thread.
+#[cfg(unix)]
 fn file_config(path: &Path) -> ConnectConfig {
     serde_json::from_value(serde_json::json!({
         "driver": "duckdb",
@@ -641,6 +660,7 @@ exit($? >> 8);
 
 /// A copy of the built helper in `dir` (a hard link, else a copy), so a
 /// test's process checks see only its own helpers.
+#[cfg(unix)]
 fn own_copy(bin: &Path, dir: &Path) -> PathBuf {
     let to = dir.join(format!("real-{}", file_name()));
     if std::fs::hard_link(bin, &to).is_err() {
@@ -716,6 +736,7 @@ fn pids(path: &Path) -> Vec<u32> {
 
 /// A helper of another process holding `file` open: `hello` and `open`
 /// written by hand, the replies read. Dropping its stdin ends it.
+#[cfg(unix)]
 fn holder(real: &Path, version: &str, file: &Path) -> std::process::Child {
     use std::io::{Read, Write};
     let mut child = std::process::Command::new(real)
@@ -1211,14 +1232,14 @@ async fn results_in_pieces_arrive_whole() {
     .await;
 }
 
-/// Cells decode as the native driver decodes them whatever the session did
-/// to `arrow_lossless_conversion` (Checkpoint H-1): with it reset, DuckDB
+/// Cells decode the same whatever the session did to
+/// `arrow_lossless_conversion` (Checkpoint H-1): with it reset, DuckDB
 /// sends UHUGEINT as a bare `Decimal128(38, 0)` and BIT as its internal
 /// bytes, which the Arrow field alone can't tell from DECIMAL(38, 0) and
 /// BLOB. The helper sends the columns' kinds from DuckDB's logical types,
 /// at the top level and nested, on every path that returns rows.
 #[tokio::test]
-async fn cells_decode_as_natively_whatever_the_session_s_arrow_settings() {
+async fn cells_decode_the_same_whatever_the_session_s_arrow_settings() {
     let Some(bin) = built_helper() else { return };
     limit(async {
         let install = Install::current(&bin);
@@ -1270,7 +1291,7 @@ async fn a_query_past_the_cap_fails_and_the_connection_goes_on() {
     .await;
 }
 
-/// A stream nobody reads holds the main session (as natively); a read-only
+/// A stream nobody reads holds the main session; a read-only
 /// call runs beside it on a clone.
 #[tokio::test]
 async fn a_read_only_call_answers_beside_a_paused_stream() {
@@ -1298,23 +1319,70 @@ async fn a_read_only_call_answers_beside_a_paused_stream() {
     .await;
 }
 
-/// Past 16 read-only calls at once, `TOO_MANY_REQUESTS`.
+/// Read-only calls past the helper's 16 wait for a slot in the client
+/// (the desktop DuckDB helper plan, Decision 5): a dashboard runs every
+/// widget at once, and none of 40 is refused.
 #[tokio::test]
-async fn read_only_calls_are_capped() {
+async fn read_only_calls_past_sixteen_wait_for_a_slot() {
     let Some(bin) = built_helper() else { return };
     limit(async {
         let install = Install::current(&bin);
         let d = install.driver().await;
-        let mut calls: futures::stream::FuturesUnordered<_> = (0..17)
+        let calls: Vec<_> = (0..40)
+            .map(|i| {
+                let d = d.clone();
+                async move {
+                    d.query_read_only(
+                        &format!("SELECT sum(i) + {i} AS s FROM range(2000000) t(i)"),
+                        vec![],
+                        None,
+                    )
+                    .await
+                }
+            })
+            .collect();
+        let answers = futures::future::join_all(calls).await;
+        for (i, answer) in answers.into_iter().enumerate() {
+            let r = answer.unwrap_or_else(|e| panic!("call {i}: {e}"));
+            assert_eq!(r.rows.len(), 1, "call {i}");
+        }
+        assert_usable(&*d, Duration::from_millis(500)).await;
+    })
+    .await;
+}
+
+/// A read-only call dropped mid-call frees its slot once the helper has
+/// let it go: 40 long calls dropped (16 running in the helper, 24 waiting
+/// here), then 41 short ones all answer.
+#[tokio::test]
+async fn dropped_read_only_calls_free_their_slots() {
+    let Some(bin) = built_helper() else { return };
+    limit(async {
+        let install = Install::current(&bin);
+        let d = install.driver().await;
+        let mut long: futures::stream::FuturesUnordered<_> = (0..40)
             .map(|_| d.query_read_only(LONG_SUM, vec![], None))
             .collect();
-        let first = timeout(Duration::from_secs(5), calls.next())
+        // Long enough for 16 to reach the helper and start.
+        assert!(
+            timeout(Duration::from_millis(500), long.next())
+                .await
+                .is_err(),
+            "a long call answered"
+        );
+        drop(long);
+        let sql: Vec<String> = (0..41).map(|i| format!("SELECT {i} AS n")).collect();
+        let short: Vec<_> = sql
+            .iter()
+            .map(|sql| d.query_read_only(sql, vec![], None))
+            .collect();
+        let answers = timeout(Duration::from_secs(20), futures::future::join_all(short))
             .await
-            .expect("no call answered")
-            .unwrap();
-        assert_eq!(first.unwrap_err().code, "TOO_MANY_REQUESTS");
-        drop(calls);
-        assert_usable(&*d, Duration::from_millis(500)).await;
+            .expect("the short calls waited for slots that were never freed");
+        for (i, answer) in answers.into_iter().enumerate() {
+            let r = answer.unwrap_or_else(|e| panic!("call {i}: {e}"));
+            assert_eq!(r.rows, vec![vec![Value::Int(i as i64)]]);
+        }
     })
     .await;
 }
@@ -1353,6 +1421,494 @@ async fn each_connection_has_its_own_helper() {
         drop(a);
         drop(b);
         assert!(install.gone_within(Duration::from_secs(1)).await);
+    })
+    .await;
+}
+
+// ── A file open twice in this process (Decision 6 of the desktop plan) ───
+
+/// The message a second open of a file this process has open gets.
+#[cfg(unix)]
+const ALREADY_OPEN: &str =
+    "This DuckDB file is already open in another connection. Disconnect it first.";
+
+/// A second open of a file a live helper of this process holds is refused
+/// at once, in words that name no path, by any engine of this process and
+/// whatever the path's spelling; it opens again once the first is closed,
+/// dropped, or its helper died. `:memory:` opens as often as asked.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_second_open_of_an_open_file_is_refused_at_once() {
+    let Some(bin) = built_helper() else { return };
+    limit(async {
+        let install = Install::current(&bin);
+        let file = install.dir.path().join("twice.duckdb");
+        let config = file_config(&file);
+        // Created by this open: its key exists only afterwards.
+        let first = install.open_config(&config).await.unwrap();
+        first
+            .execute("CREATE TABLE t AS SELECT 1 AS a", vec![])
+            .await
+            .unwrap();
+        let spellings = [
+            file.clone(),
+            install.dir.path().join(".").join("twice.duckdb"),
+        ];
+        for path in &spellings {
+            let started = Instant::now();
+            // Another engine value, as another Core of this process has.
+            let e = open_error(
+                remote_engine(install.locator.clone())
+                    .open(&file_config(path))
+                    .await,
+            );
+            assert!(
+                started.elapsed() < Duration::from_millis(100),
+                "{:?}",
+                started.elapsed()
+            );
+            assert_eq!(e.code, "CONNECTION_ERROR", "{e}");
+            assert_eq!(e.message, ALREADY_OPEN);
+            assert!(!e.message.contains("twice"), "the path in the message");
+        }
+        assert_eq!(install.pids().len(), 1, "a refused open started a helper");
+        // In-memory databases are never the same file.
+        let m1 = install.driver().await;
+        let m2 = install.driver().await;
+        assert_usable(&*m1, Duration::from_secs(5)).await;
+        assert_usable(&*m2, Duration::from_secs(5)).await;
+        drop((m1, m2));
+
+        // Closed: free again.
+        first.close().await.unwrap();
+        let second = install.open_config(&config).await.unwrap();
+        let r = second.query("SELECT a FROM t", vec![]).await.unwrap();
+        assert_eq!(r.rows, vec![vec![Value::Int(1)]]);
+        // Dropped: free again.
+        drop(second);
+        let third = install.open_config(&config).await.unwrap();
+        // Its helper died: free again.
+        let pids = install.pids();
+        assert_eq!(pids.len(), 1);
+        assert!(kill("-9", pids[0]));
+        let closed = third
+            .closed()
+            .expect("the remote driver watches its helper");
+        timeout(Duration::from_secs(5), closed)
+            .await
+            .expect("the death wasn't seen");
+        let fourth = install.open_config(&config).await.unwrap();
+        assert_usable(&*fourth, Duration::from_secs(5)).await;
+        drop(third);
+        drop(fourth);
+        assert!(install.gone_within(Duration::from_secs(2)).await);
+    })
+    .await;
+}
+
+// ── A helper that dies unasked (Decision 7 of the desktop plan) ──────────
+
+/// `closed()` resolves with the calls' `CONNECTION_CLOSED` error when the
+/// helper is killed, also for a future taken afterwards.
+#[cfg(unix)]
+#[tokio::test]
+async fn closed_resolves_when_the_helper_is_killed() {
+    let Some(bin) = built_helper() else { return };
+    limit(async {
+        let install = Install::current(&bin);
+        let d = install.driver().await;
+        let closed = d.closed().expect("the remote driver watches its helper");
+        let pids = install.pids();
+        assert_eq!(pids.len(), 1);
+        assert!(kill("-9", pids[0]));
+        let e = timeout(Duration::from_secs(5), closed)
+            .await
+            .expect("the death wasn't seen")
+            .expect("reported as asked for");
+        assert_eq!(e.code, "CONNECTION_CLOSED", "{e}");
+        assert!(e.message.contains("signal 9"), "{e}");
+        let later = d.closed().unwrap();
+        let e = timeout(Duration::from_millis(100), later)
+            .await
+            .expect("a later future waits")
+            .expect("reported as asked for");
+        assert!(e.message.contains("signal 9"), "{e}");
+    })
+    .await;
+}
+
+/// A helper that breaks the protocol is killed, and that is a loss too.
+#[cfg(unix)]
+#[tokio::test]
+async fn closed_resolves_when_the_helper_breaks_the_protocol() {
+    limit(async {
+        let install = Install::script(
+            "2026.1.1",
+            &format!("{FRAMES_SH}\ngreet 2026.1.1\nsend 99 '{{\"type\":\"done\"}}'\nsleep 30"),
+        );
+        let d = install.driver().await;
+        let closed = d.closed().expect("the remote driver watches its helper");
+        let e = timeout(Duration::from_secs(5), closed)
+            .await
+            .expect("the break wasn't seen")
+            .expect("reported as asked for");
+        assert_eq!(e.code, "CONNECTION_CLOSED", "{e}");
+        assert!(e.message.contains("broke the protocol"), "{e}");
+        assert!(install.gone_within(Duration::from_secs(2)).await);
+    })
+    .await;
+}
+
+/// `close` is asked for: `closed()` ends with `None`.
+#[cfg(unix)]
+#[tokio::test]
+async fn closed_ends_quietly_on_close() {
+    let Some(bin) = built_helper() else { return };
+    limit(async {
+        let install = Install::current(&bin);
+        let d = install.driver().await;
+        let closed = d.closed().unwrap();
+        d.close().await.unwrap();
+        let ending = timeout(Duration::from_secs(5), closed)
+            .await
+            .expect("closed() didn't end after close");
+        assert!(ending.is_none(), "{ending:?}");
+        // Taken after the close, too.
+        let ending = timeout(Duration::from_secs(1), d.closed().unwrap())
+            .await
+            .unwrap();
+        assert!(ending.is_none(), "{ending:?}");
+    })
+    .await;
+}
+
+/// A helper that took `close` and is let go to finish (probe F3) wasn't
+/// lost either.
+#[cfg(unix)]
+#[tokio::test]
+async fn closed_ends_quietly_when_a_closing_helper_is_let_go() {
+    limit(async {
+        let install = Install::script(
+            "2026.1.1",
+            &format!("{FRAMES_SH}\ngreet 2026.1.1\nrecv\nexec 1>&-\nsleep 3\nexit 0"),
+        );
+        let d = install.driver().await;
+        let closed = d.closed().unwrap();
+        d.close().await.unwrap();
+        let ending = timeout(Duration::from_secs(5), closed)
+            .await
+            .expect("closed() didn't end after close");
+        assert!(ending.is_none(), "{ending:?}");
+        drop(d);
+        assert!(install.gone_within(Duration::from_secs(6)).await);
+    })
+    .await;
+}
+
+/// Dropping the driver kills its helper as asked: `None`, not a loss.
+#[cfg(unix)]
+#[tokio::test]
+async fn closed_ends_quietly_when_the_driver_is_dropped() {
+    let Some(bin) = built_helper() else { return };
+    limit(async {
+        let install = Install::current(&bin);
+        let d = install.driver().await;
+        let closed = d.closed().unwrap();
+        drop(d);
+        let ending = timeout(Duration::from_secs(5), closed)
+            .await
+            .expect("closed() didn't end after the drop");
+        assert!(ending.is_none(), "{ending:?}");
+        assert!(install.gone_within(Duration::from_secs(1)).await);
+    })
+    .await;
+}
+
+// ── A client that exits (Decision 16 of the desktop plan, spike S4) ──────
+
+/// Set in the child process of
+/// [`a_client_that_exits_leaves_its_helper_to_checkpoint`]: the locator's
+/// folder, its version and the database file, separated by newlines.
+#[cfg(unix)]
+const EXIT_CHILD: &str = "SEAQUEL_REMOTE_EXIT_CHILD";
+
+/// The child: opens `file` through the remote driver, writes past 32 MB of
+/// WAL with automatic checkpoints off, prints the WAL's size and the row
+/// count, and ends with `process::exit(0)` from inside its runtime, the
+/// driver never dropped (as the app's quit does: tao's event loop ends in
+/// `process::exit`, item 20 of the desktop plan).
+#[cfg(unix)]
+fn exit_child(spec: &str) -> ! {
+    let mut parts = spec.split('\n');
+    let (dir, version, file) = (
+        PathBuf::from(parts.next().unwrap()),
+        parts.next().unwrap().to_string(),
+        PathBuf::from(parts.next().unwrap()),
+    );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async move {
+        let driver = remote_engine(HelperLocator { dir, version })
+            .open(&file_config(&file))
+            .await
+            .unwrap_or_else(|e| panic!("open: {e}"));
+        driver
+            .execute("SET checkpoint_threshold = '100GB'", vec![])
+            .await
+            .unwrap();
+        driver
+            .execute("CREATE TABLE t (k BIGINT, s VARCHAR)", vec![])
+            .await
+            .unwrap();
+        let wal = {
+            let mut name = file.clone().into_os_string();
+            name.push(".wal");
+            PathBuf::from(name)
+        };
+        // Under a row group per batch, so DuckDB logs the rows in the WAL.
+        let mut rows = 0u64;
+        while std::fs::metadata(&wal).map(|m| m.len()).unwrap_or(0) < 32 * 1024 * 1024 {
+            driver
+                .execute(
+                    &format!(
+                        "INSERT INTO t SELECT range, repeat(md5(range::VARCHAR), 30) \
+                         FROM range({rows}, {})",
+                        rows + 20_000
+                    ),
+                    vec![],
+                )
+                .await
+                .unwrap();
+            rows += 20_000;
+        }
+        let size = std::fs::metadata(&wal).unwrap().len();
+        println!("wal={size} rows={rows}");
+        use std::io::Write;
+        std::io::stdout().flush().unwrap();
+        let _keep = driver;
+        std::process::exit(0);
+    })
+}
+
+/// Spike S4 as a test: a client that ends with `process::exit` while its
+/// helper holds a WAL leaves the helper to checkpoint it into the file and
+/// exit 0 (within its own 60 s bound). The test re-runs itself as that
+/// client; a wrapper in the helper's place records the real helper's exit
+/// status, since nobody can wait on it once its parent is gone.
+#[cfg(unix)]
+#[test]
+fn a_client_that_exits_leaves_its_helper_to_checkpoint() {
+    if let Ok(spec) = std::env::var(EXIT_CHILD) {
+        exit_child(&spec);
+    }
+    let Some(bin) = built_helper() else { return };
+    let version = helper_version(&bin);
+    let work = tempfile::Builder::new()
+        .prefix("exit-")
+        .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
+        .unwrap();
+    let real = own_copy(&bin, work.path());
+    let status = work.path().join("status");
+    let install = Install::script(
+        &version,
+        &format!(
+            "'{}' \"$@\"\necho $? >> '{}'",
+            real.display(),
+            status.display()
+        ),
+    );
+    let file = work.path().join("exit.duckdb");
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "a_client_that_exits_leaves_its_helper_to_checkpoint",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(
+            EXIT_CHILD,
+            format!(
+                "{}\n{}\n{}",
+                install.locator.dir.display(),
+                version,
+                file.display()
+            ),
+        )
+        .stderr(std::process::Stdio::inherit())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "the client failed: {:?}", out.status);
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    // libtest's "test … ... " may come first on the line.
+    let line = stdout
+        .lines()
+        .find_map(|l| l.find("wal=").map(|at| &l[at..]))
+        .unwrap_or_else(|| panic!("no report from the client: {stdout}"));
+    let fields: Vec<u64> = line
+        .split(' ')
+        .map(|f| f.split_once('=').unwrap().1.parse().unwrap())
+        .collect();
+    let (wal_bytes, rows) = (fields[0], fields[1]);
+    assert!(wal_bytes >= 32 * 1024 * 1024, "{line}");
+
+    // The helper's exit, recorded by the wrapper.
+    // 65 s in 50 ms looks (std's clock is kept out of these crates).
+    let mut looks = 0;
+    let code = loop {
+        let text = std::fs::read_to_string(&status).unwrap_or_default();
+        if let Some(code) = text.lines().next() {
+            break code.trim().to_string();
+        }
+        looks += 1;
+        assert!(looks < 1300, "the helper didn't exit within 65 s");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(code, "0", "the helper's exit status");
+    let mut wal = file.clone().into_os_string();
+    wal.push(".wal");
+    assert!(
+        !Path::new(&wal).exists(),
+        "the WAL is still there: no checkpoint"
+    );
+    // Every row is in the file.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let direct = Install::current(&bin);
+        let d = direct.open_config(&file_config(&file)).await.unwrap();
+        let r = d
+            .query(
+                "SELECT count(*) AS n, count(DISTINCT k) AS k FROM t",
+                vec![],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            r.rows,
+            vec![vec![Value::Int(rows as i64), Value::Int(rows as i64)]]
+        );
+        d.close().await.unwrap();
+    });
+}
+
+/// Review I1 (a): a disconnect and a connect of the same file at once (the
+/// TUI's reconnect sends both as separate effects): the open meets a
+/// connection that is closing, waits for its helper, and opens.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_connect_beside_a_closing_connection_of_the_same_file_waits_and_opens() {
+    let Some(bin) = built_helper() else { return };
+    limit(async {
+        let install = Install::current(&bin);
+        let file = install.dir.path().join("reopen.duckdb");
+        let config = file_config(&file);
+        let first = install.open_config(&config).await.unwrap();
+        first
+            .execute("CREATE TABLE t AS SELECT 7 AS a", vec![])
+            .await
+            .unwrap();
+        let (closed, second) = tokio::join!(first.close(), install.open_config(&config));
+        closed.unwrap();
+        let second = match second {
+            Ok(driver) => driver,
+            Err(e) => panic!("the reconnect was refused: {e}"),
+        };
+        let r = second.query("SELECT a FROM t", vec![]).await.unwrap();
+        assert_eq!(r.rows, vec![vec![Value::Int(7)]]);
+        drop(second);
+        assert!(install.gone_within(Duration::from_secs(2)).await);
+    })
+    .await;
+}
+
+/// Review M1: a hard link to an open file is the same file.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_hard_link_to_an_open_file_is_refused_at_once() {
+    let Some(bin) = built_helper() else { return };
+    limit(async {
+        let install = Install::current(&bin);
+        let file = install.dir.path().join("linked.duckdb");
+        let first = install.open_config(&file_config(&file)).await.unwrap();
+        first
+            .execute("CREATE TABLE t AS SELECT 1 AS a", vec![])
+            .await
+            .unwrap();
+        let link = install.dir.path().join("other-name.duckdb");
+        std::fs::hard_link(&file, &link).unwrap();
+        let started = Instant::now();
+        let e = open_error(install.open_config(&file_config(&link)).await);
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(e.message, ALREADY_OPEN);
+        drop(first);
+    })
+    .await;
+}
+
+/// Review follow-up 1: `Engine::preflight` runs the install check, so Core
+/// hears `ENGINE_NOT_INSTALLED` before it closes anything a reconnect
+/// would replace. Nothing is started.
+#[tokio::test]
+async fn preflight_is_the_install_check() {
+    let empty = Install::empty("2026.1.1");
+    let engine = remote_engine(empty.locator.clone());
+    let e = engine.preflight(&memory()).unwrap_err();
+    assert_eq!(e.code, "ENGINE_NOT_INSTALLED", "{e}");
+    let Some(bin) = built_helper() else { return };
+    let install = Install::current(&bin);
+    remote_engine(install.locator.clone())
+        .preflight(&memory())
+        .unwrap();
+}
+
+/// Review follow-up 3: the wait for this process's helper still closing
+/// the same file is bounded at 25 s, under Core's 30 s connect timeout, and
+/// then refused in its own words (no "another process", no path). The
+/// proxy keeps the file for 30 s after `close`.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_file_still_saving_past_the_wait_is_refused_in_plain_words() {
+    let Some(bin) = built_helper() else { return };
+    limit(async {
+        let dir = tempfile::Builder::new()
+            .prefix("saving-")
+            .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
+            .unwrap();
+        let real = own_copy(&bin, dir.path());
+        let starts = dir.path().join("starts");
+        let install = holding_proxy(&helper_version(&bin), &real, &starts, 30);
+        let config = file_config(&dir.path().join("slow.duckdb"));
+        let engine = remote_engine(install.locator.clone());
+        let driver = engine.open(&config).await.unwrap();
+        driver
+            .execute("CREATE TABLE t AS SELECT 1 AS a", vec![])
+            .await
+            .unwrap();
+        driver.close().await.unwrap();
+        let started = Instant::now();
+        let e = open_error(engine.open(&config).await);
+        let took = started.elapsed();
+        assert!(
+            took >= Duration::from_secs(25) && took < Duration::from_secs(27),
+            "{took:?}"
+        );
+        assert_eq!(e.code, "CONNECTION_ERROR", "{e}");
+        assert_eq!(
+            e.message,
+            "DuckDB is still saving this file. Try again in a few seconds."
+        );
+        let lines = std::fs::read_to_string(&starts).unwrap();
+        assert_eq!(lines.lines().count(), 1, "a second helper was started");
+        drop(driver);
+        assert!(install.gone_within(Duration::from_secs(15)).await);
     })
     .await;
 }

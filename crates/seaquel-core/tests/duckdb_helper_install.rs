@@ -231,10 +231,8 @@ async fn refusals_carry_their_codes_and_leave_nothing() {
         core.duckdb_helper_status().unwrap(),
         DuckdbHelperStatus::Missing
     );
-    assert!(std::fs::read_dir(dir.join(VERSION))
-        .unwrap()
-        .next()
-        .is_none());
+    // Task 10's O3: the version folder the install made is gone again.
+    assert!(!dir.join(VERSION).exists());
 
     // No release for this version.
     let (_tmp, dir) = layout();
@@ -346,7 +344,7 @@ async fn a_copied_file_installs_against_its_hash() {
     std::fs::write(&file, &gz).unwrap();
     let wrong = "0".repeat(64);
     let e = core
-        .duckdb_helper_install_from_file(&file, &wrong)
+        .duckdb_helper_install_from_file(&file, Some(&wrong))
         .await
         .unwrap_err();
     assert_eq!(e.code, "DIGEST_MISMATCH");
@@ -357,7 +355,7 @@ async fn a_copied_file_installs_against_its_hash() {
 
     let hash = &digest(&gz)["sha256:".len()..];
     let done = core
-        .duckdb_helper_install_from_file(&file, hash)
+        .duckdb_helper_install_from_file(&file, Some(hash))
         .await
         .unwrap();
     assert!(done.downloaded);
@@ -385,7 +383,7 @@ async fn an_install_prunes_old_versions() {
     let file = tmp.path().join("seaquel-duckdb.gz");
     std::fs::write(&file, &gz).unwrap();
     let done = core
-        .duckdb_helper_install_from_file(&file, &digest(&gz)["sha256:".len()..])
+        .duckdb_helper_install_from_file(&file, Some(&digest(&gz)["sha256:".len()..]))
         .await
         .unwrap();
     assert_eq!(done.pruned, 2);
@@ -468,7 +466,7 @@ fn the_install_futures_are_send(core: &Core, file: &Path) {
     fn send<T: Send>(_: T) {}
     send(core.duckdb_helper_install(&mut |_| {}));
     send(core.duckdb_helper_asset());
-    send(core.duckdb_helper_install_from_file(file, ""));
+    send(core.duckdb_helper_install_from_file(file, None));
 }
 
 /// Review M5: an intact install in a folder that has gone loose (a umask,
@@ -506,4 +504,362 @@ async fn an_intact_install_in_a_loose_folder_is_fixed_offline() {
         offline.duckdb_helper_status().unwrap(),
         DuckdbHelperStatus::Installed { .. }
     ));
+}
+
+/// Task 10's P1: an intact install whose file lost its owner's execute
+/// bit (a restore, a copy tool) reads `Unsafe`, and the install doesn't
+/// keep it: it downloads over it, and the file is 0700 again.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_helper_its_owner_cant_execute_is_unsafe_and_replaced() {
+    use std::os::unix::fs::PermissionsExt;
+    let mock = MockReleases::start().await;
+    let name = asset_name();
+    mock.publish(VERSION, &name, gzip(&fake_helper()));
+    let (_tmp, dir) = layout();
+    let core = core_with(&dir, VERSION, Some(&mock));
+    let first = install(&core).await.unwrap();
+    std::fs::set_permissions(&first.path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(
+        core.duckdb_helper_status().unwrap(),
+        DuckdbHelperStatus::Unsafe
+    );
+    let e = core.duckdb_helper().unwrap().check().unwrap_err();
+    assert_eq!(e.code, "ENGINE_NOT_INSTALLED", "{e}");
+
+    let repaired = install(&core).await.unwrap();
+    assert!(repaired.downloaded, "the install kept the file");
+    assert_eq!(mock.hits(&asset_path(VERSION, &name)), 2);
+    assert_eq!(mode(&repaired.path), 0o700);
+    assert_eq!(
+        core.duckdb_helper_status().unwrap(),
+        DuckdbHelperStatus::Installed {
+            path: repaired.path.clone()
+        }
+    );
+
+    // The same from a copied file.
+    let file = _tmp.path().join("copy.gz");
+    let gz = gzip(&fake_helper());
+    std::fs::write(&file, &gz).unwrap();
+    std::fs::set_permissions(&repaired.path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(
+        core.duckdb_helper_status().unwrap(),
+        DuckdbHelperStatus::Unsafe
+    );
+    let copied = tokio::time::timeout(
+        LIMIT,
+        core.duckdb_helper_install_from_file(&file, Some(&hex(&gz))),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(mode(&copied.path), 0o700);
+    assert!(matches!(
+        core.duckdb_helper_status().unwrap(),
+        DuckdbHelperStatus::Installed { .. }
+    ));
+}
+
+// --- The pinned asset (the desktop DuckDB helper plan, Task 3, Decision 4).
+
+/// [`core_with`] with the asset's size and SHA-256 built in, as the app's
+/// release build has them.
+fn pinned_core(dir: &Path, mock: Option<&MockReleases>, size: u64, sha256: &str) -> Core {
+    let mut b = seaquel_core::with_plugins(|id| id != "duckdb")
+        .duckdb_helper(DuckdbHelper {
+            dir: dir.to_path_buf(),
+            version: VERSION.to_string(),
+        })
+        .duckdb_helper_pinned(size, sha256)
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+        .executor(Arc::new(seaquel_runtime::TokioExecutor));
+    if let Some(m) = mock {
+        b = b.duckdb_helper_releases(m.source());
+    }
+    b.build()
+}
+
+fn hex(bytes: &[u8]) -> String {
+    digest(bytes)["sha256:".len()..].to_string()
+}
+
+/// With a pin, the asset is answered from it: no request at all, so the
+/// dialog knows the size offline and GitHub's API limit never applies.
+#[tokio::test]
+async fn a_pinned_asset_is_answered_without_a_request() {
+    let mock = MockReleases::start().await;
+    let (_tmp, dir) = layout();
+    let core = pinned_core(&dir, Some(&mock), 12_345, &"ab".repeat(32));
+    let pin = core.duckdb_helper_pin().expect("the pin");
+    assert_eq!(pin.size, 12_345);
+    assert_eq!(pin.sha256, "ab".repeat(32));
+
+    let asset = core.duckdb_helper_asset().await.unwrap();
+    assert_eq!(asset.name, asset_name());
+    assert_eq!(asset.size, 12_345);
+    assert!(mock.requests().is_empty(), "{:?}", mock.requests());
+}
+
+/// The pinned install fetches only the download path, never the release
+/// metadata (the API), and installs what it got.
+#[tokio::test]
+async fn a_pinned_install_fetches_only_the_download() {
+    let mock = MockReleases::start().await;
+    let gz = gzip(&fake_helper());
+    let name = asset_name();
+    // No metadata route: a metadata request would be a 404.
+    mock.route(
+        &asset_path(VERSION, &name),
+        seaquel_http::release_asset::testing::Route::ok(gz.clone()),
+    );
+    let (_tmp, dir) = layout();
+    let core = pinned_core(&dir, Some(&mock), gz.len() as u64, &hex(&gz));
+    let mut seen: Vec<DuckdbHelperProgress> = Vec::new();
+    let done = tokio::time::timeout(LIMIT, core.duckdb_helper_install(&mut |p| seen.push(p)))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(done.downloaded);
+    assert_eq!(std::fs::read(&done.path).unwrap(), fake_helper());
+    assert_eq!(seen.last().unwrap().bytes, gz.len() as u64);
+    let paths: Vec<String> = mock.requests().into_iter().map(|r| r.path).collect();
+    assert_eq!(paths, [asset_path(VERSION, &name)]);
+    assert_eq!(mock.hits(&release_path(VERSION)), 0);
+    assert!(matches!(
+        core.duckdb_helper_status().unwrap(),
+        DuckdbHelperStatus::Installed { .. }
+    ));
+}
+
+/// Task 10's P2: under the pin the download is the only request, and a
+/// release without this platform's asset answers it 404. That is
+/// `ASSET_NOT_FOUND`, as the metadata path says it, so the dialog words it
+/// as unpublished and offers the file. The version folder the install made
+/// is removed again (O3).
+#[tokio::test]
+async fn a_pinned_install_of_a_missing_asset_is_asset_not_found() {
+    let mock = MockReleases::start().await;
+    let gz = gzip(&fake_helper());
+    let (_tmp, dir) = layout();
+    let core = pinned_core(&dir, Some(&mock), gz.len() as u64, &hex(&gz));
+    let e = install(&core).await.unwrap_err();
+    assert_eq!(e.code, "ASSET_NOT_FOUND", "{e}");
+    assert!(e.message.contains(&asset_name()), "{e}");
+    assert_eq!(mock.hits(&release_path(VERSION)), 0);
+    assert_eq!(
+        core.duckdb_helper_status().unwrap(),
+        DuckdbHelperStatus::Missing
+    );
+    assert!(!dir.join(VERSION).exists(), "the version folder was left");
+}
+
+/// A served file whose digest isn't the pinned one is refused, even when
+/// the release's own metadata would vouch for it, and nothing is left.
+#[tokio::test]
+async fn a_pinned_install_refuses_another_file() {
+    let mock = MockReleases::start().await;
+    let gz = gzip(&fake_helper());
+    // The release (metadata and asset) agrees with itself; the pin doesn't.
+    mock.publish(VERSION, &asset_name(), gz.clone());
+    let (_tmp, dir) = layout();
+    let core = pinned_core(&dir, Some(&mock), gz.len() as u64, &hex(b"another file"));
+    let e = install(&core).await.unwrap_err();
+    assert_eq!(e.code, "DIGEST_MISMATCH", "{e}");
+    assert_eq!(
+        core.duckdb_helper_status().unwrap(),
+        DuckdbHelperStatus::Missing
+    );
+    assert!(!dir.join(VERSION).exists());
+    assert_eq!(mock.hits(&release_path(VERSION)), 0);
+
+    // A file of another size than the pinned one: refused by its length.
+    let (_tmp, dir) = layout();
+    let core = pinned_core(&dir, Some(&mock), gz.len() as u64 + 1, &hex(&gz));
+    let e = install(&core).await.unwrap_err();
+    assert_eq!(e.code, "SIZE_MISMATCH", "{e}");
+    // The pinned size isn't the release's: the message doesn't say it is.
+    assert!(!e.message.contains("release says"), "{e}");
+    assert_eq!(
+        core.duckdb_helper_status().unwrap(),
+        DuckdbHelperStatus::Missing
+    );
+}
+
+/// "Install from a file…" passes no hash: the file is checked against the
+/// pin. Without a pin, no hash is refused before anything is read.
+#[tokio::test]
+async fn a_copied_file_with_no_hash_is_checked_against_the_pin() {
+    let (tmp, dir) = layout();
+    let gz = gzip(&fake_helper());
+    let file = tmp.path().join("seaquel-duckdb.gz");
+    std::fs::write(&file, &gz).unwrap();
+    // The same length and still gzip, but not the same bytes (a byte of
+    // the trailer's CRC changed): only the digest tells it apart.
+    let other = tmp.path().join("other.gz");
+    let mut changed = gz.clone();
+    let at = changed.len() - 6;
+    changed[at] ^= 0xff;
+    std::fs::write(&other, changed).unwrap();
+
+    // No pin and no hash.
+    let unpinned = core_with(&dir, VERSION, None);
+    let e = unpinned
+        .duckdb_helper_install_from_file(&file, None)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, "INVALID_ARGUMENT", "{e}");
+    assert!(!dir.exists(), "nothing is made without a hash to check");
+
+    let core = pinned_core(&dir, None, gz.len() as u64, &hex(&gz));
+    let e = core
+        .duckdb_helper_install_from_file(&other, None)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, "DIGEST_MISMATCH", "{e}");
+    assert_eq!(
+        core.duckdb_helper_status().unwrap(),
+        DuckdbHelperStatus::Missing
+    );
+
+    let done = core
+        .duckdb_helper_install_from_file(&file, None)
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(&done.path).unwrap(), fake_helper());
+    assert!(matches!(
+        core.duckdb_helper_status().unwrap(),
+        DuckdbHelperStatus::Installed { .. }
+    ));
+}
+
+/// Without a pin there is none to read.
+#[test]
+fn no_pin_by_default() {
+    let (_tmp, dir) = layout();
+    assert!(core_with(&dir, VERSION, None).duckdb_helper_pin().is_none());
+}
+
+/// A pin that can't be one is a programming error (the app's build script
+/// refuses such values before they are compiled in).
+#[test]
+#[should_panic(expected = "pinned")]
+fn a_malformed_pin_is_refused() {
+    let _ = seaquel_core::with_plugins(|id| id != "duckdb").duckdb_helper_pinned(10, "not hex");
+}
+
+#[test]
+#[should_panic(expected = "pinned")]
+fn a_pinned_size_of_zero_is_refused() {
+    let _ =
+        seaquel_core::with_plugins(|id| id != "duckdb").duckdb_helper_pinned(0, &"a".repeat(64));
+}
+
+/// Review 1: a pinned Core keeps an intact install of the pinned asset that
+/// came the metadata way (a terminal binary's, or an earlier unpinned run):
+/// nothing is requested.
+#[tokio::test]
+async fn a_pinned_core_keeps_an_intact_install_of_the_same_asset() {
+    let mock = MockReleases::start().await;
+    let gz = gzip(&fake_helper());
+    mock.publish(VERSION, &asset_name(), gz.clone());
+    let (_tmp, dir) = layout();
+    install(&core_with(&dir, VERSION, Some(&mock)))
+        .await
+        .unwrap();
+    let before = mock.requests().len();
+
+    let pinned = pinned_core(&dir, Some(&mock), gz.len() as u64, &hex(&gz));
+    let done = install(&pinned).await.unwrap();
+    assert!(!done.downloaded);
+    assert_eq!(mock.requests().len(), before, "{:?}", mock.requests());
+}
+
+/// Review 1 (decision): an intact install whose record names another asset
+/// digest than the pin is replaced with the pinned asset.
+#[tokio::test]
+async fn a_pinned_core_replaces_an_install_of_another_asset() {
+    let mock = MockReleases::start().await;
+    let first = gzip(&fake_helper());
+    mock.publish(VERSION, &asset_name(), first);
+    let (_tmp, dir) = layout();
+    install(&core_with(&dir, VERSION, Some(&mock)))
+        .await
+        .unwrap();
+
+    let mut bytes = fake_helper();
+    bytes.extend_from_slice(b"another build");
+    let second = gzip(&bytes);
+    mock.route(
+        &asset_path(VERSION, &asset_name()),
+        seaquel_http::release_asset::testing::Route::ok(second.clone()),
+    );
+    let pinned = pinned_core(&dir, Some(&mock), second.len() as u64, &hex(&second));
+    let done = install(&pinned).await.unwrap();
+    assert!(done.downloaded);
+    assert_eq!(std::fs::read(&done.path).unwrap(), bytes);
+}
+
+/// Task 4 review I1: a FIFO picked as the file (no writer, so opening it
+/// would block forever) is `WRONG_FILE` at once under the pin, with nothing
+/// made and no thread left waiting.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fifo_under_the_pin_is_the_wrong_file_at_once() {
+    let (tmp, dir) = layout();
+    let gz = gzip(&fake_helper());
+    let core = pinned_core(&dir, None, gz.len() as u64, &hex(&gz));
+    let fifo = tmp.path().join("seaquel-duckdb.gz");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let e = tokio::time::timeout(
+        Duration::from_secs(5),
+        core.duckdb_helper_install_from_file(&fifo, None),
+    )
+    .await
+    .expect("refused at once, not blocked on the FIFO")
+    .unwrap_err();
+    assert_eq!(e.code, "WRONG_FILE", "{e}");
+    assert!(!e.message.contains(&*tmp.path().to_string_lossy()), "{e}");
+    assert!(!dir.join(VERSION).exists(), "nothing is made");
+}
+
+/// Review 3: under the pin, a copied file of another length, or one that
+/// isn't gzip, is `WRONG_FILE`, naming the asset to pick; nothing is made.
+#[tokio::test]
+async fn a_wrong_file_under_the_pin_names_the_asset_to_pick() {
+    let (tmp, dir) = layout();
+    let gz = gzip(&fake_helper());
+    let core = pinned_core(&dir, None, gz.len() as u64, &hex(&gz));
+    let want = format!("{} from the v{VERSION} release", asset_name());
+
+    // Another length (an older release's asset, say).
+    let longer = tmp.path().join("longer.gz");
+    let mut l = gz.clone();
+    l.push(0);
+    std::fs::write(&longer, l).unwrap();
+    // The right length, but not gzip (the helper unpacked, then cut).
+    let plain = tmp.path().join("plain");
+    std::fs::write(&plain, &fake_helper()[..gz.len()]).unwrap();
+
+    for file in [&longer, &plain] {
+        let e = core
+            .duckdb_helper_install_from_file(file, None)
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, "WRONG_FILE", "{e}");
+        assert!(e.message.contains(&want), "{e}");
+        assert!(!e.message.contains(&*tmp.path().to_string_lossy()), "{e}");
+    }
+    assert_eq!(
+        core.duckdb_helper_status().unwrap(),
+        DuckdbHelperStatus::Missing
+    );
+    assert!(
+        !dir.join(VERSION).exists(),
+        "nothing is made for a wrong file"
+    );
 }

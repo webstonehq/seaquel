@@ -18,4 +18,13 @@ describe("errorText", () => {
       "INVALID_ARGUMENT: One request can send at most 20 MiB.",
     );
   });
+
+  it("words the DuckDB helper's engine codes (desktop DuckDB helper plan, Decision 10)", () => {
+    expect(errorText("ENGINE_UNAVAILABLE", "silent")).toBe(m.duckdb_helper_unavailable());
+    expect(errorText("ENGINE_NOT_AVAILABLE", "no duckdb")).toBe(m.duckdb_helper_not_available());
+    // Core's own sentence says which version and why.
+    expect(
+      errorText("ENGINE_NOT_INSTALLED", "DuckDB support for Seaquel 2026.10.1 isn't installed: x"),
+    ).toBe("DuckDB support for Seaquel 2026.10.1 isn't installed: x");
+  });
 });

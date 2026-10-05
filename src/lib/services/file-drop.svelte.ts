@@ -2,6 +2,7 @@ import { toast } from "svelte-sonner";
 import { showErrorUnlessShown } from "$lib/errors";
 import type { useDatabase } from "$lib/hooks/database.svelte.js";
 import { DEFAULT_PROJECT_ID } from "$lib/types";
+import { DuckdbHelperDeclined } from "$lib/core/duckdb-helper";
 
 type Database = ReturnType<typeof useDatabase>;
 
@@ -100,7 +101,11 @@ async function handleDataFile(
   }
 }
 
-async function handleDatabaseFile(path: string, db: Database): Promise<void> {
+/**
+ * Connect a dropped DuckDB file. Answers `false` when the user declined to
+ * install DuckDB support, so the rest of the drop doesn't ask again.
+ */
+async function handleDatabaseFile(path: string, db: Database): Promise<boolean> {
   const fileName = getFileName(path);
   try {
     await db.connections.add({
@@ -114,11 +119,13 @@ async function handleDatabaseFile(path: string, db: Database): Promise<void> {
     });
     toast.success(`Connected to ${fileName}`);
   } catch (error) {
+    if (error instanceof DuckdbHelperDeclined) return false;
     showErrorUnlessShown(error, (message) => `Failed to connect to ${fileName}: ${message}`);
   }
+  return true;
 }
 
-async function handleFileDrop(paths: string[], db: Database): Promise<void> {
+export async function handleFileDrop(paths: string[], db: Database): Promise<void> {
   const dataFiles: { path: string; readFn: string }[] = [];
   const dbFiles: string[] = [];
   const unsupported: string[] = [];
@@ -140,11 +147,17 @@ async function handleFileDrop(paths: string[], db: Database): Promise<void> {
     toast.info(`Unsupported file type: ${unsupported.join(", ")}`);
   }
 
+  // Everything in a drop is DuckDB work: one decline of DuckDB support's
+  // install ends it, instead of asking once per file.
+  let declined = false;
   for (const path of dbFiles) {
-    await handleDatabaseFile(path, db);
+    if (!(await handleDatabaseFile(path, db))) {
+      declined = true;
+      break;
+    }
   }
 
-  if (dataFiles.length > 0) {
+  if (dataFiles.length > 0 && !declined) {
     try {
       const connectionId = await getOrCreateQuickDuckDBConnection(db);
       for (const { path, readFn } of dataFiles) {

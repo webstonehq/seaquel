@@ -24,10 +24,9 @@
 //!   and the helper ends with [`EXIT_WEDGED`].
 //! - **The main session** runs `query`, `stream`, `execute` and
 //!   `transaction` one at a time on the database's main connection, in the
-//!   order they came, as the native driver's calls take turns
-//!   ([`crate::blocking`]). It is also the thread that opens the database.
+//!   order they came, taking turns ([`crate::blocking`]). It is also the thread that opens the database.
 //! - **One thread per read-only call** (`readOnly`, `explainReadOnly`), each
-//!   on a clone of its own, dropped after the call, as natively; at most
+//!   on a clone of its own, dropped after the call; at most
 //!   [`MAX_READ_ONLY_CALLS`] at once.
 //!
 //! Every call (and `open`) ends with exactly one control frame, `done`,
@@ -73,7 +72,7 @@ use duckdb::{Connection, InterruptHandle, Statement};
 use seaquel_engine::{DbError, ExpectRows, TransactionError};
 
 use crate::blocking::{self, Call, Op, Worker};
-use crate::driver;
+use crate::kinds;
 use crate::session::{self, ChunkSink, Execution, Flow};
 use crate::wire::{
     protocol_error, read_frame, schema_payload, write_frame_buffered, Frame, FrameKind, OpenParams,
@@ -92,9 +91,9 @@ pub const EXIT_PROTOCOL: u8 = 4;
 /// written.
 pub const EXIT_WEDGED: u8 = 5;
 
-/// Read-only calls running at once, each on a DuckDB clone and a thread of
-/// its own. Past it, `TOO_MANY_REQUESTS`.
-const MAX_READ_ONLY_CALLS: usize = 16;
+// Read-only calls running at once: `wire::MAX_READ_ONLY_CALLS` (16). Past
+// it, `TOO_MANY_REQUESTS`; the remote client queues instead of sending more.
+use crate::wire::MAX_READ_ONLY_CALLS;
 
 /// What [`serve_with`] allows; [`serve`] uses the defaults.
 #[derive(Clone, Copy)]
@@ -1030,8 +1029,8 @@ impl<'a> FrameSink<'a> {
 }
 
 impl ChunkSink for FrameSink<'_> {
-    /// The schema frame: the columns' kinds from DuckDB's logical types (as
-    /// the native driver reads them), then the Arrow schema message. The
+    /// The schema frame: the columns' kinds from DuckDB's logical types
+    /// ([`kinds::of`]), then the Arrow schema message. The
     /// client decodes by the kinds, so a session setting that changes the
     /// Arrow carriers (`arrow_lossless_conversion`) can't change the cells.
     fn columns(&mut self, stmt: &Statement<'_>) -> Result<(), DbError> {
@@ -1043,7 +1042,7 @@ impl ChunkSink for FrameSink<'_> {
         );
         let mut bytes = Vec::new();
         self.message(encoded, &mut bytes)?;
-        let payload = schema_payload(&driver::Decoder::of(stmt).kinds, &bytes)?;
+        let payload = schema_payload(&kinds::of(stmt), &bytes)?;
         self.send(FrameKind::Schema, payload)
     }
 
@@ -1396,7 +1395,7 @@ impl Dispatcher {
                 return Ok(());
             }
             Request::ExplainReadOnly { sql, params } => {
-                // One statement only, as natively: duckdb-rs's `prepare`
+                // One statement only: duckdb-rs's `prepare`
                 // runs every statement but the last itself, outside the
                 // read-only transaction. Then the helper makes the EXPLAIN.
                 if seaquel_sql::scan::split_statements(&sql, seaquel_sql::SqlEngine::Duckdb).len()
@@ -1569,7 +1568,7 @@ fn main_session(
     std::thread::sleep(close_delay);
 }
 
-// The helper is native only (`helper` needs `native`), and so are its
+// The helper is native only (`helper` links DuckDB), and so are its
 // tests: threads and the wall clock are what they measure.
 #[cfg(test)]
 #[allow(clippy::disallowed_types, clippy::disallowed_methods)]
@@ -1580,12 +1579,12 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use arrow_array::RecordBatch;
-    use seaquel_engine::{BatchStatement, DbError, Driver, ExpectRows, RowCap, Value};
+    use seaquel_engine::{BatchStatement, DbError, ExpectRows, RowCap, Value};
     use seaquel_engine_testkit::same_value;
 
     use super::*;
     use crate::ipc::IpcStream;
-    use crate::test_cells as cells;
+    use crate::test_reference as reference;
     use crate::wire::{
         read_frame, read_schema_payload, write_frame, Frame, FrameKind, OpenParams, Reply, Request,
         HELPER_PROTOCOL, MAX_BATCH_FRAME, MAX_FRAME, PROTOCOL, STREAM_CREDIT,
@@ -1819,13 +1818,6 @@ mod tests {
     /// A streamed query with many batches.
     const MANY_BATCHES: &str = "SELECT i, md5(i::VARCHAR) AS h FROM range(10000000) t(i)";
 
-    fn runtime() -> tokio::runtime::Runtime {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-    }
-
     // ── Handshake ──
 
     #[test]
@@ -1901,7 +1893,7 @@ mod tests {
             .query(10, "SELECT * FROM read_csv('/etc/hosts')")
             .unwrap_err();
         assert!(e.message.contains("disabled"), "{}", e.message);
-        // A missing file without create_if_missing, as natively.
+        // A missing file without create_if_missing.
         let mut c = Client::start();
         c.hello();
         let reply = c.open_with(OpenParams {
@@ -1914,25 +1906,29 @@ mod tests {
         }
     }
 
-    // ── Each call, against the native driver ──
+    // ── Each call, against the reference ──
 
-    /// Every call kind answers as the native driver does for the same SQL:
-    /// rows decoded through `ipc::Columns`, rows affected, a transaction's
-    /// counts and failing index, the read-only and EXPLAIN paths.
+    /// `sql` run by `execute`: its rows affected.
+    fn executed(c: &mut Client, id: u32, sql: &str, params: Vec<Value>) -> u64 {
+        c.send(
+            id,
+            &Request::Execute {
+                sql: sql.into(),
+                params,
+            },
+        );
+        match c.reply(id) {
+            Reply::Executed { rows_affected } => rows_affected,
+            other => panic!("{sql}: {other:?}"),
+        }
+    }
+
+    /// Every call kind answers as written down: rows decoded through
+    /// `ipc::Columns` against the frozen typed-cell fixture and literal
+    /// results (`test_reference`), rows affected, a transaction's counts
+    /// and failing index, the read-only and EXPLAIN paths.
     #[test]
-    fn each_call_answers_as_the_native_driver_does() {
-        let rt = runtime();
-        let native: std::sync::Arc<dyn Driver> = rt
-            .block_on(
-                crate::engine().open(
-                    &OpenParams {
-                        duckdb_config: Some(BTreeMap::from([("threads".into(), "1".into())])),
-                        ..OpenParams::default()
-                    }
-                    .config(),
-                ),
-            )
-            .unwrap();
+    fn each_call_answers_as_the_reference_says() {
         let mut c = Client::open();
         let mut call = 100;
         let mut next = || {
@@ -1940,182 +1936,123 @@ mod tests {
             call
         };
 
-        let setup = [
-            "CREATE TABLE t (id INTEGER PRIMARY KEY, name VARCHAR, n DECIMAL(10, 2))",
-            "INSERT INTO t VALUES (1, 'a', 1.5), (2, 'b', NULL), (3, 'c', -2.25)",
-        ];
-        for sql in setup {
-            let want = rt.block_on(native.execute(sql, vec![])).unwrap();
-            let id = next();
-            c.send(
-                id,
-                &Request::Execute {
-                    sql: sql.into(),
-                    params: vec![],
-                },
-            );
-            match c.reply(id) {
-                Reply::Executed { rows_affected } => {
-                    assert_eq!(rows_affected, want.rows_affected, "{sql}")
-                }
-                other => panic!("{sql}: {other:?}"),
-            }
-        }
+        let create = "CREATE TABLE t (id INTEGER PRIMARY KEY, name VARCHAR, n DECIMAL(10, 2))";
+        assert_eq!(executed(&mut c, next(), create, vec![]), 0);
+        let insert = "INSERT INTO t VALUES (1, 'a', 1.5), (2, 'b', NULL), (3, 'c', -2.25)";
+        assert_eq!(executed(&mut c, next(), insert, vec![]), 3);
 
         // query and stream, with binds, over every typed-cell case.
         let mut failures = Vec::new();
-        /// Setup, the SELECT, teardown and the SELECT's parameters.
-        type Case = (Vec<String>, String, Vec<String>, Vec<Value>);
-        let mut selects: Vec<Case> = cells::cases()
-            .into_iter()
-            .map(|c| (c.setup, c.select, c.teardown, vec![]))
-            .collect();
-        selects.push((
-            vec![],
-            "SELECT * FROM t WHERE id >= ? AND name <> ? ORDER BY id".into(),
-            vec![],
+        let mut cases: Vec<(reference::Case, Vec<Value>)> =
+            reference::all().into_iter().map(|c| (c, vec![])).collect();
+        cases.push((
+            reference::Case {
+                name: "binds".into(),
+                setup: vec![],
+                teardown: vec![],
+                select: "SELECT * FROM t WHERE id >= ? AND name <> ? ORDER BY id".into(),
+                expect: reference::Expect::Whole {
+                    columns: vec!["id".into(), "name".into(), "n".into()],
+                    rows: vec![
+                        vec![Value::Int(2), Value::Text("b".into()), Value::Null],
+                        vec![
+                            Value::Int(3),
+                            Value::Text("c".into()),
+                            Value::Decimal("-2.25".into()),
+                        ],
+                    ],
+                },
+            },
             vec![Value::Int(2), Value::Text("zz".into())],
         ));
-        selects.push((vec![], "SELECT 1 AS a WHERE false".into(), vec![], vec![]));
-        for (setup, select, teardown, params) in &selects {
-            for sql in setup {
-                rt.block_on(native.execute(sql, vec![])).unwrap();
-                let id = next();
-                c.send(
-                    id,
-                    &Request::Execute {
-                        sql: sql.clone(),
-                        params: vec![],
-                    },
-                );
-                assert!(matches!(c.reply(id), Reply::Executed { .. }), "{sql}");
+        for (case, params) in &cases {
+            for sql in &case.setup {
+                executed(&mut c, next(), sql, vec![]);
             }
-            let want = rt.block_on(native.query(select, params.clone())).unwrap();
             for stream in [false, true] {
                 let id = next();
                 let request = if stream {
                     Request::Stream {
-                        sql: select.clone(),
+                        sql: case.select.clone(),
                         params: params.clone(),
                     }
                 } else {
                     Request::Query {
-                        sql: select.clone(),
+                        sql: case.select.clone(),
                         params: params.clone(),
                     }
                 };
                 c.send(id, &request);
                 match c.rows(id) {
-                    Ok(got) if got.columns == want.columns && same_rows(&got.rows, &want.rows) => {}
-                    Ok(got) => failures.push(format!(
-                        "{select} (stream {stream}): {:?} {:?} against {:?} {:?}",
-                        got.columns,
-                        got.rows.iter().take(2).collect::<Vec<_>>(),
-                        want.columns,
-                        want.rows.iter().take(2).collect::<Vec<_>>()
-                    )),
-                    Err(e) => failures.push(format!("{select} (stream {stream}): {e:?}")),
+                    Ok(got) => {
+                        if let Err(e) = case.check(&got.columns, &got.rows) {
+                            failures.push(format!("{e} (stream {stream})"));
+                        }
+                    }
+                    Err(e) => failures.push(format!("{} (stream {stream}): {e:?}", case.select)),
                 }
             }
-            for sql in teardown {
-                rt.block_on(native.execute(sql, vec![])).unwrap();
-                let id = next();
-                c.send(
-                    id,
-                    &Request::Execute {
-                        sql: sql.clone(),
-                        params: vec![],
-                    },
-                );
-                assert!(matches!(c.reply(id), Reply::Executed { .. }), "{sql}");
+            for sql in &case.teardown {
+                executed(&mut c, next(), sql, vec![]);
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
 
         // execute: rows affected.
         let update = "UPDATE t SET name = upper(name) WHERE id <= ?";
-        let want = rt
-            .block_on(native.execute(update, vec![Value::Int(2)]))
-            .unwrap();
-        let id = next();
-        c.send(
-            id,
-            &Request::Execute {
-                sql: update.into(),
-                params: vec![Value::Int(2)],
-            },
-        );
-        match c.reply(id) {
-            Reply::Executed { rows_affected } => assert_eq!(rows_affected, want.rows_affected),
-            other => panic!("{other:?}"),
-        }
+        assert_eq!(executed(&mut c, next(), update, vec![Value::Int(2)]), 2);
 
         // transaction: the counts, then a failure naming its statement.
-        let ok = || {
-            vec![
-                BatchStatement {
-                    sql: "INSERT INTO t VALUES (?, 'd', 4)".into(),
-                    params: vec![Value::Int(4)],
-                    expect_rows: Some(ExpectRows { min: 1 }),
-                },
-                BatchStatement {
-                    sql: "DELETE FROM t WHERE id > 100".into(),
-                    params: vec![],
-                    expect_rows: None,
-                },
-            ]
-        };
-        let want = rt.block_on(native.transaction(ok())).unwrap();
+        let ok = vec![
+            BatchStatement {
+                sql: "INSERT INTO t VALUES (?, 'd', 4)".into(),
+                params: vec![Value::Int(4)],
+                expect_rows: Some(ExpectRows { min: 1 }),
+            },
+            BatchStatement {
+                sql: "DELETE FROM t WHERE id > 100".into(),
+                params: vec![],
+                expect_rows: None,
+            },
+        ];
         let id = next();
-        c.send(id, &Request::Transaction { statements: ok() });
+        c.send(id, &Request::Transaction { statements: ok });
         match c.reply(id) {
-            Reply::Committed { rows_affected } => assert_eq!(rows_affected, want),
+            Reply::Committed { rows_affected } => assert_eq!(rows_affected, [1, 0]),
             other => panic!("{other:?}"),
         }
-        let failing = || {
-            vec![
-                BatchStatement {
-                    sql: "UPDATE t SET name = 'x' WHERE id = 1".into(),
-                    params: vec![],
-                    expect_rows: None,
-                },
-                BatchStatement {
-                    sql: "UPDATE t SET name = 'y' WHERE id = 999".into(),
-                    params: vec![],
-                    expect_rows: Some(ExpectRows { min: 1 }),
-                },
-            ]
-        };
-        let want = rt.block_on(native.transaction(failing())).unwrap_err();
+        let failing = vec![
+            BatchStatement {
+                sql: "UPDATE t SET name = 'x' WHERE id = 1".into(),
+                params: vec![],
+                expect_rows: None,
+            },
+            BatchStatement {
+                sql: "UPDATE t SET name = 'y' WHERE id = 999".into(),
+                params: vec![],
+                expect_rows: Some(ExpectRows { min: 1 }),
+            },
+        ];
         let id = next();
         c.send(
             id,
             &Request::Transaction {
-                statements: failing(),
+                statements: failing,
             },
         );
         match c.reply(id) {
             Reply::Error { error, index } => {
-                assert_eq!(
-                    (index, error.code.as_str()),
-                    (want.index, want.error.code.as_str())
-                );
-                assert_eq!(index, Some(1));
+                assert_eq!((index, error.code.as_str()), (Some(1), "NO_ROWS_AFFECTED"));
             }
             other => panic!("{other:?}"),
         }
-        // Rolled back on both.
+        // Rolled back.
         let check = "SELECT name FROM t WHERE id = 1";
-        let want = rt.block_on(native.query(check, vec![])).unwrap();
         let got = c.query(next(), check).unwrap();
-        assert!(same_rows(&got.rows, &want.rows), "{got:?}");
         assert_eq!(got.rows, vec![vec![Value::Text("A".into())]]);
 
         // readOnly: DuckDB reads at most limit + 1 rows; the client caps.
         let read = "SELECT id, name FROM t ORDER BY id";
-        let want = rt
-            .block_on(native.query_read_only(read, vec![], Some(2)))
-            .unwrap();
         let id = next();
         c.send(
             id,
@@ -2125,36 +2062,47 @@ mod tests {
             },
         );
         let got = c.rows(id).unwrap();
-        assert_eq!(got.rows.len(), 3, "{got:?}");
-        assert_eq!(got.columns, want.columns);
-        assert!(same_rows(&got.rows[..2], &want.rows), "{got:?}");
-        // …and refuses a write as natively.
-        let write = "DELETE FROM t";
-        let want = rt
-            .block_on(native.query_read_only(write, vec![], None))
-            .unwrap_err();
+        assert_eq!(got.columns, ["id", "name"]);
+        assert_eq!(
+            got.rows,
+            vec![
+                vec![Value::Int(1), Value::Text("A".into())],
+                vec![Value::Int(2), Value::Text("B".into())],
+                vec![Value::Int(3), Value::Text("c".into())],
+            ]
+        );
+        // …and refuses a write.
         let id = next();
         c.send(
             id,
             &Request::ReadOnly {
-                sql: write.into(),
+                sql: "DELETE FROM t".into(),
                 limit: 10,
             },
         );
         let got = c.rows(id).unwrap_err();
-        assert_eq!(
-            (got.code.as_str(), got.message.as_str()),
-            (want.code.as_str(), want.message.as_str())
-        );
         assert_eq!(got.code, "READ_ONLY");
+        assert!(
+            got.message.contains("Expected a single SELECT statement"),
+            "{}",
+            got.message
+        );
 
-        // explainReadOnly: the EXPLAIN's rows, and one statement only.
-        // The client sends the user's SQL; the helper wraps it.
+        // explainReadOnly: the EXPLAIN's rows, as the plain EXPLAIN gives
+        // them on the same session, and one statement only. The client
+        // sends the user's SQL; the helper wraps it.
         let user_sql = "SELECT * FROM t WHERE id = ?";
-        let explain = crate::introspect::explain_sql(user_sql, false);
-        let want = rt
-            .block_on(native.query(&explain, vec![Value::Int(1)]))
-            .unwrap();
+        let id = next();
+        c.send(
+            id,
+            &Request::Query {
+                sql: crate::introspect::explain_sql(user_sql, false),
+                params: vec![Value::Int(1)],
+            },
+        );
+        let want = c.rows(id).unwrap();
+        assert_eq!(want.columns, ["explain_key", "explain_value"]);
+        assert_eq!(want.rows.len(), 1, "{want:?}");
         let id = next();
         c.send(
             id,
@@ -2166,6 +2114,17 @@ mod tests {
         let got = c.rows(id).unwrap();
         assert_eq!(got.columns, want.columns);
         assert!(same_rows(&got.rows, &want.rows), "{got:?}");
+        let plan = crate::introspect::parse_explain(
+            &seaquel_engine::QueryResult {
+                columns: got.columns.clone(),
+                rows: got.rows.clone(),
+            },
+            false,
+        );
+        assert!(
+            format!("{plan:?}").contains("SEQ_SCAN") || format!("{plan:?}").contains("SCAN"),
+            "{plan:?}"
+        );
         let id = next();
         c.send(
             id,
@@ -2195,6 +2154,79 @@ mod tests {
             c.query(next(), "SELECT 7 AS n").unwrap().rows,
             vec![vec![Value::Int(7)]]
         );
+    }
+
+    /// The column kinds the helper sends for `sql` (its schema frame),
+    /// as JSON. The rest of the answer is read and dropped.
+    fn sent_kinds(c: &mut Client, id: u32, sql: &str) -> serde_json::Value {
+        c.send(
+            id,
+            &Request::Query {
+                sql: sql.into(),
+                params: vec![],
+            },
+        );
+        let mut kinds = None;
+        loop {
+            let frame = c.next();
+            assert_eq!(frame.call, id, "{frame:?}");
+            match frame.kind {
+                FrameKind::Schema => {
+                    let (k, _) = read_schema_payload(frame.payload).unwrap();
+                    kinds = Some(serde_json::to_value(k).unwrap());
+                }
+                FrameKind::Batch => c.credit(id, 1),
+                FrameKind::Control => match Reply::decode(&frame.payload).unwrap() {
+                    Reply::Done => break,
+                    other => panic!("{sql}: {other:?}"),
+                },
+            }
+        }
+        kinds.expect("no schema frame")
+    }
+
+    /// The schema frames carry the column kinds recorded in
+    /// `tests/fixtures/kinds.json` for every reference case and the
+    /// lossy-Arrow ones (Checkpoint H-1), so moving where the kinds are
+    /// read (`kinds.rs`) changed nothing the client sees.
+    /// `SEAQUEL_RECORD_KINDS=1` wrote the file before the move, while the
+    /// native driver's `Decoder::of` read them; `kinds.rs`'s own test reads
+    /// them through [`kinds::of`] directly.
+    #[test]
+    fn schema_frames_carry_the_recorded_kinds() {
+        let mut c = Client::open();
+        let mut id = 1000;
+        let mut got = Vec::new();
+        for case in crate::kinds::snapshot_cases() {
+            for sql in &case.setup {
+                id += 1;
+                c.send(
+                    id,
+                    &Request::Execute {
+                        sql: sql.clone(),
+                        params: vec![],
+                    },
+                );
+                assert!(matches!(c.reply(id), Reply::Executed { .. }), "{sql}");
+            }
+            id += 1;
+            got.push(serde_json::json!({
+                "select": case.select,
+                "kinds": sent_kinds(&mut c, id, &case.select),
+            }));
+            for sql in &case.teardown {
+                id += 1;
+                c.send(
+                    id,
+                    &Request::Execute {
+                        sql: sql.clone(),
+                        params: vec![],
+                    },
+                );
+                assert!(matches!(c.reply(id), Reply::Executed { .. }), "{sql}");
+            }
+        }
+        crate::kinds::check_snapshot(got);
     }
 
     // ── Credit, interleaving, cancel ──

@@ -295,13 +295,52 @@ async fn a_download_that_does_not_match_is_refused() {
     let (err, ..) = refused(Route::chunked(long), n, &gz).await;
     assert_eq!(err.kind, InstallErrorKind::SizeMismatch, "{err}");
 
-    // The asset's own URL missing.
+    // The asset's own URL missing (Task 10's P2): the asset isn't there,
+    // as the metadata says of an asset it doesn't list, not an unusable
+    // answer. Under a pin this is the only request, so it is the only way
+    // to learn that.
     let mock = MockReleases::start().await;
     mock.metadata(VERSION, &[(NAME, n, Some(&digest(&gz)))]);
     let tmp = tempfile::tempdir().unwrap();
     let t = target(tmp.path());
     let err = fetch_and_install(&mock, &t).await.unwrap_err();
+    assert_eq!(err.kind, InstallErrorKind::AssetNotFound, "{err}");
+    assert_eq!(err.code(), "ASSET_NOT_FOUND");
+    assert!(err.message.contains(NAME), "{err}");
+    assert!(err.message.contains(VERSION), "{err}");
+    nothing_left(&t, &[]);
+
+    // Any other refusal of the download stays `HTTP_ERROR`.
+    let mock = MockReleases::start().await;
+    mock.metadata(VERSION, &[(NAME, n, Some(&digest(&gz)))]);
+    mock.route(&asset_path(VERSION, NAME), Route::status(503));
+    let err = fetch_and_install(&mock, &t).await.unwrap_err();
     assert_eq!(err.kind, InstallErrorKind::Http, "{err}");
+    assert!(err.message.contains("503"), "{err}");
+    nothing_left(&t, &[]);
+}
+
+/// Without the metadata (a pinned install asks only for the download), a
+/// 404 is `ASSET_NOT_FOUND` too (Task 10's P2).
+#[tokio::test]
+async fn a_missing_download_without_metadata_is_asset_not_found() {
+    let gz = gzip(&payload());
+    let mock = MockReleases::start().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let t = target(tmp.path());
+    let asset = Asset {
+        name: NAME.into(),
+        version: VERSION.into(),
+        size: gz.len() as u64,
+        sha256: digest(&gz)["sha256:".len()..].to_string(),
+    };
+    let fetcher = Fetcher::new(mock.source(), VERSION);
+    let err = tokio::time::timeout(LIMIT, fetcher.install(&asset, &t, &mut |_| {}))
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(err.kind, InstallErrorKind::AssetNotFound, "{err}");
+    assert!(mock.requests().iter().all(|r| !r.path.starts_with("/api")));
     nothing_left(&t, &[]);
 }
 
@@ -761,6 +800,37 @@ fn a_cancelled_file_install_leaves_nothing() {
     nothing_left(&t, &[]);
 }
 
+/// Task 4 review I1: a FIFO (or any file that isn't a regular file) given
+/// as the copied asset is refused at once, without blocking on its open or
+/// its reads, and nothing is left.
+#[cfg(unix)]
+#[test]
+fn a_fifo_is_refused_at_once() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fifo = tmp.path().join("seaquel-duckdb.gz");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let t = target(&tmp.path().join("a"));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (f, t2) = (fifo.clone(), t.clone());
+    std::thread::spawn(move || {
+        let _ = tx.send(install_file(&f, &"0".repeat(64), &t2));
+    });
+    let err = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("refused at once, not blocked on the FIFO")
+        .unwrap_err();
+    assert_eq!(err.kind, InstallErrorKind::InvalidArgument, "{err}");
+    assert!(!format!("{err}").contains(&*tmp.path().to_string_lossy()));
+    nothing_left(&t, &[]);
+    // A directory isn't a file either.
+    let err = install_file(tmp.path(), &"0".repeat(64), &t).unwrap_err();
+    assert_eq!(err.kind, InstallErrorKind::InvalidArgument, "{err}");
+}
+
 #[test]
 fn triples_match_the_release_targets() {
     assert_eq!(
@@ -798,6 +868,7 @@ fn debug_names_no_path() {
         path: PathBuf::from("/home/someone/secret-place/x"),
         sha256: "a".repeat(64),
         size: 3,
+        asset_sha256: None,
     };
     assert!(!format!("{i:?}").contains("secret-place"));
 }
@@ -869,4 +940,142 @@ async fn the_metadata_has_an_overall_limit() {
         .unwrap_err();
     assert_eq!(err.kind, InstallErrorKind::Network, "{err}");
     assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+/// Task 10's O3: a failed install removes the folders it made, deepest
+/// first, as long as they are empty; a folder that was already there, or
+/// that holds anything, stays.
+#[tokio::test]
+async fn a_failed_install_removes_only_the_empty_folders_it_made() {
+    let gz = gzip(&payload());
+    let n = gz.len() as u64;
+    // No route for the asset: the download is a 404.
+    let mock = MockReleases::start().await;
+    mock.metadata(VERSION, &[(NAME, n, Some(&digest(&gz)))]);
+
+    // Nothing there: every folder below the root goes; the root stays.
+    let tmp = tempfile::tempdir().unwrap();
+    let t = target(tmp.path());
+    fetch_and_install(&mock, &t).await.unwrap_err();
+    assert!(t.root.is_dir(), "the app's folder was removed");
+    assert_eq!(names(&t.root), Vec::<String>::new());
+
+    // `bin/duckdb` there with another version: only this version's folder
+    // goes.
+    let tmp = tempfile::tempdir().unwrap();
+    let t = target(tmp.path());
+    let duckdb = t.dir().parent().unwrap().to_path_buf();
+    std::fs::create_dir_all(duckdb.join("2026.9.1")).unwrap();
+    fetch_and_install(&mock, &t).await.unwrap_err();
+    assert_eq!(names(&duckdb), ["2026.9.1"]);
+
+    // This version's folder already there and empty: kept.
+    let tmp = tempfile::tempdir().unwrap();
+    let t = target(tmp.path());
+    std::fs::create_dir_all(t.dir()).unwrap();
+    fetch_and_install(&mock, &t).await.unwrap_err();
+    assert!(t.dir().is_dir(), "a folder that was there was removed");
+
+    // A folder the install made that holds something by the time it
+    // fails (another process's file) stays, and so do those above it.
+    let tmp = tempfile::tempdir().unwrap();
+    let t = target(tmp.path());
+    let slow = MockReleases::start().await;
+    slow.metadata(VERSION, &[(NAME, n, Some(&digest(&gz)))]);
+    slow.route(
+        &asset_path(VERSION, NAME),
+        Route::Body {
+            status: 200,
+            length: Some(n),
+            body: gz.clone(),
+            stall_after: None,
+            close_after: Some(gz.len() / 2),
+            piece: 4096,
+            gap: Duration::from_millis(5),
+        },
+    );
+    let task = {
+        let (source, t) = (slow.source(), t.clone());
+        tokio::spawn(async move {
+            let fetcher = Fetcher::new(source, VERSION);
+            let asset = fetcher.asset(VERSION, NAME).await?;
+            fetcher.install(&asset, &t, &mut |_| {}).await
+        })
+    };
+    let dir = t.dir();
+    tokio::time::timeout(LIMIT, async {
+        while !dir.is_dir() {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .unwrap();
+    std::fs::write(dir.join("someone-else"), b"x").unwrap();
+    tokio::time::timeout(LIMIT, task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(names(&dir), ["someone-else"]);
+}
+
+/// The same when the install is dropped half-way or a copied file's
+/// install fails or is cancelled.
+#[tokio::test]
+async fn a_dropped_or_refused_install_removes_the_folders_it_made() {
+    let gz = gzip(&payload());
+    let n = gz.len();
+    let mock = MockReleases::start().await;
+    mock.metadata(VERSION, &[(NAME, n as u64, Some(&digest(&gz)))]);
+    mock.route(
+        &asset_path(VERSION, NAME),
+        Route::Body {
+            status: 200,
+            length: Some(n as u64),
+            body: gz.clone(),
+            stall_after: Some(n / 2),
+            close_after: None,
+            piece: 4096,
+            gap: Duration::ZERO,
+        },
+    );
+    let tmp = tempfile::tempdir().unwrap();
+    let t = target(tmp.path());
+    let task = {
+        let (source, t) = (mock.source(), t.clone());
+        tokio::spawn(async move {
+            let fetcher = Fetcher::new(source, VERSION);
+            let asset = fetcher.asset(VERSION, NAME).await?;
+            fetcher.install(&asset, &t, &mut |_| {}).await
+        })
+    };
+    let dir = t.dir();
+    tokio::time::timeout(LIMIT, async {
+        while names(&dir).is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    task.abort();
+    let _ = task.await;
+    assert_eq!(names(&t.root), Vec::<String>::new());
+
+    // A copied file: refused (another file's hash), and cancelled.
+    let file = tmp.path().join("copy.gz");
+    std::fs::write(&file, &gz).unwrap();
+    let other = &digest(b"other")["sha256:".len()..];
+    let t = target(&tmp.path().join("a"));
+    assert_eq!(
+        install_file(&file, other, &t).unwrap_err().kind,
+        InstallErrorKind::DigestMismatch
+    );
+    assert_eq!(names(&t.root), Vec::<String>::new());
+    let cancel = std::sync::atomic::AtomicBool::new(true);
+    let good = &digest(&gz)["sha256:".len()..];
+    install_file_cancellable(&file, good, &t, &cancel).unwrap_err();
+    assert_eq!(names(&t.root), Vec::<String>::new());
+    // And a success keeps them.
+    install_file(&file, good, &t).unwrap();
+    assert!(t.path().is_file());
 }

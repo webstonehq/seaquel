@@ -1076,6 +1076,9 @@ async fn a_tool_runs_on_a_real_sqlite_and_duckdb_read_only() {
             conns: vec![Conn::new("conn-1", ty)],
             ..Setup::default()
         };
+        if ty == "duckdb" && !duckdb_helper_built() {
+            continue; // no helper (`common/duckdb.rs`)
+        }
         let (w, id) = chat_world(s).await;
         w.mock
             .reply(tools(

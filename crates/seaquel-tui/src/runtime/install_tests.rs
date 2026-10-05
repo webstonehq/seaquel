@@ -468,10 +468,16 @@ async fn a_helper_that_dies_mid_commit_loses_the_connection_and_marks_the_queue(
     .await;
     h.keys("c");
     h.press(KeyCode::Enter);
+    // Core's `ConnectionClosed` (the desktop DuckDB helper plan,
+    // Decision 7) can open the offer before the apply's own answer ends
+    // the commit, so both are waited for.
     h.until_within(
-        "the reconnect offer",
+        "the reconnect offer and the commit's end",
         Duration::from_secs(20),
-        |m| matches!(&m.modal, Some(Modal::Problem(p)) if p.reconnect.is_some()),
+        |m| {
+            matches!(&m.modal, Some(Modal::Problem(p)) if p.reconnect.is_some())
+                && m.committing.is_none()
+        },
     )
     .await;
     let Some(Modal::Problem(p)) = &h.model.modal else {

@@ -29,9 +29,8 @@ pub use seaquel_types::{StreamEvent, Value};
 
 // `browser` is the wasm32 build for the web page (phase 8): Core with
 // `storage` (the metadata file in memory) and `workspace` (connecting,
-// runs, edits), and nothing native. Every engine feature is refused,
-// `engine-duckdb` included: that one is the native driver, and the page's
-// module registers the DuckDB engine's browser driver itself. So are the
+// runs, edits), and nothing native. Every engine feature is refused; the
+// page's module registers the DuckDB engine's browser driver itself. So are the
 // secret store, SSH, git, licensing and the imports. Build it with
 // `--no-default-features --features browser,storage,workspace`. The remote
 // DuckDB engine (`engine-duckdb-remote`) starts a process, which the page
@@ -43,7 +42,6 @@ pub use seaquel_types::{StreamEvent, Value};
         feature = "engine-mysql",
         feature = "engine-sqlite",
         feature = "engine-mssql",
-        feature = "engine-duckdb",
         feature = "engine-duckdb-remote",
         feature = "secrets",
         feature = "ssh",
@@ -83,6 +81,7 @@ mod edits;
 mod imports;
 #[cfg(feature = "storage")]
 mod library;
+mod lost;
 #[cfg(feature = "storage")]
 mod projection;
 #[cfg(feature = "workspace")]
@@ -101,6 +100,8 @@ pub use changes::{
 };
 #[cfg(all(feature = "storage", any(feature = "browser", test)))]
 pub use demo::DEMO_CONNECTION_ID;
+#[cfg(feature = "duckdb-helper-install")]
+pub use duckdb_helper::DuckdbHelperPin;
 /// The helper's status and install (the DuckDB helper plan, Task 4).
 #[cfg(feature = "engine-duckdb-remote")]
 pub use duckdb_helper::{DuckdbHelperAsset, DuckdbHelperInstalled, DuckdbHelperStatus};
@@ -265,6 +266,35 @@ struct StreamEntry {
     closed: Arc<AtomicBool>,
 }
 
+/// A connection [`Core::take_out_as`] took out of Core, not closed yet.
+pub(crate) struct Taken<'a> {
+    driver: Option<Arc<dyn Driver>>,
+    #[cfg(feature = "ssh")]
+    tunnel: Option<ssh::TunnelGuard<'a>>,
+    #[cfg(not(feature = "ssh"))]
+    _core: std::marker::PhantomData<&'a ()>,
+}
+
+/// Cancel every running stream on one connection, as closed: each ends
+/// with `CONNECTION_CLOSED` (`Core::disconnect`, and a lost connection's
+/// watcher in `lost.rs`).
+fn cancel_streams_in(streams: &StreamTokens, connection_id: &str) {
+    let tokens: Vec<CancellationToken> = streams
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .values()
+        .filter(|entry| entry.connection_id.as_deref() == Some(connection_id))
+        .map(|entry| {
+            // Before the cancel, so the woken stream sees it.
+            entry.closed.store(true, Ordering::SeqCst);
+            entry.token.clone()
+        })
+        .collect();
+    for token in tokens {
+        token.cancel();
+    }
+}
+
 /// An open connection: its driver, the engine that opened it (for the
 /// engine's dialect), and the workspace that owns it.
 #[derive(Clone)]
@@ -301,11 +331,13 @@ pub struct Core {
     /// `Arc` (not `Box`) so a handle can be cloned out of the map and the lock
     /// released before awaiting the driver. A long-running stream must never
     /// hold this lock, or it would block every other caller — disconnect,
-    /// new queries, other connections — until it finished.
-    connections: RwLock<HashMap<String, Connection>>,
+    /// new queries, other connections — until it finished. The outer `Arc`
+    /// lets a lost connection's watcher (`lost.rs`) take it out holding
+    /// only a weak reference.
+    connections: Arc<RwLock<HashMap<String, Connection>>>,
     /// Cancellation tokens of running streams, keyed by their workspace and
-    /// the client's query id.
-    streams: StreamTokens,
+    /// the client's query id. `Arc` for the same watcher.
+    streams: Arc<StreamTokens>,
     /// Workspace stream keys cancelled before they were registered (the
     /// desktop's cancel and start are separate IPC calls that can arrive in
     /// either order). Locked only while `streams` is held.
@@ -361,6 +393,16 @@ pub struct Core {
     /// ([`CoreBuilder::duckdb_helper_releases`]); GitHub when `None`.
     #[cfg(feature = "duckdb-helper-install")]
     duckdb_helper_releases: Option<DuckdbHelperReleases>,
+    /// The asset's size and SHA-256 built into this binary
+    /// ([`CoreBuilder::duckdb_helper_pinned`]); `None` reads them from the
+    /// release metadata.
+    #[cfg(feature = "duckdb-helper-install")]
+    duckdb_helper_pin: Option<DuckdbHelperPin>,
+    /// A pause before each read of a copied helper file
+    /// ([`CoreBuilder::duckdb_helper_slow_file_reads`], test hooks only);
+    /// zero otherwise.
+    #[cfg(feature = "duckdb-helper-install")]
+    duckdb_helper_read_pause: std::time::Duration,
     /// One helper install at a time in this Core: a second waits and then
     /// finds the first one's file.
     #[cfg(feature = "duckdb-helper-install")]
@@ -480,6 +522,10 @@ pub struct CoreBuilder {
     duckdb_helper: Option<DuckdbHelper>,
     #[cfg(feature = "duckdb-helper-install")]
     duckdb_helper_releases: Option<DuckdbHelperReleases>,
+    #[cfg(feature = "duckdb-helper-install")]
+    duckdb_helper_pin: Option<DuckdbHelperPin>,
+    #[cfg(feature = "duckdb-helper-install")]
+    duckdb_helper_read_pause: std::time::Duration,
     #[cfg(feature = "ai")]
     ai_http: Option<Arc<dyn ai::http::HttpClient>>,
     #[cfg(feature = "ai")]
@@ -548,8 +594,9 @@ impl CoreBuilder {
     /// # Panics
     ///
     /// If a `duckdb` engine is already registered: build the rest with
-    /// [`with_plugins`]`(|id| id != "duckdb")`, so a build that unified the
-    /// native driver in still registers this one only.
+    /// [`with_plugins`]`(|id| id != "duckdb")`. No compiled engine is
+    /// `duckdb` since the native driver was deleted; the guard stays in case
+    /// another `duckdb` engine is registered.
     #[cfg(feature = "engine-duckdb-remote")]
     #[must_use]
     pub fn duckdb_helper(mut self, helper: DuckdbHelper) -> Self {
@@ -571,6 +618,45 @@ impl CoreBuilder {
     #[must_use]
     pub fn duckdb_helper_releases(mut self, releases: DuckdbHelperReleases) -> Self {
         self.duckdb_helper_releases = Some(releases);
+        self
+    }
+
+    /// Pause `pause` before each 64 KiB read of a file
+    /// [`Core::duckdb_helper_install_from_file`] copies, so a test can stop
+    /// the install mid-copy (the terminal binaries' `_SLOW_READ_MS` hook).
+    /// Only in debug builds or with `duckdb-helper-testing`, like
+    /// [`CoreBuilder::duckdb_helper_releases`].
+    #[cfg(all(
+        feature = "duckdb-helper-install",
+        any(debug_assertions, feature = "duckdb-helper-testing")
+    ))]
+    #[must_use]
+    pub fn duckdb_helper_slow_file_reads(mut self, pause: std::time::Duration) -> Self {
+        self.duckdb_helper_read_pause = pause;
+        self
+    }
+
+    /// The helper asset's compressed size and SHA-256, built into this
+    /// binary at release time (the desktop DuckDB helper plan, Q1 B,
+    /// Decision 4). With it, [`Core::duckdb_helper_asset`] answers from the
+    /// pin with no request, [`Core::duckdb_helper_install`] fetches only the
+    /// download (never the release metadata, so never GitHub's rate-limited
+    /// API) and refuses any other file, and
+    /// [`Core::duckdb_helper_install_from_file`] with no hash checks against
+    /// it. The asset's name stays Core's (`seaquel-duckdb-<triple>[.exe].gz`).
+    ///
+    /// # Panics
+    ///
+    /// If `size` is 0 or past the asset cap, or `sha256` isn't 64 hex
+    /// digits: the app's build script refuses such values before they are
+    /// compiled in, so this is a programming error.
+    #[cfg(feature = "duckdb-helper-install")]
+    #[must_use]
+    pub fn duckdb_helper_pinned(mut self, size: u64, sha256: &str) -> Self {
+        match DuckdbHelperPin::new(size, sha256) {
+            Some(pin) => self.duckdb_helper_pin = Some(pin),
+            None => panic!("the pinned DuckDB helper size or SHA-256 isn't valid"),
+        }
         self
     }
 
@@ -697,8 +783,8 @@ impl CoreBuilder {
             library_limits: self.library_limits,
             state_limits: self.state_limits,
             engines: self.engines,
-            connections: RwLock::default(),
-            streams: Mutex::default(),
+            connections: Arc::default(),
+            streams: Arc::default(),
             cancelled_early: Mutex::default(),
             next_stream: AtomicU64::new(0),
             next_connection: AtomicU64::new(0),
@@ -718,12 +804,18 @@ impl CoreBuilder {
             #[cfg(feature = "duckdb-helper-install")]
             duckdb_helper_releases: self.duckdb_helper_releases,
             #[cfg(feature = "duckdb-helper-install")]
+            duckdb_helper_pin: self.duckdb_helper_pin,
+            #[cfg(feature = "duckdb-helper-install")]
+            duckdb_helper_read_pause: self.duckdb_helper_read_pause,
+            #[cfg(feature = "duckdb-helper-install")]
             duckdb_helper_installing: futures::lock::Mutex::new(()),
         }
     }
 }
 
-/// A builder with every plugin this build's Cargo features enable.
+/// A builder with every plugin this build's Cargo features enable: the
+/// Postgres, MySQL, SQLite and SQL Server engines. DuckDB isn't among them;
+/// an interface that offers it adds `.duckdb_helper(…)`.
 pub fn with_default_plugins() -> CoreBuilder {
     with_plugins(|_| true)
 }
@@ -755,8 +847,7 @@ fn compiled_engines() -> Vec<Arc<dyn Engine>> {
         seaquel_engine_sqlite::engine(),
         #[cfg(feature = "engine-mssql")]
         seaquel_engine_mssql::engine(),
-        #[cfg(feature = "engine-duckdb")]
-        seaquel_engine_duckdb::engine(),
+        // DuckDB runs in a helper process: `CoreBuilder::duckdb_helper`.
     ]
 }
 
@@ -1036,6 +1127,12 @@ impl Core {
         self.duckdb_helper_releases.as_ref()
     }
 
+    /// [`CoreBuilder::duckdb_helper_pinned`]'s size and digest, if set.
+    #[cfg(feature = "duckdb-helper-install")]
+    pub fn duckdb_helper_pin(&self) -> Option<&DuckdbHelperPin> {
+        self.duckdb_helper_pin.as_ref()
+    }
+
     /// `NOT_SUPPORTED` unless this Core may touch the user's files.
     #[cfg(any(feature = "git", feature = "imports"))]
     pub(crate) fn require_local_files(&self) -> Result<(), CoreError> {
@@ -1081,7 +1178,9 @@ impl Core {
     /// Open a connection that no workspace owns. Interfaces connect through
     /// [`Workspace::connect`]; this stays for the engine tests.
     pub async fn connect(&self, config: &ConnectConfig) -> Result<ConnectResult, DbError> {
-        self.connect_as(config, None, None, None, None).await
+        let result = self.connect_as(config, None, None, None, None).await?;
+        self.watch_lost(&result.connection_id, None);
+        Ok(result)
     }
 
     /// `fut` (opening a connection or a tunnel), failing with `timed_out()`
@@ -1132,15 +1231,51 @@ impl Core {
         saved_connection_id: Option<String>,
         window: Option<String>,
     ) -> Result<ConnectResult, DbError> {
+        let engine = self.prepare_connect(config)?;
+        self.open_prepared(
+            engine,
+            config,
+            owner,
+            sql_engine,
+            saved_connection_id,
+            window,
+        )
+        .await
+    }
+
+    /// Everything that can refuse a connect before anything is opened:
+    /// the engine (an engine this Core lacks is refused as such first),
+    /// the connect policy's check, and `Engine::preflight`. Nothing is
+    /// opened or closed. `Workspace::connect` closes the connections a
+    /// reconnect to an exclusively held file replaces only after it
+    /// (Decision 21 of the desktop DuckDB helper plan).
+    pub(crate) fn prepare_connect(
+        &self,
+        config: &ConnectConfig,
+    ) -> Result<Arc<dyn Engine>, DbError> {
         let driver_name = config.driver.as_str();
         info!(activity = "db.connect", driver = driver_name; "Connecting");
-        // An engine this Core lacks is refused as such first; nothing is
-        // opened either way.
         let engine = self
             .engines
             .get(driver_name)
             .ok_or_else(|| DbError::engine_not_available(driver_name))?;
         self.check_config(config)?;
+        engine.preflight(config)?;
+        Ok(engine)
+    }
+
+    /// Open a connection with an engine [`Core::prepare_connect`] passed,
+    /// and register it (see [`Core::connect_as`]).
+    pub(crate) async fn open_prepared(
+        &self,
+        engine: Arc<dyn Engine>,
+        config: &ConnectConfig,
+        owner: Option<WorkspaceId>,
+        sql_engine: Option<SqlEngine>,
+        saved_connection_id: Option<String>,
+        window: Option<String>,
+    ) -> Result<ConnectResult, DbError> {
+        let driver_name = config.driver.as_str();
         let driver = self.open_driver(&engine, config).await?;
         let connection_id = format!("{}-{}", driver_name, uuid::Uuid::new_v4());
         self.connections
@@ -1202,6 +1337,21 @@ impl Core {
         connection_id: &str,
         owner: Option<WorkspaceId>,
     ) -> Result<(), DbError> {
+        let taken = self.take_out_as(connection_id, owner)?;
+        self.close_taken(taken).await
+    }
+
+    /// The first half of [`Core::disconnect_as`], with nothing awaited: the
+    /// connection leaves the map (from now on it is `CONNECTION_NOT_FOUND`
+    /// and `db.alive` leaves it out), its tunnel leaves the ownership map
+    /// (guarded, so a dropped close still closes it) and its streams are
+    /// cancelled. [`Core::close_taken`] closes it; dropping the result
+    /// instead drops the driver and the tunnel.
+    pub(crate) fn take_out_as(
+        &self,
+        connection_id: &str,
+        owner: Option<WorkspaceId>,
+    ) -> Result<Taken<'_>, DbError> {
         info!(activity = "db.disconnect", connection_id = connection_id; "Disconnecting");
         let connection = {
             let mut connections = self
@@ -1216,23 +1366,40 @@ impl Core {
                 _ => connections.remove(connection_id),
             }
         };
-        // Out of the ownership map before anything is awaited: if this future
+        // Out of the ownership map before anything is awaited: if the close
         // is dropped, the guard still closes the tunnel.
         #[cfg(feature = "ssh")]
         let tunnel = self.take_tunnel_of(connection_id);
-        let closed = match connection {
-            Some(Connection { driver, .. }) => {
-                self.cancel_streams_of(connection_id);
-                // Waits for in-flight queries to return their pooled
-                // connections. Cancelled streams return theirs as soon as
-                // they are polled.
-                driver.close().await
-            }
+        let driver = connection.map(|Connection { driver, .. }| {
+            // Before the driver's close, which waits for in-flight queries
+            // to return their pooled connections; cancelled streams return
+            // theirs as soon as they are polled.
+            self.cancel_streams_of(connection_id);
+            driver
+        });
+        Ok(Taken {
+            driver,
+            #[cfg(feature = "ssh")]
+            tunnel,
+            #[cfg(not(feature = "ssh"))]
+            _core: std::marker::PhantomData,
+        })
+    }
+
+    /// Close what [`Core::take_out_as`] took out: the driver, then its SSH
+    /// tunnel (closing it cuts whatever still runs through it), the tunnel
+    /// even when closing the driver failed.
+    pub(crate) async fn close_taken(&self, taken: Taken<'_>) -> Result<(), DbError> {
+        let Taken {
+            driver,
+            #[cfg(feature = "ssh")]
+            tunnel,
+            ..
+        } = taken;
+        let closed = match driver {
+            Some(driver) => driver.close().await,
             None => Ok(()),
         };
-        // The SSH tunnel `Workspace::connect` opened for it, after the
-        // driver (closing it cuts whatever still runs through it), and even
-        // when closing the driver failed.
         #[cfg(feature = "ssh")]
         if let Some(tunnel) = tunnel {
             tunnel.close().await;
@@ -1712,21 +1879,7 @@ impl Core {
 
     /// Cancel every running stream on one connection.
     fn cancel_streams_of(&self, connection_id: &str) {
-        let tokens: Vec<CancellationToken> = self
-            .streams
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .values()
-            .filter(|entry| entry.connection_id.as_deref() == Some(connection_id))
-            .map(|entry| {
-                // Before the cancel, so the woken stream sees it.
-                entry.closed.store(true, Ordering::SeqCst);
-                entry.token.clone()
-            })
-            .collect();
-        for token in tokens {
-            token.cancel();
-        }
+        cancel_streams_in(&self.streams, connection_id);
     }
 
     /// Cancel every stream `owner` started. They end silently, like a

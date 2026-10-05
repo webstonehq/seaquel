@@ -681,6 +681,11 @@ mod tests {
         assert_ne!(title("DIGEST_MISMATCH"), title("FILE_ERROR"));
         assert_ne!(title("FILE_ERROR"), title("UNSAFE_FOLDER"));
         assert_ne!(title("NETWORK_ERROR"), title("UNSAFE_FOLDER"));
+        // A folder the install won't touch: the hint says what to do (the
+        // desktop plan's Task 7 review, item 10).
+        let (_, hint) = text::install_failure("UNSAFE_FOLDER");
+        assert!(hint.contains("install again"), "{hint}");
+        assert!(hint.contains("SEAQUEL_DATA_DIR"), "{hint}");
         // Something unforeseen still gets a title.
         let other = failure(&CallError::new("SOMETHING_NEW", "x"), Step::Check);
         assert!(!other.title.is_empty());

@@ -735,12 +735,8 @@ fn is_truthy(v: &Json) -> bool {
 // ── The drivers' introspection calls ────────────────────────────────────────
 
 /// The `Driver` introspection methods, over the driver's own `query`: the
-/// native, the remote and the browser driver all answer through these.
-#[cfg(any(
-    feature = "native",
-    feature = "remote",
-    all(feature = "browser", target_arch = "wasm32")
-))]
+/// remote and the browser driver both answer through these.
+#[cfg(any(feature = "remote", all(feature = "browser", target_arch = "wasm32")))]
 pub(crate) mod calls {
     use log::warn;
     use seaquel_engine::{DbError, Driver, QueryResult, Value};

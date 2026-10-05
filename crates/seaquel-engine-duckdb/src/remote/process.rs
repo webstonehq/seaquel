@@ -91,11 +91,21 @@ pub(super) fn helper_file_name() -> String {
 
 /// The helper's path, once it is there and safe to run: a regular file, no
 /// symlink on the way from `<identifier>` (the parent of `bin`, the parent
-/// of `dir`) down, and on Unix every one of them owned by this user and
-/// writable by nobody else. It doesn't hash the file: anyone who can write
-/// that folder can already replace the terminal binary itself. Folders above
-/// `<identifier>` aren't checked, and the helper is then started by path,
-/// so a folder above it that someone else can write is a gap (Decision 9).
+/// of `dir`) down, and every one of them owned by this user and writable by
+/// nobody else. On Unix that is the owner's uid and no group or world
+/// write, and the file must be executable by its owner; on Windows (the desktop plan's Q9 A) the owner is the user,
+/// Administrators or SYSTEM, no entry of the DACL lets anyone but the user,
+/// SYSTEM or Administrators write, append, delete or change the DACL or
+/// owner (on `<identifier>` only delete, delete a child or change the DACL
+/// or owner: others may add files there, as Unix allows anything but group
+/// and world write), and no level is a symlink or junction
+/// (`seaquel_runtime::acl`). On Windows the private version folder also
+/// guards the DLL search order: the helper's own folder is searched first
+/// for the DLLs it loads, so nobody else can plant one there. It doesn't hash the
+/// file: anyone who can write that folder can already replace the terminal
+/// binary itself. Folders above `<identifier>` aren't checked, and the
+/// helper is then started by path, so a folder above it that someone else
+/// can write is a gap (Decision 9).
 pub(super) fn check(locator: &HelperLocator) -> Result<PathBuf, DbError> {
     let path = helper_path(locator);
     let unsafe_permissions =
@@ -116,7 +126,7 @@ pub(super) fn check(locator: &HelperLocator) -> Result<PathBuf, DbError> {
         // A symlink, or a folder in its place.
         return Err(unsafe_permissions());
     }
-    if !owned_and_private(&file) {
+    if !owned_and_private(&path, &file, false, false) || !runnable(&file) {
         return Err(unsafe_permissions());
     }
     let version_dir = path.parent().unwrap_or(&locator.dir);
@@ -128,25 +138,56 @@ pub(super) fn check(locator: &HelperLocator) -> Result<PathBuf, DbError> {
             continue;
         }
         let meta = std::fs::symlink_metadata(folder).map_err(|_| unsafe_permissions())?;
-        if !meta.file_type().is_dir() || !owned_and_private(&meta) {
+        let root = Some(folder) == identifier;
+        if !meta.file_type().is_dir() || !owned_and_private(folder, &meta, true, root) {
             return Err(unsafe_permissions());
         }
     }
     Ok(path)
 }
 
-/// Owned by this user and writable by nobody else.
+/// Owned by this user and writable by nobody else. `dir`: a folder is
+/// expected (Windows reads the kind again through its own handle). `root`:
+/// `<identifier>`, judged by Windows' narrower root rule (Unix's mode rule
+/// is already "no group or world write" at every level).
 #[cfg(unix)]
-fn owned_and_private(meta: &std::fs::Metadata) -> bool {
+fn owned_and_private(_path: &Path, meta: &std::fs::Metadata, _dir: bool, _root: bool) -> bool {
     use std::os::unix::fs::MetadataExt;
     // SAFETY: `geteuid` has no preconditions and can't fail.
     let me = unsafe { libc::geteuid() };
     meta.uid() == me && meta.mode() & 0o022 == 0
 }
 
-/// Windows: the user's profile ACLs protect the folder (Decision 9).
+/// The owner may execute the file (Task 10's P1): a helper that lost the
+/// bit (a restore, a copy tool) is refused as unsafe, so the status says
+/// `Unsafe` and an install replaces it instead of keeping a file no start
+/// can run. Windows has no execute bit.
+#[cfg(unix)]
+fn runnable(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    meta.mode() & 0o100 != 0
+}
+
 #[cfg(not(unix))]
-fn owned_and_private(_: &std::fs::Metadata) -> bool {
+fn runnable(_meta: &std::fs::Metadata) -> bool {
+    true
+}
+
+/// Windows (Q9 A): read through a handle that doesn't follow a reparse
+/// point, so what is judged is what is there. Anything that can't be read
+/// counts as unsafe.
+#[cfg(windows)]
+fn owned_and_private(path: &Path, _meta: &std::fs::Metadata, dir: bool, root: bool) -> bool {
+    use seaquel_runtime::acl::{self, Level};
+    let Ok(user) = acl::current_user() else {
+        return false;
+    };
+    let level = if root { Level::Root } else { Level::Private };
+    acl::inspect(path).is_ok_and(|entry| entry.problem(&user, dir, level).is_none())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn owned_and_private(_path: &Path, _meta: &std::fs::Metadata, _dir: bool, _root: bool) -> bool {
     true
 }
 
@@ -228,7 +269,10 @@ static ANSWERED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// inherit this helper's pipe ends, and this helper would never see EOF on
 /// stdin when its connection closes. Spawns elsewhere in the process (an
 /// `$EDITOR`) aren't covered; they don't spawn helpers concurrently with
-/// one another, and a helper still exits on `close` or a kill.
+/// one another, and a helper still exits on `close` or a kill. On Windows
+/// std already holds a lock of its own around `CreateProcess` and the
+/// inheritable pipe handles, so this one is Unix only.
+#[cfg(unix)]
 static SPAWN: Mutex<()> = Mutex::new(());
 
 /// What tells one install of the file at `path` from another: a changed
@@ -367,6 +411,16 @@ async fn greet(
             }
         }
     }
+    // Started from an AppImage, the helper gets none of its mount's
+    // libraries (spike S3); logged by name only.
+    #[cfg(unix)]
+    for (name, value) in appimage_env(&|name| std::env::var_os(name)) {
+        info!(activity = "duckdb.helper", event = "spawn", env = name, removed = value.is_none(); "kept the AppImage's libraries from the DuckDB helper");
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     let spawned = {
@@ -415,6 +469,54 @@ async fn greet(
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// What to change in the helper's environment when this process runs from
+/// an AppImage (`APPIMAGE` set; the desktop plan's spike S3): the entries
+/// of `LD_LIBRARY_PATH` and `LD_PRELOAD` under `$APPDIR`, the AppImage's
+/// mount, are dropped. The helper links the system's libraries, not the
+/// AppImage's, and it can outlive the mount by up to a minute while it
+/// checkpoints. Each change is a variable and its new value, `None` to
+/// remove it; a variable with nothing under `$APPDIR` is left alone, and
+/// so is everything when `APPIMAGE` or `APPDIR` isn't set. `var` reads the
+/// environment (a function, for the tests).
+#[cfg(unix)]
+pub(super) fn appimage_env(
+    var: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Vec<(&'static str, Option<std::ffi::OsString>)> {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let (Some(_), Some(appdir)) = (var("APPIMAGE"), var("APPDIR")) else {
+        return Vec::new();
+    };
+    let appdir = PathBuf::from(appdir);
+    if appdir.as_os_str().is_empty() || !appdir.is_absolute() {
+        return Vec::new();
+    }
+    // `Path::starts_with` compares whole components: `/tmp/.mount_ab`
+    // isn't under `/tmp/.mount_a`.
+    let inside = |entry: &[u8]| Path::new(std::ffi::OsStr::from_bytes(entry)).starts_with(&appdir);
+    let mut changes = Vec::new();
+    // `ld.so` splits `LD_LIBRARY_PATH` on `:` (an empty entry is the
+    // current folder, kept), and `LD_PRELOAD` on `:` and spaces.
+    for (name, separators) in [("LD_LIBRARY_PATH", &b":"[..]), ("LD_PRELOAD", &b": "[..])] {
+        let Some(value) = var(name) else { continue };
+        let bytes = value.as_bytes();
+        let entries: Vec<&[u8]> = bytes
+            .split(|b| separators.contains(b))
+            .filter(|e| name == "LD_LIBRARY_PATH" || !e.is_empty())
+            .collect();
+        if !entries.iter().any(|e| !e.is_empty() && inside(e)) {
+            continue;
+        }
+        let kept: Vec<&[u8]> = entries
+            .into_iter()
+            .filter(|e| e.is_empty() || !inside(e))
+            .collect();
+        let kept_any = kept.iter().any(|e| !e.is_empty());
+        changes.push((name, kept_any.then(|| OsString::from_vec(kept.join(&b':')))));
+    }
+    changes
+}
 
 /// `hello` and its answer. The `Err` is the reason the helper can't be
 /// used, worded for `ENGINE_NOT_INSTALLED`.
@@ -478,7 +580,7 @@ async fn handshake(
 /// How `open` failed.
 enum Opening {
     /// The helper answered with an error (a missing file, a refused
-    /// option): the connect's error, as natively.
+    /// option): the connect's error.
     Refused(DbError),
     /// The wire broke.
     Broken(String),
@@ -573,6 +675,77 @@ mod tests {
         );
     }
 
+    /// Spike S3 (the desktop plan, Task 2): from an AppImage, library
+    /// paths that point into the AppImage's mount (`$APPDIR`) are dropped
+    /// from the helper's environment, since the helper links the system's
+    /// libraries and outlives the mount by up to a minute. Everything else
+    /// stays, and nothing changes outside an AppImage.
+    #[cfg(unix)]
+    #[test]
+    fn appimage_library_paths_are_kept_from_the_helper() {
+        use std::ffi::OsString;
+        fn env(vars: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<OsString> {
+            move |name| {
+                vars.iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| OsString::from(v))
+            }
+        }
+        assert!(
+            appimage_env(&env(&[
+                ("APPDIR", "/tmp/.mount_SeaqAb"),
+                ("LD_LIBRARY_PATH", "/tmp/.mount_SeaqAb/usr/lib"),
+            ]))
+            .is_empty(),
+            "not an AppImage: APPIMAGE isn't set"
+        );
+        let fixes = appimage_env(&env(&[
+            ("APPIMAGE", "/home/u/Seaquel.AppImage"),
+            ("APPDIR", "/tmp/.mount_SeaqAb"),
+            (
+                "LD_LIBRARY_PATH",
+                "/tmp/.mount_SeaqAb/usr/lib:/opt/x/lib::/tmp/.mount_SeaqAb:/tmp/.mount_SeaqAbc/lib",
+            ),
+            (
+                "LD_PRELOAD",
+                "/tmp/.mount_SeaqAb/usr/lib/libx.so /usr/lib/liby.so",
+            ),
+        ]));
+        assert_eq!(
+            fixes,
+            vec![
+                (
+                    "LD_LIBRARY_PATH",
+                    Some(OsString::from("/opt/x/lib::/tmp/.mount_SeaqAbc/lib"))
+                ),
+                ("LD_PRELOAD", Some(OsString::from("/usr/lib/liby.so"))),
+            ]
+        );
+        // Every entry in the mount: the variable goes.
+        let fixes = appimage_env(&env(&[
+            ("APPIMAGE", "/home/u/Seaquel.AppImage"),
+            ("APPDIR", "/tmp/.mount_SeaqAb/"),
+            (
+                "LD_LIBRARY_PATH",
+                "/tmp/.mount_SeaqAb/usr/lib:/tmp/.mount_SeaqAb/lib",
+            ),
+            ("LD_PRELOAD", "/tmp/.mount_SeaqAb/usr/lib/libx.so"),
+        ]));
+        assert_eq!(fixes, vec![("LD_LIBRARY_PATH", None), ("LD_PRELOAD", None)]);
+        // Nothing in the mount, or no APPDIR to tell: nothing changes.
+        assert!(appimage_env(&env(&[
+            ("APPIMAGE", "/home/u/Seaquel.AppImage"),
+            ("APPDIR", "/tmp/.mount_SeaqAb"),
+            ("LD_LIBRARY_PATH", "/opt/x/lib"),
+        ]))
+        .is_empty());
+        assert!(appimage_env(&env(&[
+            ("APPIMAGE", "/home/u/Seaquel.AppImage"),
+            ("LD_LIBRARY_PATH", "/tmp/.mount_SeaqAb/usr/lib"),
+        ]))
+        .is_empty());
+    }
+
     #[cfg(unix)]
     #[test]
     fn exits_are_described_by_signal_or_code() {
@@ -592,6 +765,7 @@ greet() { recv; send 0 "{\"type\":\"helloOk\",\"protocol\":2,\"version\":\"$1\",
 "#;
 
     /// Short bounds, so a silent helper costs a second.
+    #[cfg(unix)]
     const SHORT: Bounds = Bounds {
         first: Duration::from_millis(300),
         retry: Duration::from_millis(600),
@@ -654,6 +828,7 @@ greet() { recv; send 0 "{\"type\":\"helloOk\",\"protocol\":2,\"version\":\"$1\",
             .success()
     }
 
+    #[cfg(unix)]
     fn started_error(outcome: Result<Started, DbError>) -> DbError {
         match outcome {
             Ok(_) => panic!("the helper started"),
@@ -729,6 +904,161 @@ greet() { recv; send 0 "{\"type\":\"helloOk\",\"protocol\":2,\"version\":\"$1\",
         let e = started_error(script.start().await);
         assert_eq!(e.code, "ENGINE_NOT_INSTALLED", "{e}");
         assert!(!e.message.contains(&"C".repeat(65)), "{e}");
+    }
+
+    /// Windows (the desktop plan's Q9 A, Task 7): what every start checks,
+    /// on a layout like an install's under `%TEMP%` (whose inherited DACL
+    /// is the profile's: the user, SYSTEM and Administrators).
+    #[cfg(windows)]
+    mod windows_acl {
+        use super::*;
+        use seaquel_runtime::acl;
+        use std::process::Command;
+
+        struct Layout {
+            _dir: tempfile::TempDir,
+            locator: HelperLocator,
+            identifier: PathBuf,
+        }
+
+        impl Layout {
+            fn new() -> Layout {
+                let dir = tempfile::tempdir().unwrap();
+                let identifier = dir.path().join("app");
+                let locator = locator(&identifier);
+                std::fs::create_dir_all(locator.dir.join(&locator.version)).unwrap();
+                std::fs::write(helper_path(&locator), b"MZ").unwrap();
+                Layout {
+                    _dir: dir,
+                    locator,
+                    identifier,
+                }
+            }
+
+            /// The file, then each folder up to `<identifier>`.
+            fn levels(&self) -> Vec<PathBuf> {
+                let version = self.locator.dir.join(&self.locator.version);
+                vec![
+                    helper_path(&self.locator),
+                    version,
+                    self.locator.dir.clone(),
+                    self.identifier.join("bin"),
+                    self.identifier.clone(),
+                ]
+            }
+
+            /// What an install sets on `bin`, `duckdb`, the version folder
+            /// and the file.
+            fn make_private(&self) {
+                for (i, level) in self.levels()[..4].iter().enumerate() {
+                    acl::make_private(level, i > 0).unwrap();
+                }
+            }
+        }
+
+        fn icacls(path: &Path, args: &[&str]) {
+            let out = Command::new("icacls")
+                .arg(path)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "icacls {args:?} failed (setting an owner needs the elevated runner): {}",
+                String::from_utf8_lossy(&out.stdout)
+            );
+        }
+
+        fn assert_unsafe(layout: &Layout, what: &str) {
+            let e = check(&layout.locator).expect_err(what);
+            assert_eq!(e.code, "ENGINE_NOT_INSTALLED", "{what}: {e}");
+            assert!(e.message.contains("unsafe permissions"), "{what}: {e}");
+        }
+
+        #[test]
+        fn a_profile_layout_and_an_installs_dacls_pass() {
+            let layout = Layout::new();
+            check(&layout.locator).expect("inherited from the profile");
+            layout.make_private();
+            check(&layout.locator).expect("as an install leaves it");
+        }
+
+        /// Q9 A's case at every level: `Everyone:(M)` refuses, and the
+        /// private DACL an install sets repairs it.
+        #[test]
+        fn everyone_modify_at_any_level_is_refused_until_repaired() {
+            let layout = Layout::new();
+            layout.make_private();
+            for (i, level) in layout.levels().into_iter().enumerate() {
+                icacls(&level, &["/grant", "*S-1-1-0:(M)"]);
+                assert_unsafe(&layout, &format!("{level:?}"));
+                acl::make_private(&level, i > 0).unwrap();
+                check(&layout.locator).expect("repaired");
+            }
+        }
+
+        /// `BUILTIN\Users` allowed to add files to the version folder is a
+        /// write too (a shared `SEAQUEL_DATA_DIR`).
+        #[test]
+        fn users_adding_files_is_refused() {
+            let layout = Layout::new();
+            layout.make_private();
+            let version = layout.locator.dir.join(&layout.locator.version);
+            icacls(&version, &["/grant", "*S-1-5-32-545:(WD)"]);
+            assert_unsafe(&layout, "Users:(WD)");
+        }
+
+        /// The app's folder may let others add files and folders (the
+        /// root rule), not delete a child.
+        #[test]
+        fn the_root_lets_others_add_but_not_delete() {
+            let layout = Layout::new();
+            layout.make_private();
+            icacls(
+                &layout.identifier,
+                &["/grant", "*S-1-5-11:(OI)(CI)(RX,WD,AD)"],
+            );
+            check(&layout.locator).expect("adding files to the app's folder");
+            icacls(&layout.identifier, &["/grant", "*S-1-5-11:(DC)"]);
+            assert_unsafe(&layout, "delete child on the app's folder");
+        }
+
+        /// The owner: another principal (`BUILTIN\Users` here) is
+        /// refused; Administrators (what an elevated copy makes) and SYSTEM
+        /// pass.
+        #[test]
+        fn the_owner_must_be_the_user_administrators_or_system() {
+            let layout = Layout::new();
+            layout.make_private();
+            let file = helper_path(&layout.locator);
+            icacls(&file, &["/setowner", "*S-1-5-32-545"]);
+            assert_unsafe(&layout, "owned by Users");
+            icacls(&file, &["/setowner", "*S-1-5-32-544"]);
+            check(&layout.locator).expect("owned by Administrators");
+            icacls(&file, &["/setowner", "*S-1-5-18"]);
+            check(&layout.locator).expect("owned by SYSTEM");
+            let version = layout.locator.dir.join(&layout.locator.version);
+            icacls(&version, &["/setowner", "*S-1-5-32-545"]);
+            assert_unsafe(&layout, "a folder owned by Users");
+        }
+
+        /// A junction in place of `bin\duckdb` is refused, even pointing at
+        /// a private folder holding a helper.
+        #[test]
+        fn a_junction_on_the_way_is_refused() {
+            let layout = Layout::new();
+            layout.make_private();
+            let real = layout.identifier.join("real");
+            std::fs::rename(&layout.locator.dir, &real).unwrap();
+            let out = Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(&layout.locator.dir)
+                .arg(&real)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "mklink /J");
+            assert_unsafe(&layout, "a junction");
+        }
     }
 
     #[test]

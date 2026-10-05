@@ -60,7 +60,7 @@ extern "C" {
 
 /// What a failed bridge call says: DuckDB's message, or a description of
 /// what the bridge returned instead of what it should have. Never the SQL
-/// the driver sent (DuckDB's own message may quote it, as natively).
+/// the driver sent (DuckDB's own message may quote it, as in the helper).
 pub(crate) type BridgeError = String;
 
 /// The bridge, with its answers checked. No method panics, whatever the

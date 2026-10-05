@@ -17,7 +17,7 @@
 //!   turn and the read-only ones beside them. Dropping a call before its
 //!   last frame posts a `cancel` at once, from `Drop`, ordered before any
 //!   later request; its frames are dropped until its last one. **A stream
-//!   that isn't read holds the main session**, as natively: once its
+//!   that isn't read holds the main session**: once its
 //!   credit window is used up the helper waits, and every later `query`,
 //!   `stream`, `execute` and `transaction` waits behind it until the stream
 //!   is read, dropped or cancelled. Read-only calls run beside it.
@@ -92,8 +92,8 @@ impl HelperLocator {
     }
 }
 
-/// The DuckDB engine over a helper process. Its id is `duckdb`, as the
-/// native driver's, so a build registers one or the other.
+/// The DuckDB engine over a helper process. Its id is `duckdb`; the browser
+/// driver has the same id, and no build has both.
 pub fn remote_engine(locator: HelperLocator) -> Arc<dyn Engine> {
     Arc::new(RemoteEngine { locator })
 }
@@ -112,11 +112,16 @@ impl Engine for RemoteEngine {
         let path = process::check(&self.locator)?;
         let key = closing::key(config);
         if let Some(key) = &key {
-            let waited = closing::wait_for(key).await;
+            let waited = closing::wait_for(key).await.inspect_err(|_| {
+                warn!(activity = "duckdb.helper", event = "wait_closing", code = "CONNECTION_ERROR"; "this file's closing DuckDB helper outlasted the open's wait");
+            })?;
             if waited >= closing::POLL {
                 info!(activity = "duckdb.helper", event = "wait_closing", ms = waited.as_millis() as u64; "waited for this file's closing DuckDB helper");
             }
         }
+        // A file a live helper of this process holds: refused now (a
+        // second open would wait out the lock retry, then be refused).
+        let claim = key.as_ref().map(closing::claim).transpose()?;
         // Another process's helper may still be closing the file.
         let deadline = tokio::time::Instant::now() + closing::LOCK_RETRY;
         let started = loop {
@@ -131,10 +136,36 @@ impl Engine for RemoteEngine {
                 other => break other?,
             }
         };
-        // A file the open created has a key only now.
+        // A file the open created has a key (and a claim) only now. Its
+        // helper opened it, so no other helper of this process holds it.
         let key = key.or_else(|| closing::key(config));
-        let (conn, tasks) = conn::Conn::run(started, key);
+        let claim = claim.or_else(|| {
+            let key = key.as_ref()?;
+            closing::claim(key)
+                .map_err(|e| {
+                    // Another open of it raced this one (review M2).
+                    warn!(activity = "duckdb.helper", event = "claim", code = e.code.as_str(); "a DuckDB file created by this open was already claimed");
+                })
+                .ok()
+        });
+        let (conn, tasks) = conn::Conn::run(started, key, claim);
         Ok(Arc::new(driver::RemoteDriver::new(conn, tasks)))
+    }
+
+    /// The install check every start runs first ([`process::check`]), so
+    /// Core hears `ENGINE_NOT_INSTALLED` before it closes anything a
+    /// reconnect would replace (Decision 21).
+    fn preflight(&self, _config: &ConnectConfig) -> Result<(), DbError> {
+        process::check(&self.locator).map(|_| ())
+    }
+
+    /// A file database is one helper's, under DuckDB's lock: a second
+    /// connection to it opens only once the first is gone.
+    fn exclusive_file(&self, config: &ConnectConfig) -> bool {
+        config.path.as_deref().is_some_and(|p| {
+            let p = p.trim();
+            !p.is_empty() && !p.starts_with(":memory:")
+        })
     }
 
     fn dialect(&self) -> Option<&dyn Dialect> {

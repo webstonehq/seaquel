@@ -3,10 +3,10 @@
 //! Rows come back as Arrow IPC (a schema frame, then batch frames) and are
 //! decoded here with the shared reader ([`crate::ipc`]), by the column
 //! kinds the helper sends in the schema frame (made from DuckDB's logical
-//! types, as the native driver makes them), not by the Arrow fields: a
+//! types, `kinds::of`), not by the Arrow fields: a
 //! session that reset `arrow_lossless_conversion` sends UHUGEINT and BIT in
 //! carriers the fields can't tell from DECIMAL(38, 0) and BLOB. The row and byte
-//! caps are applied here too, as both other drivers do; a call stopped by
+//! caps are applied here too, as the browser driver does; a call stopped by
 //! its cap is cancelled in the helper and the rest of its frames dropped.
 //! Introspection goes through `query` ([`crate::introspect::calls`]).
 
@@ -25,7 +25,7 @@ use crate::introspect;
 use crate::ipc::{Columns, IpcStream};
 use crate::wire::{protocol_error, read_schema_payload, Reply, Request};
 
-/// Rows per streamed batch, as in the native driver.
+/// Rows per streamed batch, as in the sqlx drivers.
 const BATCH_SIZE: usize = 5000;
 
 /// A DuckDB connection in a helper process of its own.
@@ -46,6 +46,14 @@ impl RemoteDriver {
     }
 }
 
+impl Drop for RemoteDriver {
+    /// The helper is killed with the tasks, which only stop when the
+    /// runtime next runs; the file is free for a new open now.
+    fn drop(&mut self) {
+        self.conn.let_go();
+    }
+}
+
 /// A call's rows, read as they arrive.
 struct Rows {
     call: Call,
@@ -55,11 +63,21 @@ struct Rows {
 
 impl Rows {
     fn start(conn: &Arc<Conn>, request: &Request) -> Result<Rows, DbError> {
-        Ok(Rows {
-            call: conn.start(request)?,
+        Ok(Rows::of(conn.start(request)?))
+    }
+
+    /// A read-only call: waits for one of the helper's read-only slots
+    /// first ([`Conn::start_read_only`]).
+    async fn start_read_only(conn: &Arc<Conn>, request: &Request) -> Result<Rows, DbError> {
+        Ok(Rows::of(conn.start_read_only(request).await?))
+    }
+
+    fn of(call: Call) -> Rows {
+        Rows {
+            call,
             stream: None,
             ended: false,
-        })
+        }
     }
 
     /// The result's columns, once its schema arrived.
@@ -194,7 +212,7 @@ impl Driver for RemoteDriver {
                     next = rows.next() => Some(next),
                 };
                 let batches = match next {
-                    // Cancelled: nobody is listening (as natively).
+                    // Cancelled: nobody is listening.
                     None => return,
                     Some(Err(e)) => {
                         yield Err(e);
@@ -259,8 +277,9 @@ impl Driver for RemoteDriver {
         }
     }
 
-    /// Every statement or none, in the helper's main session (see the
-    /// native driver). Dropping the call cancels it there, which rolls back.
+    /// Every statement or none, in the helper's main session (see
+    /// `session::transaction`). Dropping the call cancels it there, which
+    /// rolls back.
     async fn transaction(
         &self,
         statements: Vec<BatchStatement>,
@@ -282,9 +301,10 @@ impl Driver for RemoteDriver {
         self.query_read_only_with(sql, params, options).await
     }
 
-    /// The native driver's read-only path, in the helper on a clone of its
+    /// The read-only path (`session::read_only`), in the helper on a clone of its
     /// own; the caps applied here. The timeout is ignored: dropping the call
-    /// cancels it in the helper.
+    /// cancels it in the helper. Past the helper's 16 at once, a call waits
+    /// here for a slot (the desktop DuckDB helper plan, Decision 5).
     async fn query_read_only_with(
         &self,
         sql: &str,
@@ -301,7 +321,10 @@ impl Driver for RemoteDriver {
             sql: sql.to_string(),
             limit: cap.limit(),
         };
-        Rows::start(&self.conn, &request)?.collect(cap).await
+        Rows::start_read_only(&self.conn, &request)
+            .await?
+            .collect(cap)
+            .await
     }
 
     /// One statement (a second is refused here, before anything is sent,
@@ -320,7 +343,8 @@ impl Driver for RemoteDriver {
             sql: sql.to_string(),
             params,
         };
-        let r = Rows::start(&self.conn, &request)?
+        let r = Rows::start_read_only(&self.conn, &request)
+            .await?
             .collect(RowCap::fail(seaquel_engine::max_query_rows()))
             .await?;
         Ok(introspect::parse_explain(&QueryResult::from(r), false))
@@ -333,6 +357,13 @@ impl Driver for RemoteDriver {
     async fn close(&self) -> Result<(), DbError> {
         self.conn.close().await;
         Ok(())
+    }
+
+    /// `Some` once the helper ends without `close` (a signal, an exit of
+    /// its own, a broken protocol), with the error every call now gets;
+    /// `None` after `close` or once the driver is dropped.
+    fn closed(&self) -> Option<seaquel_runtime::BoxFuture<'static, Option<DbError>>> {
+        Some(self.conn.closed())
     }
 
     // ── Introspection (see `crate::introspect::calls`) ──

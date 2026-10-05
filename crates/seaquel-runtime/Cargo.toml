@@ -7,6 +7,13 @@ description = "Platform seams for Seaquel Core: Send bounds, boxed streams and f
 [features]
 # Native executor backed by tokio. Interfaces enable it; pure crates don't.
 tokio = ["dep:tokio"]
+# Windows file security (`acl`): the rule that a file or folder only the
+# user, SYSTEM and Administrators can write is safe to start the DuckDB
+# helper from, and the calls that read and set it (the desktop DuckDB helper
+# plan, Task 7). The rule is pure; `windows-sys` is linked on Windows only.
+# seaquel-http's `release-asset` (the install) and seaquel-engine-duckdb's
+# `remote` (every start's check) turn it on.
+acl = ["dep:windows-sys"]
 
 [dependencies]
 seaquel-macros = { path = "../seaquel-macros" }
@@ -15,6 +22,15 @@ futures = { workspace = true }
 # Not the workspace tokio: that one enables "net", which doesn't build for wasm32.
 tokio = { version = "1", default-features = false, features = ["rt", "time"], optional = true }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
 gloo-timers = { version = "0.3", features = ["futures"] }
@@ -22,3 +38,5 @@ js-sys = "0.3"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "time", "macros", "sync"] }
+# The `acl` tests' folders (Windows).
+tempfile = "3"

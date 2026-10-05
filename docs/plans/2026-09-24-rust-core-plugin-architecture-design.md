@@ -189,6 +189,20 @@ and the helper share one session layer, so `query_stream` now streams on
 the desktop too. The TUI went from 50.1 to 18.3 MB (8.6 MB gzipped), the
 CLI from 46.2 to 15.1 MB, and the helper is 11.5 MB gzipped. Its measured
 cost is in "DuckDB helper cost" below.
+Desktop DuckDB helper: done: built; Checkpoint D-2 passed after one test fix (D2-1);
+owner's manual checks passed (2026-10-04) (see 2026-10-11-desktop-duckdb-helper-plan.md). The
+desktop app runs DuckDB in the same helper, so no shipped binary links
+DuckDB except `seaquel-duckdb`. The app's first DuckDB connect asks, downloads
+about 11.5 MB with progress and connects; a release app has the helper's
+size and SHA-256 compiled in, so it downloads without GitHub's API, prefetches
+for users who already have DuckDB connections, and can install a copied file
+offline. The in-process driver and Core's `engine-duckdb` feature are deleted,
+and every DuckDB suite runs through the helper on macOS, Linux and Windows.
+Fixed on the way: two connections to one file lost committed writes (the
+second is now refused), dashboards past 16 widgets, a reloaded page's
+connections leaking, a dead helper going unnoticed, and the Windows install's
+folder permissions. The app's binary went from 101.9 to 60.8 MB (39.1 to 27.0
+MB gzipped). Its measured cost is in "Desktop DuckDB helper cost" below.
 
 ## Problem
 
@@ -271,6 +285,16 @@ for the helper's loop, the frames and the client, a protocol with credit
 windows and cancel ordering, process lifecycle rules (EOF, the wedge, a
 close that outlives the client by up to 60 s), a download with its own
 checks, and many of the plan's review findings.
+
+As built by the desktop DuckDB helper plan: the desktop app moved onto the
+helper too, and the in-process driver was deleted rather than kept as a
+fallback. DuckDB is now the one engine that only ever runs out of process
+on native platforms. The reason changed from size alone to size and
+safety: in process, DuckDB let two connections open one file and silently
+dropped one of their committed writes, and an abort in DuckDB took the
+whole app down. Neither the traits nor Core's registry changed shape for
+it; `Engine` gained `preflight` and `exclusive_file` and `Driver` gained
+`closed()`, all with defaults the other four engines keep.
 
 ## Architecture
 
@@ -387,6 +411,14 @@ version })` registers. `seaquel-terminal` builds with
 `with_plugins(|id| id != "duckdb")` and then the remote engine, for the
 same reason the server uses `with_plugins`: a workspace build unifies the
 native driver into the terminal crates' test binaries anyway.)
+
+(As built by the desktop DuckDB helper plan: the native driver is gone.
+DuckDB has two drivers, `remote` (the desktop, the TUI and the CLI) and
+`browser` (the demo), plus the `helper` feature, which is the code
+`seaquel-duckdb` runs. Core's `engine-duckdb` feature went with it, so
+`with_default_plugins()` registers four engines and every native interface
+adds DuckDB with `.duckdb_helper(…)`. The desktop app takes Core without
+default features, like the terminal binaries.)
 
 ## The engine plugin
 
@@ -1043,6 +1075,24 @@ As built by the DuckDB helper plan:
   rows on macOS) because DuckDB and the decode overlap across processes;
   a small call costs about 18 µs more (63 against 45 µs for `SELECT 1`).
   The figures are in "DuckDB helper cost".
+
+As built by the desktop DuckDB helper plan:
+
+- **One helper for every native interface.** The desktop app installs the
+  helper into the same `bin/duckdb/<version>/` folder, so a TUI or CLI of
+  the app's version finds it already there, and the app's "Install Command
+  Line Tool…" uses the app's own Core rather than a second one.
+- **The digest is built into the app.** The release job pins the helper's
+  `.gz` (size and SHA-256) into the app's build, so the app downloads from
+  the release's download URL without the API and can check a copied file
+  offline. The terminal binaries still read the release metadata; pinning
+  them is a follow-up.
+- **Windows permissions are checked.** An install sets a protected DACL of
+  the user and SYSTEM on each folder and the file; every start reads them
+  and refuses a folder others can write to, as Unix refuses group and world
+  write. That closes the helper plan's Windows ACL follow-up.
+- **Entitlements.** Only the helper is signed with
+  `disable-library-validation`; the app, the CLI and the TUI have none.
 
 ## The demo: Core in the browser
 
@@ -4341,6 +4391,192 @@ native on large results), streaming execution in the shared session
 gave the desktop the same first-batch win, every native DuckDB suite
 passes on the remote driver with only the two frame limits as
 differences, and no marker reached a log.
+
+## Desktop DuckDB helper cost
+
+Source: `2026-10-11-desktop-duckdb-helper-effort.md` and the desktop DuckDB
+helper plan's notes, plus line counts measured against `02a42c4` (the
+DuckDB helper, committed); this plan's work is uncommitted on top of it.
+Times are agent wall time as logged, review and probe fixes included, but
+not the plan (about 1.5 h), the review passes themselves, the i18n agent or
+the owner's answers. About a quarter of the larger rows was waiting on
+builds and test runs.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes | Logged |
+|---|---|---|---|---|
+| 0. Spikes S1–S4 | 0.4–0.7 h | ~0.6 h | — | ~0.6 h |
+| 1. The app's Core on the remote engine | 0.8–1.2 h | ~0.9 h | ~0.3 h | ~1.2 h |
+| 2. Read-only queue, open-file registry, `Driver::closed()`, quit test | 1.5–2.2 h | ~1.8 h | not logged [1] | ~1.8 h |
+| 3. The pinned asset | 0.5–0.8 h | ~0.6 h | ~0.4 h | ~1.0 h |
+| 12. Delete the native driver | 1.8–2.8 h | ~2.6 h | not logged [1] | ~2.6 h |
+| 4. The commands, one Core, the reload close | 0.8–1.2 h | ~0.9 h | ~0.6 h | ~1.5 h |
+| Checkpoint D-1 | 0.5–0.8 h | — | — | ~0.6 h |
+| 5. The dialog | 1.6–2.4 h | ~1.5 h | ~0.6 h | ~2.1 h |
+| 6. Prefetch and the MCP panel | 0.4–0.6 h | ~0.5 h | ~0.2 h | ~0.7 h |
+| 7. Windows ACLs | 1.5–2.5 h | ~1.6 h | ~1.0 h | ~2.6 h |
+| 8. macOS entitlements | 0.2–0.4 h | ~0.3 h | — | ~0.3 h |
+| 9. CI and release | 1.0–1.4 h | ~1.3 h | ~0.7 h | ~2.0 h |
+| 10. Probe | 1.8–2.3 h | ~0.9 h | ~1.2 h (P1–P3, O1, O3) | ~2.1 h |
+| 11. Docs, Checkpoint D-2 | 0.8–1.2 h | ~0.8 h | — | ~0.8 h |
+| Review fixes (the plan's row) | 5.1–7.8 h | | | |
+| Probe fixes (the plan's row) | 1.2–2.2 h | | | |
+| **Total** | **~19.9–30.5 h** (expect ~23.5 h) | **~14.3 h** | **~5.0 h** | **~19.9 h** |
+
+[1] Task 2's review fixes and re-review follow-ups and Task 12's review
+fixes have notes in the plan but no row in the effort log. Judging by their
+notes, about 1 h together; with it the total is about 21 h.
+
+**The plan came in at about 85% of its expectation**, at the low end of
+its range.
+
+- **First passes ran near or under their estimates.** The GUI tasks (5,
+  6) came in at or under the low end, as phase 6's GUI tasks did. Task 12
+  ran near its top (2.6 h against 1.8–2.8 h), mostly waiting on full test
+  and clippy runs while the reference was moved. The probe's first pass
+  took half its estimate, since the helper plan's sandbox, proxy and
+  harness were reused.
+- **Logged review fixes were about 3.8 h, about a third of the first
+  passes of Tasks 1–9 and 12**, against the 50% budgeted; the unlogged
+  rounds would bring it to about 40%. The largest round was Windows ACLs
+  (Task 7: ten items, among them a rule for the app's own folder and an
+  in-place repair that keeps its other entries).
+- **Probe fixes took 1.2 h**, inside their 1.2–2.2 h budget: three Minor
+  findings and two observations.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~3,090 | ~940 |
+| Rust, tests (test files, `testing/` modules, `test_reference.rs` and inline `#[cfg(test)]` modules) | ~5,810 | ~860 |
+| Fixtures (`kinds.json`, frozen) | ~890 | 0 |
+| TypeScript/Svelte, production (`src/`) | ~1,270 | ~40 |
+| TypeScript, tests (`src/`) | ~1,930 | ~3 |
+| Release and CI scripts (`scripts/`: the pin, `check-release`, the helper's upload, `check-native-deps.sh`) | ~540 | 0 |
+| Their tests | ~650 | 0 |
+| CI and release workflows | ~270 | ~150 |
+| Docs (plans, CLAUDE.md, README, `HELPER.md`) | ~1,900 | ~180 |
+
+Measured with `git diff -U0` against `02a42c4` plus the untracked files,
+leaving out `Cargo.lock`, the `Cargo.toml` files (+78 −34), `package.json`
+and its lockfile (+20 −2, the `yaml` devDependency), the entitlements files
+(+8 −8) and the locale files (+300 −18, 48 keys in six locales); inline
+test modules counted from their `#[cfg(test)]` line. About 150 of the
+production lines added are moves (`kinds.rs` out of the deleted
+`driver.rs`).
+
+Where the production Rust went: `seaquel-runtime` +850 (the Windows ACL
+rule and its Win32 half), `src-tauri` +770 −40 (the commands,
+`HelperInstalls`, the pin, the reload close, one Core),
+`seaquel-engine-duckdb` +600 −770 (the native driver's 745 lines gone; the
+read-only queue, the open-file registry, `closed()`, the AppImage scrub,
+`kinds.rs`), Core +570 −90 (`lost.rs`, the pin, `prepare_connect` and
+`open_prepared`, announcing before closing), `seaquel-http` +220 −20
+(`open_regular`, the folders a failed install made, the 404, Windows
+DACLs), `seaquel-engine` 32 (`closed()`, `preflight`, `exclusive_file`),
+the terminal binaries about 50.
+
+### Measured
+
+- **The app's release binary** (macOS arm64, `cargo build --release -p
+  seaquel --features tauri/custom-protocol`, the release profile CI builds,
+  not stripped; bytes):
+
+  | | Raw | gzip -9 |
+  |---|---|---|
+  | Before (native DuckDB, this tree) | 101,904,256 | 39,071,818 |
+  | After, Task 1 | 60,520,080 | 26,925,299 |
+  | After, Checkpoint D-1 | 60,784,512 | 27,035,859 |
+  | After, probe (pinned) | 60,784,608 | 27,035,571 |
+  | Change | −41.1 MB (−40%) | −12.0 MB (−31%) |
+
+  The plan estimated −33 MB raw and −11 MB gzipped from the installed
+  2026.9.2 binary (83.4 MB); the compressed saving, which is what every
+  installer and updater artifact carries, came in a little above it. No
+  `_duckdb_` C symbol and no `duckdb::` C++ code are left in the app. The
+  installers and updater artifacts weren't built here (manual check 29).
+- **The probe** (release profile, pinned, sandboxed; macOS arm64 and a
+  Linux aarch64 container): the pinned install fetched 11,500,213 bytes in
+  about 270 ms from a loopback stand-in for GitHub and never asked
+  `api.github.com`; a connect on a 1.04 GB file took 63 ms and every GUI
+  path's Core call answered in 0–72 ms; 40 read-only calls at once all
+  answered in 278 ms; a reload closed 20 connections holding 2 GB of WAL in
+  506 ms; a reconnect during an 11.8 GB checkpoint waited 4.3 s and opened;
+  500 connect cycles (p50 38 ms) left 18 fds, no child process and 3 live
+  tasks; `kill -9` gave exactly one `CONNECTION_CLOSED` event in each state.
+- **CI** (estimated): the `desktop` job compiles DuckDB once, for the
+  helper, instead of in `cargo check -p seaquel`, and now runs the app's
+  tests and clippy (75 minutes allowed); `duckdb-helper` runs one engine
+  line instead of two (100 minutes on Windows); `release.yml` compiles
+  DuckDB once per target instead of twice.
+
+### Bugs found
+
+Before any code: spike S1 showed that the app as shipped let two
+connections open one DuckDB file and silently kept only one connection's
+committed writes. The move to the helper fixes it by design (the second
+open is refused), and the release notes say so.
+
+The serious ones found while building:
+
+- **A read-only permit released at the call's drop** (Task 2,
+  implementer): 40 dropped calls left the helper still interrupting 16, and
+  the next calls got `TOO_MANY_REQUESTS`. The permit now lives until the
+  call's last frame.
+- **A reload's reconnect blocked by its own old connection** (Task 2
+  review): Core closed a window's older connection only after the new one
+  opened, which DuckDB's file lock never allows. For an engine that holds
+  its file, the old one now closes right before the open, after every
+  check that can refuse without opening (Decision 21), and a connection
+  whose close has begun is waited for instead of refused.
+- **The TUI lost its Reconnect dialog** (Task 2, implementer): it treated
+  every `ConnectionClosed` as an eviction, and Core's new event could beat
+  the failed call.
+- **A FIFO picked as the helper's file hung the install** (Task 4 review):
+  `open` blocked on the blocking pool, where no cancel reaches. And a
+  window's connections closed one at a time, unbounded.
+- **The native comparisons compared `decode.rs` with itself** (Task 12):
+  under a deliberate decoding mutation they all passed. The frozen
+  reference that replaced them caught it in 10 of 248 cases each.
+- **A file drop asked once per file after a decline** (Task 5 review).
+- **Windows ACL propagation and the root's rule** (Task 7 review): a new
+  DACL wouldn't reach existing children without opening the folder with
+  `FILE_LIST_DIRECTORY`, and the app's own folder needed a narrower rule,
+  as on Unix: only the rights that replace or rename it count there, and
+  its repair keeps its other entries.
+- **Installing `gh` on the Windows ARM runner** wasn't something any image
+  promised (Task 9 review); the helper's upload moved to
+  `actions/github-script`.
+- **The probe**: a helper without its execute bit couldn't be repaired
+  (P1), a missing asset under the pin got a generic error with no file
+  picker (P2), and the app's tests didn't build in the release profile
+  (P3); also the data dir's path in the app's log (O1) and an empty
+  version folder after a failed install (O3). All fixed.
+
+### What was harder than expected
+
+- **Windows without a Windows machine.** The ACL code was checked by
+  clippy for both Windows targets with a stub C compiler standing in for
+  the SDK, and its tests have still only been written, not run: CI's
+  Windows leg is their first run.
+- **Every way a connect can start in the page.** The connection tab
+  auto-connects, so a decline elsewhere would have reopened the dialog at
+  once; two connects meeting the dialog needed one shared request; the
+  prefetch and the MCP panel's install needed to be joinable.
+- **The release can't be run before a tag.** The pin, the per-job upload
+  and `check-release` were run from extracted YAML against stubs; the first
+  real tag is the owner's checklist (R1–R8).
+
+Checkpoint D-2 passed everything but one test (D2-1): probe fix P1 made
+the start's check require the owner's execute bit, and `seaquel-terminal`'s
+helper-hook test still wrote a 0644 stand-in. The fix is one line in the
+test.
+
+What went to plan: the remote driver needed no change in shape for the
+app, the pinned download never touched GitHub's API, the probe found
+nothing above Minor, and the app shrank by the predicted amount.
 
 ## Risks
 

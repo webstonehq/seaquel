@@ -44,6 +44,7 @@ import { editorSettingsStore } from "$lib/stores/editor-settings.svelte";
 import { isTauri } from "$lib/utils/environment";
 import { getCoreClient } from "$lib/core";
 import { pageOrigin } from "$lib/core/origin";
+import { prefetchDuckdbHelper } from "$lib/core/duckdb-helper";
 import { windowId } from "$lib/core/window-id";
 import { ChangeFeed } from "./database/library/change-feed.js";
 import { LibrarySync } from "./database/library/sync.js";
@@ -452,6 +453,15 @@ export class UseDatabase {
           (id) => this.state.connections.find((c) => c.id === id)?.name,
         );
       }
+
+      // DuckDB support for this version, fetched in the background when a
+      // saved connection is DuckDB (desktop DuckDB helper plan, Decision
+      // 11). It waits a while first, and never shows anything.
+      void prefetchDuckdbHelper({
+        loaded: this.connections.loaded,
+        standalone: isStandaloneWindow(),
+        connections: () => this.state.connections,
+      });
     } catch (error) {
       void log.error("App initialization failed");
       console.error("Failed to initialize app:", error);

@@ -35,9 +35,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "macOS": {
-      "entitlements": "./macos/entitlements.plist"
-    },
     "windows": {
       "signCommand": "trusted-signing-cli -e https://eus.codesigning.azure.net -a Seaquel -c Seaquel -d Seaquel %1"
     }

@@ -9,9 +9,10 @@
 //! `seaquel-cli duckdb install`'s): the gzipped asset, size and SHA-256
 //! checked, folders and file 0700, pruning, into
 //! `seaquel_core::storage::data_local_dir(identifier)` + `bin/duckdb/<version>/`,
-//! which follows `SEAQUEL_DATA_DIR` as the terminal binaries do. The app
-//! builds a small Core of its own for it, with only the remote DuckDB
-//! engine's locator (the app's main Core keeps the native driver, Q6 A).
+//! which follows `SEAQUEL_DATA_DIR` as the terminal binaries do. It runs on
+//! the app's own Core, which runs DuckDB in the same helper (the desktop
+//! DuckDB helper plan, Decision 3), through `duckdb_helper`'s installs, so
+//! the GUI's dialog, its prefetch and this flow share one download.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -21,9 +22,10 @@ use std::time::Duration;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use seaquel_core::{
-    Core, CoreError, DuckdbHelper, DuckdbHelperInstalled, DuckdbHelperReleases, DuckdbHelperStatus,
-};
+use seaquel_core::Core;
+use seaquel_rpc::RpcError;
+
+use crate::duckdb_helper::{HelperInstalled, HelperInstalls};
 
 use crate::cli_install::CLI_NAME;
 
@@ -86,6 +88,12 @@ fn helper_asset_name_for(os: &str, arch: &str) -> Result<String, String> {
     let triple = triple_for(os, arch).ok_or("No DuckDB helper is published for this platform.")?;
     let suffix = if os == "windows" { ".exe" } else { "" };
     Ok(format!("seaquel-duckdb-{triple}{suffix}.gz"))
+}
+
+/// This platform's helper asset name (tests serve it from `MockReleases`).
+#[cfg(test)]
+pub fn helper_asset_name() -> String {
+    helper_asset_name_for(std::env::consts::OS, std::env::consts::ARCH).expect("a release platform")
 }
 
 fn expected_hash(digest: Option<&str>) -> Result<String, String> {
@@ -245,34 +253,11 @@ pub fn duckdb_helper_dir(identifier: &str) -> Result<PathBuf, String> {
     Ok(root.join("bin").join("duckdb"))
 }
 
-/// A Core that only knows where this version's helper goes. `releases`
-/// (tests, debug builds) replaces GitHub as the source.
-fn helper_core(dir: PathBuf, releases: Option<DuckdbHelperReleases>) -> Core {
-    let builder = seaquel_core::with_plugins(|_| false).duckdb_helper(DuckdbHelper {
-        dir,
-        version: VERSION.to_string(),
-    });
-    #[cfg(debug_assertions)]
-    let builder = match releases {
-        Some(source) => builder.duckdb_helper_releases(source),
-        None => builder,
-    };
-    #[cfg(not(debug_assertions))]
-    let _ = releases;
-    builder.build()
-}
-
-/// Whether this version's helper is installed for the CLI (the settings
-/// panel). Reads metadata only.
-pub fn duckdb_helper_status(identifier: &str) -> Option<DuckdbHelperStatus> {
-    let dir = duckdb_helper_dir(identifier).ok()?;
-    helper_core(dir, None).duckdb_helper_status().ok()
-}
-
 /// A `seaquel-duckdb` built beside a debug app, as [`debug_cli`] for the
-/// CLI. Production builds always download.
+/// CLI, used only where [`may_use_debug_helper`] allows it
+/// (`duckdb_helper::local_helper`). Production builds always download.
 #[cfg(debug_assertions)]
-fn debug_helper() -> Option<PathBuf> {
+pub fn debug_helper() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let helper = exe
         .parent()?
@@ -280,50 +265,64 @@ fn debug_helper() -> Option<PathBuf> {
     helper.is_file().then_some(helper)
 }
 
-fn hash_file(path: &Path) -> Result<String, CoreError> {
-    let unreadable = |e: std::io::Error| CoreError::new("FILE_ERROR", format!("{:?}", e.kind()));
-    let mut file = fs::File::open(path).map_err(unreadable)?;
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher).map_err(unreadable)?;
-    Ok(format!("{:x}", hasher.finalize()))
+/// Production builds have no local helper.
+#[cfg(not(debug_assertions))]
+pub fn debug_helper() -> Option<PathBuf> {
+    None
 }
 
-/// Core's install of this version's helper: from `local` (a debug build's
-/// own helper, checked against its own hash) or downloaded. Nothing is
-/// fetched when it is already there and intact.
-async fn install_helper(
+/// Whether a debug build may install [`debug_helper`] for `identifier`
+/// (the desktop DuckDB helper plan, Decision 3; the TUI hook's M1 rule):
+/// only into a dev folder (an identifier ending in `.dev`, which `npm run
+/// tauri:dev` passes) or under a non-empty `SEAQUEL_DATA_DIR`. A plain
+/// `npm run tauri dev` runs as `app.seaquel.desktop`, the folder a released
+/// TUI or CLI of the same version runs its helper from, so it downloads
+/// the release there like a release build instead of writing a debug one.
+/// Release builds never use a local helper (`duckdb_helper::local_helper`).
+pub fn may_use_debug_helper(identifier: &str, data_dir_env: Option<&std::ffi::OsStr>) -> bool {
+    identifier.ends_with(".dev") || data_dir_env.is_some_and(|v| !v.is_empty())
+}
+
+/// Installs the CLI's DuckDB helper through the app's own Core
+/// (Decision 3: one Core installs, so the CLI flow, the GUI's dialog and
+/// the prefetch share its install lock and a running download). Blocks,
+/// so call it off the main thread, as the CLI's install is.
+pub fn install_duckdb_helper(app: &tauri::AppHandle) -> Result<HelperInstalled, RpcError> {
+    use tauri::Manager;
+    let env = crate::duckdb_helper::data_dir_env();
+    install_duckdb_helper_with(
+        &app.state::<Core>(),
+        &app.state::<HelperInstalls>(),
+        &app.config().identifier,
+        env.as_deref(),
+        debug_helper,
+    )
+}
+
+/// [`install_duckdb_helper`] with its inputs given: the debug rule applied
+/// to `identifier` and `data_dir_env` at this call site (Task 1 review M3),
+/// `beside` finding a helper built beside the app.
+pub fn install_duckdb_helper_with(
     core: &Core,
-    local: Option<&Path>,
-) -> Result<DuckdbHelperInstalled, CoreError> {
-    match local {
-        Some(file) => {
-            let sha256 = hash_file(file)?;
-            core.duckdb_helper_install_from_file(file, &sha256).await
-        }
-        None => core.duckdb_helper_install(&mut |_| {}).await,
-    }
-}
-
-/// Installs the CLI's DuckDB helper for `identifier`. Blocks (its own
-/// runtime), so call it off the main thread, as the CLI's install is.
-pub fn install_duckdb_helper(identifier: &str) -> Result<DuckdbHelperInstalled, CoreError> {
-    let dir = duckdb_helper_dir(identifier).map_err(|m| CoreError::new("NO_DATA_DIR", m))?;
-    let core = helper_core(dir, None);
-    #[cfg(debug_assertions)]
-    let local = debug_helper();
-    #[cfg(not(debug_assertions))]
-    let local: Option<PathBuf> = None;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| CoreError::new("UNKNOWN", format!("can't start the install: {e}")))?;
-    runtime.block_on(install_helper(&core, local.as_deref()))
+    installs: &HelperInstalls,
+    identifier: &str,
+    data_dir_env: Option<&std::ffi::OsStr>,
+    beside: impl FnOnce() -> Option<PathBuf>,
+) -> Result<HelperInstalled, RpcError> {
+    tauri::async_runtime::block_on(crate::duckdb_helper::install_for(
+        core,
+        installs,
+        identifier,
+        data_dir_env,
+        beside,
+        |_| {},
+    ))
 }
 
 /// What the install dialog adds about the helper: nothing when it was
 /// already installed, a line when it was downloaded, and on a failure why,
 /// how to retry and the code (Core's messages hold no path or URL).
-pub fn helper_report(result: &Result<DuckdbHelperInstalled, CoreError>) -> Option<String> {
+pub fn helper_report(result: &Result<HelperInstalled, RpcError>) -> Option<String> {
     let e = match result {
         Ok(done) if !done.downloaded => return None,
         Ok(_) => return Some("DuckDB support for the command line tool was installed too.".into()),
@@ -336,8 +335,13 @@ pub fn helper_report(result: &Result<DuckdbHelperInstalled, CoreError>) -> Optio
         }
         "DIGEST_MISMATCH" | "SIZE_MISMATCH" | "GZIP_ERROR" => "the download was damaged",
         "FILE_ERROR" => "it couldn't be saved",
-        "UNSAFE_FOLDER" => "a folder on the way to it belongs to another user or is a link",
+        "UNSAFE_FOLDER" => {
+            "a folder on the way to it belongs to another user or is a link (remove the \
+             bin/duckdb folder in Seaquel's data folder and install again, or point \
+             SEAQUEL_DATA_DIR at a folder of your own on this computer)"
+        }
         "NOT_SUPPORTED" => "this platform has no DuckDB download",
+        "CANCELLED" => "it was cancelled",
         _ => "the install failed",
     };
     Some(format!(
@@ -473,28 +477,55 @@ mod tests {
         helper_asset_name_for(std::env::consts::OS, std::env::consts::ARCH).unwrap()
     }
 
-    /// The app's install puts the helper where the terminal binaries look,
-    /// through Core's install (size, digest, gzip, 0700), from a release
-    /// server on 127.0.0.1. A second install fetches nothing.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn installs_the_helper_where_the_terminal_binaries_look() {
+    /// A Core with only the helper's locator, downloading from `releases`:
+    /// the app's main Core as far as the helper goes (no compiled pin, so
+    /// it serves its own files, Task 3's note).
+    fn test_core(dir: PathBuf, releases: seaquel_core::DuckdbHelperReleases) -> Core {
+        seaquel_core::with_plugins(|_| false)
+            .duckdb_helper(seaquel_core::DuckdbHelper {
+                dir,
+                version: VERSION.to_string(),
+            })
+            .duckdb_helper_releases(releases)
+            .build()
+    }
+
+    // Only the debug-only test below uses it (a release-profile test
+    // build, Task 10's P3, would warn).
+    #[cfg(debug_assertions)]
+    fn nowhere() -> seaquel_core::DuckdbHelperReleases {
+        seaquel_core::DuckdbHelperReleases::new(
+            "http://127.0.0.1:9/api",
+            "http://127.0.0.1:9/download",
+        )
+        .unwrap()
+    }
+
+    /// The CLI flow's install, on the app's Core (Decision 3; no second
+    /// Core), puts the helper where the terminal binaries look, through
+    /// Core's install (size, digest, gzip, 0700), from a release server on
+    /// 127.0.0.1. A second install fetches nothing.
+    #[test]
+    fn installs_the_helper_where_the_terminal_binaries_look() {
         use seaquel_http::release_asset::testing::{asset_path, gzip, MockReleases};
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("app").join("bin").join("duckdb");
         let helper = b"#!/bin/sh\nexit 0\n";
-        let mock = MockReleases::start().await;
+        let mock = tauri::async_runtime::block_on(MockReleases::start());
         mock.publish(VERSION, &helper_name(), gzip(helper));
-        let core = helper_core(dir.clone(), Some(mock.source()));
+        let core = test_core(dir.clone(), mock.source());
+        let installs = HelperInstalls::default();
         assert_eq!(
             core.duckdb_helper_status().unwrap(),
             seaquel_core::DuckdbHelperStatus::Missing
         );
 
-        let done = install_helper(&core, None).await.unwrap();
+        let install =
+            || install_duckdb_helper_with(&core, &installs, "app.seaquel.desktop", None, || None);
+        let done = install().unwrap();
         let expected = dir
             .join(VERSION)
             .join(format!("seaquel-duckdb{}", std::env::consts::EXE_SUFFIX));
-        assert_eq!(done.path, expected);
         assert!(done.downloaded);
         assert_eq!(fs::read(&expected).unwrap(), helper);
         #[cfg(unix)]
@@ -509,31 +540,82 @@ mod tests {
             core.duckdb_helper_status().unwrap(),
             seaquel_core::DuckdbHelperStatus::Installed { path: expected }
         );
-        let again = install_helper(&core, None).await.unwrap();
+        let again = install().unwrap();
         assert!(!again.downloaded);
         assert_eq!(mock.hits(&asset_path(VERSION, &helper_name())), 1);
     }
 
     /// A debug build installs a helper built beside it from its file,
-    /// checked against its own hash, without a network.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_local_helper_is_installed_from_its_file() {
+    /// checked against its own hash, without a network, where the debug
+    /// rule allows it (here a `.dev` identifier).
+    #[cfg(debug_assertions)]
+    #[test]
+    fn a_local_helper_is_installed_from_its_file() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("app").join("bin").join("duckdb");
         let local = tmp.path().join("seaquel-duckdb");
         fs::write(&local, b"local helper").unwrap();
-        let nowhere = seaquel_core::DuckdbHelperReleases::new(
-            "http://127.0.0.1:9/api",
-            "http://127.0.0.1:9/download",
+        let core = test_core(dir.clone(), nowhere());
+        let found = local.clone();
+        install_duckdb_helper_with(
+            &core,
+            &HelperInstalls::default(),
+            "app.seaquel.desktop.dev",
+            None,
+            move || Some(found),
         )
         .unwrap();
-        let core = helper_core(dir.clone(), Some(nowhere));
-        let done = install_helper(&core, Some(&local)).await.unwrap();
-        assert_eq!(fs::read(&done.path).unwrap(), b"local helper");
-        assert!(matches!(
-            core.duckdb_helper_status().unwrap(),
-            seaquel_core::DuckdbHelperStatus::Installed { .. }
-        ));
+        let path = match core.duckdb_helper_status().unwrap() {
+            seaquel_core::DuckdbHelperStatus::Installed { path } => path,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(fs::read(path).unwrap(), b"local helper");
+    }
+
+    /// Task 1 review M3, at the CLI flow's call site: with the app's real
+    /// identifier and no `SEAQUEL_DATA_DIR`, a helper beside a debug app
+    /// isn't installed; the release is downloaded instead.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn the_cli_flow_s_install_follows_the_debug_rule() {
+        use seaquel_http::release_asset::testing::{asset_path, gzip, MockReleases};
+        let tmp = tempfile::tempdir().unwrap();
+        let local = tmp.path().join("seaquel-duckdb");
+        fs::write(&local, b"local helper").unwrap();
+        let helper = b"#!/bin/sh\nexit 0\n";
+        let mock = tauri::async_runtime::block_on(MockReleases::start());
+        mock.publish(VERSION, &helper_name(), gzip(helper));
+        for (case, identifier, env, expect_local) in [
+            ("real", "app.seaquel.desktop", None, false),
+            (
+                "scratch",
+                "app.seaquel.desktop",
+                Some(std::ffi::OsStr::new("/s")),
+                true,
+            ),
+        ] {
+            let dir = tmp.path().join(case).join("bin").join("duckdb");
+            let core = test_core(dir.clone(), mock.source());
+            let found = local.clone();
+            install_duckdb_helper_with(
+                &core,
+                &HelperInstalls::default(),
+                identifier,
+                env,
+                move || Some(found),
+            )
+            .unwrap();
+            let file = dir
+                .join(VERSION)
+                .join(format!("seaquel-duckdb{}", std::env::consts::EXE_SUFFIX));
+            let want: &[u8] = if expect_local {
+                b"local helper"
+            } else {
+                helper
+            };
+            assert_eq!(fs::read(file).unwrap(), want, "{case}");
+        }
+        assert_eq!(mock.hits(&asset_path(VERSION, &helper_name())), 1);
     }
 
     /// What the install dialog adds about the helper: nothing when it was
@@ -541,8 +623,7 @@ mod tests {
     /// reason, the code and the command that retries it.
     #[test]
     fn the_dialog_says_how_the_helper_install_went() {
-        let installed = |downloaded| seaquel_core::DuckdbHelperInstalled {
-            path: PathBuf::from("/x"),
+        let installed = |downloaded| HelperInstalled {
             downloaded,
             pruned: 0,
         };
@@ -550,7 +631,7 @@ mod tests {
         assert!(helper_report(&Ok(installed(true)))
             .unwrap()
             .contains("DuckDB support"));
-        let failed = helper_report(&Err(seaquel_core::CoreError::new(
+        let failed = helper_report(&Err(RpcError::new(
             "NETWORK_ERROR",
             "the connection failed",
         )))
@@ -558,6 +639,39 @@ mod tests {
         assert!(failed.contains("couldn't be installed"), "{failed}");
         assert!(failed.contains("seaquel-cli duckdb install"), "{failed}");
         assert!(failed.contains("NETWORK_ERROR"), "{failed}");
+        // A folder the install won't touch: what the user can do about it
+        // (the desktop plan's Task 7 review, item 10).
+        let unsafe_folder =
+            helper_report(&Err(RpcError::new("UNSAFE_FOLDER", "core says"))).unwrap();
+        assert!(unsafe_folder.contains("install again"), "{unsafe_folder}");
+        assert!(
+            unsafe_folder.contains("SEAQUEL_DATA_DIR"),
+            "{unsafe_folder}"
+        );
+    }
+
+    /// Decision 3 of the desktop DuckDB helper plan (the TUI hook's M1
+    /// rule): a debug build installs the `seaquel-duckdb` built beside it
+    /// only into a dev folder (an identifier ending in `.dev`, as `npm run
+    /// tauri:dev` passes) or under a non-empty `SEAQUEL_DATA_DIR`. A plain
+    /// `npm run tauri dev` runs as `app.seaquel.desktop`, whose folder a
+    /// released TUI of the same version runs its helper from, so there it
+    /// downloads the release like a release build.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn a_debug_helper_goes_only_into_a_dev_or_scratch_folder() {
+        use std::ffi::OsStr;
+        assert!(!may_use_debug_helper("app.seaquel.desktop", None));
+        assert!(!may_use_debug_helper(
+            "app.seaquel.desktop",
+            Some(OsStr::new(""))
+        ));
+        assert!(!may_use_debug_helper("app.seaquel.desktop.devx", None));
+        assert!(may_use_debug_helper("app.seaquel.desktop.dev", None));
+        assert!(may_use_debug_helper(
+            "app.seaquel.desktop",
+            Some(OsStr::new("/scratch/data"))
+        ));
     }
 
     #[test]

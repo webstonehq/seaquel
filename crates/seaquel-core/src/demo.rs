@@ -184,8 +184,30 @@ mod tests {
         }
     }
 
+    /// An engine named `duckdb` that opens nothing: the demo's row only
+    /// needs the engine to be registered (`check_engine`). No compiled
+    /// engine is `duckdb` since the native driver went; the page's module
+    /// registers the browser driver.
+    struct DuckdbStub;
+
+    #[seaquel_runtime::async_trait]
+    impl seaquel_engine::Engine for DuckdbStub {
+        fn id(&self) -> &'static str {
+            "duckdb"
+        }
+        async fn open(
+            &self,
+            _: &seaquel_engine::ConnectConfig,
+        ) -> Result<Arc<dyn seaquel_engine::Driver>, seaquel_engine::DbError> {
+            Err(seaquel_engine::DbError::connection_error(
+                "not in these tests",
+            ))
+        }
+    }
+
     fn core() -> Core {
         crate::with_default_plugins()
+            .engine(Arc::new(DuckdbStub))
             .connect_policy(ConnectPolicy::Unrestricted)
             .executor(Arc::new(Ticks(AtomicU64::new(0))))
             .build()

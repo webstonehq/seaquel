@@ -27,8 +27,8 @@ pub enum PathStatus {
     Missing,
 }
 
-/// Whether this version's DuckDB helper is installed for the CLI
-/// (`Core::duckdb_helper_status`, the DuckDB helper plan).
+/// Whether this version's DuckDB helper is installed, for the app and the
+/// CLI alike (the app's `Core::duckdb_helper_status`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DuckdbHelper {
@@ -123,7 +123,10 @@ pub fn path_status(found: Option<&Path>, binary: &Path, current: bool) -> PathSt
 }
 
 #[tauri::command]
-pub fn cli_info(app: tauri::AppHandle) -> Result<CliInfo, String> {
+pub fn cli_info(
+    app: tauri::AppHandle,
+    core: tauri::State<'_, seaquel_core::Core>,
+) -> Result<CliInfo, String> {
     let binary = cli_download::installed_path(&app.config().identifier)?;
     let app_image = cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_some();
 
@@ -151,7 +154,9 @@ pub fn cli_info(app: tauri::AppHandle) -> Result<CliInfo, String> {
         found_path: found.map(|p| p.display().to_string()),
         can_install: cli_install::available(),
         app_image,
-        duckdb_helper: cli_download::duckdb_helper_status(&app.config().identifier).into(),
+        // The app's own Core (Decision 3): the helper the app and the CLI
+        // both run.
+        duckdb_helper: core.duckdb_helper_status().ok().into(),
     })
 }
 

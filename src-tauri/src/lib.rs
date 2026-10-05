@@ -24,12 +24,20 @@ use tokio::sync::OnceCell;
 mod cli_download;
 mod cli_info;
 mod cli_install;
+mod duckdb_helper;
+mod helper_pin;
 mod logging;
 
 /// How often the desktop's workspace polls for commits another process made
 /// to `seaquel.db` (phase 7a Decision 6; the S4 spike: about 0.6 s p50,
 /// 0.9 s max, 13 µs a poll).
 const EXTERNAL_CHANGES_POLL: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// How long a reloaded or closed webview's connections may take to close
+/// (Task 4 review I2): a backstop past which the closes are dropped, which
+/// drops their drivers. The remote DuckDB driver's own close lets a
+/// checkpointing helper go after about 2 s, so it normally never applies.
+const CLOSE_WINDOW_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug, Clone, serde::Serialize)]
 struct UpdateInfo {
@@ -61,12 +69,76 @@ impl std::error::Error for CommandError {}
 /// The assistant (phase 6) calls models with the native client, anywhere
 /// the user's provider is (`AiEgress::Any`: a local Ollama included), with
 /// the OS proxy settings (`ai-system-proxy`).
-fn desktop_core(import_paths: Option<seaquel_core::ImportPaths>) -> Core {
+///
+/// **DuckDB runs in the helper** (the desktop DuckDB helper plan, Decision
+/// 2): each connection is a `seaquel-duckdb` process of this app version,
+/// found under `<data_local_dir>/<identifier>/bin/duckdb` (the folder the
+/// terminal binaries and the CLI's install use; `SEAQUEL_DATA_DIR/bin/duckdb`
+/// when that is set). The app links no DuckDB. A connect with no helper
+/// installed is `ENGINE_NOT_INSTALLED` at once, and the GUI downloads it
+/// between two connects. With no data-local dir DuckDB isn't registered
+/// (`ENGINE_NOT_AVAILABLE`) and a WARN says so, logged by `setup`.
+///
+/// It runs before `tauri-plugin-log` attaches its logger (in the plugin's
+/// setup), so it logs nothing itself: it answers the WARN for [`run`]'s
+/// `setup` to log (Task 1 review I1).
+fn desktop_core(
+    identifier: &str,
+    import_paths: Option<seaquel_core::ImportPaths>,
+) -> (Core, Option<&'static str>) {
+    let dir = cli_download::duckdb_helper_dir(identifier);
+    let warning = helper_folder_warning(&dir);
+    (desktop_core_with(dir.ok(), import_paths), warning)
+}
+
+/// The WARN when there is no folder for the helper (no data-local dir):
+/// DuckDB isn't registered, and a connect is `ENGINE_NOT_AVAILABLE`.
+const NO_HELPER_FOLDER: &str = "No folder for the DuckDB helper; DuckDB is unavailable";
+
+/// What `setup` logs about the helper's folder: [`NO_HELPER_FOLDER`] when
+/// there is none (the error names no path; it isn't logged).
+fn helper_folder_warning(dir: &Result<PathBuf, String>) -> Option<&'static str> {
+    dir.is_err().then_some(NO_HELPER_FOLDER)
+}
+
+/// [`desktop_core`] with the DuckDB helper's `bin/duckdb` folder given
+/// (tests pass one under their temp dir); `None` leaves DuckDB out. The
+/// helper asset's pin is the one this build compiled in, if any.
+fn desktop_core_with(
+    helper_dir: Option<PathBuf>,
+    import_paths: Option<seaquel_core::ImportPaths>,
+) -> Core {
+    let pin = helper_pin::compiled_pin(option_env!("SEAQUEL_DUCKDB_HELPER_PIN"));
+    desktop_core_pinned(helper_dir, pin, import_paths)
+}
+
+/// [`desktop_core_with`] with the helper asset's pin given (tests pass
+/// fake values through the build script's parser).
+fn desktop_core_pinned(
+    helper_dir: Option<PathBuf>,
+    pin: Option<helper_pin::HelperPin>,
+    import_paths: Option<seaquel_core::ImportPaths>,
+) -> Core {
     use seaquel_core::ai::native::{NativeHttp, NativeHttpOptions};
     use seaquel_core::ai::AiEgress;
 
     let egress = AiEgress::Any;
-    let builder = seaquel_core::with_default_plugins()
+    // Every engine but DuckDB natively, so a build where Cargo unified a
+    // native DuckDB driver in still registers `duckdb` once, remotely.
+    let mut builder = seaquel_core::with_plugins(|id| id != "duckdb");
+    if let Some(dir) = helper_dir {
+        builder = builder.duckdb_helper(seaquel_core::DuckdbHelper {
+            dir,
+            version: cli_download::VERSION.to_string(),
+        });
+    }
+    // The release build's size and digest of the helper's `.gz` (Decision
+    // 4): the install then skips the release metadata and accepts only that
+    // file, and "Install from a file…" is checked against it.
+    if let Some(pin) = pin {
+        builder = builder.duckdb_helper_pinned(pin.size, &pin.sha256);
+    }
+    let builder = builder
         .connect_policy(ConnectPolicy::Unrestricted)
         .executor(std::sync::Arc::new(seaquel_runtime::TokioExecutor))
         .local_files(seaquel_core::LocalFiles::Allowed)
@@ -278,28 +350,61 @@ impl DesktopWorkspace {
     /// `origin`, its label).
     ///
     /// A second call for the same label is a reload: its sink replaces the
-    /// old one (whose channel may never report that it's gone), and the
-    /// label's running streams, which the reloaded page can no longer read,
-    /// are cancelled.
-    fn set_event_sink(&self, core: &Core, label: &str, sink: EventSink) {
-        let stale = {
+    /// old one (whose channel may never report that it's gone), the label's
+    /// running streams, which the reloaded page can no longer read, are
+    /// cancelled, and the connections it opened, which the reloaded page
+    /// can't name (it starts with every connection disconnected), are
+    /// closed and announced as `WINDOW_CLOSED` to every sink, the new one
+    /// included (the desktop DuckDB helper plan, Decision 8: a DuckDB
+    /// connection holds its file, so a reconnect would meet it). Returns
+    /// how many it closed.
+    async fn set_event_sink(&self, core: &Core, label: &str, sink: EventSink) -> usize {
+        let (reload, stale) = {
             let mut webviews = Webviews::lock(&self.webviews);
             match webviews.sinks.insert(label.to_string(), sink) {
-                Some(_) => webviews.take_streams(label),
-                None => HashSet::new(),
+                Some(_) => (true, webviews.take_streams(label)),
+                None => (false, HashSet::new()),
             }
         };
         self.cancel_streams(core, label, stale);
+        if !reload {
+            return 0;
+        }
+        self.close_window(core, label).await
     }
 
-    /// Webview `label` is gone: drop its sink and cancel its streams.
-    fn forget_webview(&self, core: &Core, label: &str) {
+    /// Webview `label` is gone: drop its sink, cancel its streams and close
+    /// the connections it opened (Decision 8). Returns how many it closed.
+    async fn forget_webview(&self, core: &Core, label: &str) -> usize {
         let stale = {
             let mut webviews = Webviews::lock(&self.webviews);
             webviews.sinks.remove(label);
             webviews.take_streams(label)
         };
         self.cancel_streams(core, label, stale);
+        self.close_window(core, label).await
+    }
+
+    /// Close the connections webview `label` opened (`close_owned_by`, by
+    /// the write origin each connect carried); other webviews' stay.
+    async fn close_window(&self, core: &Core, label: &str) -> usize {
+        // No `db` workspace yet means no connection was ever opened.
+        let Some(db) = self.db.get() else { return 0 };
+        // The connections are out of Core and announced before any driver's
+        // close is awaited, so stopping the wait here still leaves them
+        // closed (dropping the closes drops the drivers).
+        match tokio::time::timeout(CLOSE_WINDOW_WAIT, db.ws.close_owned_by(core, label)).await {
+            Ok(closed) => {
+                if closed > 0 {
+                    info!(activity = "db.close_window", webview = label, connections = closed; "Closed a reloaded or closed page's connections");
+                }
+                closed
+            }
+            Err(_) => {
+                log::warn!(activity = "db.close_window", webview = label, code = "TIMEOUT"; "A reloaded or closed page's connections didn't close in time; their closes were dropped");
+                0
+            }
+        }
     }
 
     fn cancel_streams(&self, core: &Core, label: &str, stream_ids: HashSet<String>) {
@@ -328,7 +433,9 @@ impl DesktopWorkspace {
                     .with_external_changes(EXTERNAL_CHANGES_POLL);
                 match core.open_workspace(spec).await {
                     Ok(ws) => {
-                        info!(activity = "workspace.open", data_dir = data_dir.display().to_string().as_str(); "Workspace open");
+                        // No path: the data dir names the user's home
+                        // (Task 10's O1).
+                        info!(activity = "workspace.open"; "Workspace open");
                         self.pump(&ws);
                         Ok(Ok(ws))
                     }
@@ -588,19 +695,28 @@ async fn stop_turn(
 /// once when its page loads; every webview gets every event (events from
 /// before it registered are gone, so a page reloads what it shows). A second call from the same webview is a reload: the new channel
 /// replaces the old one and the webview's running streams are cancelled
-/// ([`DesktopWorkspace::set_event_sink`]). Closing the window drops both.
+/// ([`DesktopWorkspace::set_event_sink`]); it also closes the connections
+/// the old page opened (side by side, the wait bounded by
+/// [`CLOSE_WINDOW_WAIT`]) and resolves once they are closed. Those
+/// connections are out of Core before it resolves; a reconnect to a DuckDB
+/// file one of them held is protected by the engine's wait for a closing
+/// helper (Decision 6 and Task 2's review I1 a), not by this close.
+/// Closing the window drops the sink and closes its connections too.
 #[tauri::command]
-fn core_events(
+async fn core_events(
     channel: Channel<CoreEvent>,
     webview: tauri::Webview,
     core: State<'_, Core>,
     workspace: State<'_, DesktopWorkspace>,
-) {
-    workspace.set_event_sink(
-        &core,
-        webview.label(),
-        Box::new(move |event| channel.send(event).is_ok()),
-    );
+) -> Result<(), RpcError> {
+    workspace
+        .set_event_sink(
+            &core,
+            webview.label(),
+            Box::new(move |event| channel.send(event).is_ok()),
+        )
+        .await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -970,15 +1086,21 @@ pub fn run() {
     // Workspace calls log their method names at debug; dev builds show them.
     #[cfg(debug_assertions)]
     let logger = logger.level_for("seaquel_rpc", log::LevelFilter::Debug);
+    let context = tauri::generate_context!();
+    let (core, helper_warning) = desktop_core(
+        &context.config().identifier,
+        seaquel_core::ImportPaths::from_env(),
+    );
     tauri::Builder::default()
         .plugin(logger.build())
         .plugin(tauri_plugin_os::init())
         // Every engine, file and tunnel: the desktop connects wherever its
         // user asks, so no config check.
-        .manage(desktop_core(seaquel_core::ImportPaths::from_env()))
+        .manage(core)
         .manage(PendingUpdate {
             bytes: Mutex::new(None),
         })
+        .manage(duckdb_helper::HelperInstalls::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
@@ -991,6 +1113,10 @@ pub fn run() {
             core_events,
             cli_info::cli_info,
             cli_info::install_cli,
+            duckdb_helper::duckdb_helper_offer,
+            duckdb_helper::duckdb_helper_install,
+            duckdb_helper::duckdb_helper_cancel,
+            duckdb_helper::duckdb_helper_install_file,
             copy_image_to_clipboard,
             open_path,
             get_data_dir,
@@ -1002,12 +1128,17 @@ pub fn run() {
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {
-                let app = window.app_handle();
-                if let (Some(core), Some(ws)) =
-                    (app.try_state::<Core>(), app.try_state::<DesktopWorkspace>())
-                {
-                    ws.forget_webview(&core, window.label());
-                }
+                // Closing its connections awaits their drivers, so it runs
+                // off this (main) thread.
+                let app = window.app_handle().clone();
+                let label = window.label().to_string();
+                tauri::async_runtime::spawn(async move {
+                    if let (Some(core), Some(ws)) =
+                        (app.try_state::<Core>(), app.try_state::<DesktopWorkspace>())
+                    {
+                        ws.forget_webview(&core, &label).await;
+                    }
+                });
                 if window.label() == "main" {
                     for (label, w) in window.app_handle().webview_windows() {
                         if label != "main" {
@@ -1051,7 +1182,12 @@ pub fn run() {
             },
             _ => {}
         })
-        .setup(|app| {
+        .setup(move |app| {
+            // Core was built before the log plugin attached its logger
+            // (plugins set up before this), so its WARN is logged here.
+            if let Some(warning) = helper_warning {
+                log::warn!(activity = "duckdb.helper"; "{warning}");
+            }
             // Set up custom menu
             let menu = create_menu(app.handle())?;
             app.set_menu(menu)?;
@@ -1090,7 +1226,7 @@ pub fn run() {
             info!(activity = "app.startup"; "App setup complete");
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }
 
@@ -1209,6 +1345,61 @@ mod workspace_tests {
         secrets_still_work(&core, &ws);
     }
 
+    /// Records every log line, message and key-values, that holds one of
+    /// [`MARKERS`]. Installed once for the test binary; other tests' lines
+    /// never hold a marker, so they only cost a format.
+    struct MarkerLog;
+
+    static MARKERS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    static MARKED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    impl log::Log for MarkerLog {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+
+        fn log(&self, record: &log::Record) {
+            struct Kvs<'a>(&'a mut String);
+            impl<'kvs> log::kv::VisitSource<'kvs> for Kvs<'_> {
+                fn visit_pair(
+                    &mut self,
+                    key: log::kv::Key<'kvs>,
+                    value: log::kv::Value<'kvs>,
+                ) -> Result<(), log::kv::Error> {
+                    self.0.push_str(&format!(" {key}={value}"));
+                    Ok(())
+                }
+            }
+            let mut line = format!("{} {}", record.target(), record.args());
+            let _ = record.key_values().visit(&mut Kvs(&mut line));
+            let markers = MARKERS.lock().unwrap();
+            if markers.iter().any(|m| line.contains(m.as_str())) {
+                MARKED.lock().unwrap().push(line);
+            }
+        }
+
+        fn flush(&self) {}
+    }
+
+    /// Task 10's O1: opening storage logs no path (the data dir names the
+    /// user's home).
+    #[test]
+    fn opening_storage_logs_no_path() {
+        static LOGGER: MarkerLog = MarkerLog;
+        if log::set_logger(&LOGGER).is_ok() {
+            log::set_max_level(log::LevelFilter::Trace);
+        }
+        let marker = "datadirmarker7f3a";
+        MARKERS.lock().unwrap().push(marker.to_string());
+        let core = Core::builder().build();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join(marker));
+        call(&core, &ws, LOAD).unwrap();
+        assert!(tmp.path().join(marker).join("seaquel.db").is_file());
+        let marked = MARKED.lock().unwrap().clone();
+        assert!(marked.is_empty(), "the log names the data dir: {marked:?}");
+    }
+
     #[test]
     fn legacy_storage_is_remembered_and_secrets_still_work() {
         let core = Core::builder().build();
@@ -1325,8 +1516,19 @@ mod workspace_tests {
 
     /// A form connect to a new SQLite file with a table `t` of `rows` rows.
     fn sqlite(core: &Core, ws: &DesktopWorkspace, file: &std::path::Path, rows: u32) -> String {
-        let res = db_call(core, ws, "connect", form(file)).unwrap();
-        let id = res["connectionId"].as_str().unwrap().to_string();
+        sqlite_by(core, ws, "main", file, rows)
+    }
+
+    /// [`sqlite`], connected from webview `label`, which owns it (a reload
+    /// of that webview closes it).
+    fn sqlite_by(
+        core: &Core,
+        ws: &DesktopWorkspace,
+        label: &str,
+        file: &std::path::Path,
+        rows: u32,
+    ) -> String {
+        let id = sqlite_from(core, ws, label, file);
         let sql = format!(
             "CREATE TABLE t AS WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL \
              SELECT x + 1 FROM c WHERE x < {rows}) SELECT x FROM c"
@@ -1618,8 +1820,10 @@ mod workspace_tests {
         let core = Arc::new(sqlite_core());
         let tmp = tempfile::tempdir().unwrap();
         let ws = Arc::new(desktop(tmp.path().join("data")));
-        let id = sqlite(&core, &ws, &tmp.path().join("rr.db"), 2000);
-        ws.set_event_sink(&core, "main", Box::new(|_| true));
+        // Opened by another webview, so the reload (which closes main's
+        // connections) leaves it, and the cancel alone is what's seen.
+        let id = sqlite_by(&core, &ws, "theme-editor", &tmp.path().join("rr.db"), 2000);
+        register(&core, &ws, "main", Box::new(|_| true));
 
         let (rx, task) = background_stream(
             &core,
@@ -1639,7 +1843,7 @@ mod workspace_tests {
         assert_eq!(rx.recv_timeout(WAIT).unwrap()["event"]["type"], "batch");
         assert!(Webviews::lock(&ws.webviews).streams["main"].contains("run"));
 
-        ws.set_event_sink(&core, "main", Box::new(|_| true));
+        register(&core, &ws, "main", Box::new(|_| true));
         ends_cancelled(&rx);
         let sent = tauri::async_runtime::block_on(task).unwrap().unwrap();
         assert!(sent >= 2);
@@ -1663,7 +1867,9 @@ mod workspace_tests {
         let core = Arc::new(sqlite_core());
         let tmp = tempfile::tempdir().unwrap();
         let ws = Arc::new(desktop(tmp.path().join("data")));
-        let id = sqlite(&core, &ws, &tmp.path().join("tp.db"), 20000);
+        // Opened by another webview, so main's reload cancels the page
+        // without closing its connection.
+        let id = sqlite_by(&core, &ws, "theme-editor", &tmp.path().join("tp.db"), 20000);
         // Every row of the view is a scan of a 20,000 × 20,000 join.
         db_call(
             &core,
@@ -1672,7 +1878,7 @@ mod workspace_tests {
             json!({"connectionId": id, "sql": "CREATE VIEW slow AS SELECT a.x AS x, b.x AS y FROM t a, t b"}),
         )
         .unwrap();
-        ws.set_event_sink(&core, "main", Box::new(|_| true));
+        register(&core, &ws, "main", Box::new(|_| true));
 
         let body = json!({"method": "db", "params": {"method": "tablePage", "params": {
             "connectionId": id, "streamId": "tp", "page": 1, "pageSize": 10,
@@ -1687,7 +1893,7 @@ mod workspace_tests {
         assert_eq!(start["event"]["type"], "statementStart", "{start}");
         assert!(Webviews::lock(&ws.webviews).streams["main"].contains("tp"));
 
-        ws.set_event_sink(&core, "main", Box::new(|_| true));
+        register(&core, &ws, "main", Box::new(|_| true));
         ends_cancelled(&rx);
         let sent = tauri::async_runtime::block_on(task).unwrap().unwrap();
         assert_eq!(sent, 1);
@@ -1746,11 +1952,11 @@ mod workspace_tests {
         let tmp = tempfile::tempdir().unwrap();
         let ws = desktop(tmp.path().join("data"));
         let (old_tx, old_rx) = mpsc::channel();
-        ws.set_event_sink(&core, "main", sink(old_tx));
+        register(&core, &ws, "main", sink(old_tx));
         let (editor_tx, editor_rx) = mpsc::channel();
-        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+        register(&core, &ws, "theme-editor", sink(editor_tx));
         let (tx, rx) = mpsc::channel();
-        ws.set_event_sink(&core, "main", sink(tx));
+        register(&core, &ws, "main", sink(tx));
 
         let id = sqlite(&core, &ws, &tmp.path().join("v.db"), 1);
         let db = tauri::async_runtime::block_on(ws.db(&core)).unwrap();
@@ -1775,9 +1981,9 @@ mod workspace_tests {
         let tmp = tempfile::tempdir().unwrap();
         let ws = desktop(tmp.path().join("data"));
         let (main_tx, main_rx) = mpsc::channel();
-        ws.set_event_sink(&core, "main", sink(main_tx));
+        register(&core, &ws, "main", sink(main_tx));
         let (editor_tx, editor_rx) = mpsc::channel();
-        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+        register(&core, &ws, "theme-editor", sink(editor_tx));
 
         let lib = |label: &str, method: &str, params: Json| {
             let body = json!({"method": "library", "params": {"method": method, "params": params}});
@@ -1839,9 +2045,9 @@ mod workspace_tests {
         let tmp = tempfile::tempdir().unwrap();
         let ws = desktop(tmp.path().join("data"));
         let (main_tx, main_rx) = mpsc::channel();
-        ws.set_event_sink(&core, "main", sink(main_tx));
+        register(&core, &ws, "main", sink(main_tx));
         let (editor_tx, editor_rx) = mpsc::channel();
-        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+        register(&core, &ws, "theme-editor", sink(editor_tx));
 
         let group = |label: &str, group: &str, method: &str, params: Json| {
             let inner = if params.is_null() {
@@ -1950,7 +2156,7 @@ mod workspace_tests {
         let tmp = tempfile::tempdir().unwrap();
         let ws = desktop(tmp.path().join("data"));
         let (tx, rx) = mpsc::channel();
-        ws.set_event_sink(&core, "main", sink(tx));
+        register(&core, &ws, "main", sink(tx));
         let file = tmp.path().join("h.db");
         call(
             &core,
@@ -2011,9 +2217,9 @@ mod workspace_tests {
         let tmp = tempfile::tempdir().unwrap();
         let ws = desktop(tmp.path().join("data"));
         let (main_tx, main_rx) = mpsc::channel();
-        ws.set_event_sink(&core, "main", sink(main_tx));
+        register(&core, &ws, "main", sink(main_tx));
         let (editor_tx, editor_rx) = mpsc::channel();
-        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+        register(&core, &ws, "theme-editor", sink(editor_tx));
         let body = r#"{"method":"storage","params":{"method":"userCredentialsSave","params":{"credential":{"scope":"db","key":"k","nonce":"n","ciphertext":"c","updatedAt":"t"}}}}"#;
         tauri::async_runtime::block_on(handle_core_call(
             &core,
@@ -2075,6 +2281,23 @@ mod workspace_tests {
         }
     }
 
+    /// Only batches until the stream's task ends, cancelled, or ended by its
+    /// connection's close (`CONNECTION_CLOSED`): what a closed webview's
+    /// stream may see, since its connections close right after its streams
+    /// are cancelled (Decision 8). Its channel is gone either way.
+    fn ends_cancelled_or_closed(rx: &mpsc::Receiver<Json>) {
+        loop {
+            match rx.recv_timeout(WAIT) {
+                Ok(event) if event["event"]["type"] == "error" => {
+                    assert_eq!(event["event"]["code"], "CONNECTION_CLOSED", "{event}");
+                }
+                Ok(event) => assert_eq!(event["event"]["type"], "batch", "{event}"),
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(e) => panic!("the stream didn't end: {e}"),
+            }
+        }
+    }
+
     /// A reload (`core_events` again from the same webview) cancels that
     /// webview's streams, whose channels the old page can't read; another
     /// webview's streams go on.
@@ -2083,9 +2306,11 @@ mod workspace_tests {
         let core = Arc::new(sqlite_core());
         let tmp = tempfile::tempdir().unwrap();
         let ws = Arc::new(desktop(tmp.path().join("data")));
-        let id = sqlite(&core, &ws, &tmp.path().join("r.db"), 2000);
+        // Opened by the editor, so main's reload (which closes main's
+        // connections) cancels main's stream without closing it.
+        let id = sqlite_by(&core, &ws, "theme-editor", &tmp.path().join("r.db"), 2000);
         let big = "SELECT a.x, b.x FROM t a, t b";
-        ws.set_event_sink(&core, "main", Box::new(|_| true));
+        register(&core, &ws, "main", Box::new(|_| true));
 
         let (main_rx, main_task) =
             background_stream(&core, &ws, "main", stream_body(&id, "m", big));
@@ -2094,7 +2319,7 @@ mod workspace_tests {
         main_rx.recv_timeout(WAIT).unwrap();
         editor_rx.recv_timeout(WAIT).unwrap();
 
-        ws.set_event_sink(&core, "main", Box::new(|_| true));
+        register(&core, &ws, "main", Box::new(|_| true));
         ends_cancelled(&main_rx);
         tauri::async_runtime::block_on(main_task).unwrap().unwrap();
 
@@ -2105,12 +2330,145 @@ mod workspace_tests {
             .streams
             .contains_key("theme-editor"));
         assert!(!Webviews::lock(&ws.webviews).streams.contains_key("main"));
-        ws.forget_webview(&core, "theme-editor");
-        ends_cancelled(&editor_rx);
+        forget(&core, &ws, "theme-editor");
+        ends_cancelled_or_closed(&editor_rx);
         tauri::async_runtime::block_on(editor_task)
             .unwrap()
             .unwrap();
         assert!(Webviews::lock(&ws.webviews).streams.is_empty());
+    }
+
+    /// `core_events` from webview `label` ([`DesktopWorkspace::set_event_sink`]).
+    fn register(core: &Core, ws: &DesktopWorkspace, label: &str, sink: EventSink) {
+        tauri::async_runtime::block_on(ws.set_event_sink(core, label, sink));
+    }
+
+    /// Webview `label` destroyed ([`DesktopWorkspace::forget_webview`]).
+    fn forget(core: &Core, ws: &DesktopWorkspace, label: &str) {
+        tauri::async_runtime::block_on(ws.forget_webview(core, label));
+    }
+
+    /// A form connect to a new SQLite file from webview `label`.
+    fn sqlite_from(
+        core: &Core,
+        ws: &DesktopWorkspace,
+        label: &str,
+        file: &std::path::Path,
+    ) -> String {
+        let req = json!({"method": "db", "params": {"method": "connect", "params": form(file)}});
+        let res = tauri::async_runtime::block_on(handle_core_call(
+            core,
+            ws,
+            label,
+            &body(&req.to_string()),
+        ))
+        .map(|res| serde_json::to_value(res).unwrap())
+        .unwrap();
+        res["result"]["result"]["connectionId"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    fn alive(core: &Core, ws: &DesktopWorkspace, ids: &[&str]) -> Json {
+        db_call(core, ws, "alive", json!({ "connectionIds": ids })).unwrap()
+    }
+
+    /// The next `connectionClosed` on `rx`.
+    fn closed_event(rx: &mpsc::Receiver<Json>) -> Json {
+        loop {
+            let event = rx.recv_timeout(WAIT).expect("a connectionClosed event");
+            if event["type"] == "connectionClosed" {
+                return event;
+            }
+        }
+    }
+
+    /// Decision 8 of the desktop DuckDB helper plan: a reload (`core_events`
+    /// again from one webview) closes the connections that webview opened,
+    /// which the reloaded page can't name any more, announced as
+    /// `WINDOW_CLOSED` to the new sink; another webview's connections stay.
+    #[test]
+    fn a_reload_closes_the_webviews_connections() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let (old_tx, _old_rx) = mpsc::channel();
+        register(&core, &ws, "main", sink(old_tx));
+        let (editor_tx, editor_rx) = mpsc::channel();
+        register(&core, &ws, "theme-editor", sink(editor_tx));
+        let main_id = sqlite_from(&core, &ws, "main", &tmp.path().join("m.db"));
+        let editor_id = sqlite_from(&core, &ws, "theme-editor", &tmp.path().join("e.db"));
+
+        let (tx, rx) = mpsc::channel();
+        register(&core, &ws, "main", sink(tx));
+        for rx in [&rx, &editor_rx] {
+            let event = closed_event(rx);
+            assert_eq!(event["code"], "WINDOW_CLOSED", "{event}");
+            assert_eq!(event["connectionId"], main_id.as_str(), "{event}");
+        }
+        assert_eq!(
+            alive(&core, &ws, &[&main_id, &editor_id]),
+            json!([editor_id])
+        );
+        // Only the reloaded webview's connection was announced.
+        assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
+
+        // The first `core_events` of a webview closes nothing.
+        let (other_tx, _other_rx) = mpsc::channel();
+        register(&core, &ws, "log-viewer", sink(other_tx));
+        assert_eq!(alive(&core, &ws, &[&editor_id]), json!([editor_id]));
+    }
+
+    /// Task 4 review M3: a reload with a stream running on the reloaded
+    /// webview's own connection: the stream ends (cancelled, or ended by its
+    /// connection's close; the two race) and the new sink gets
+    /// `WINDOW_CLOSED` for the connection.
+    #[test]
+    fn a_reload_ends_a_stream_on_its_own_connection() {
+        let core = Arc::new(sqlite_core());
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = Arc::new(desktop(tmp.path().join("data")));
+        let id = sqlite(&core, &ws, &tmp.path().join("own.db"), 2000);
+        register(&core, &ws, "main", Box::new(|_| true));
+        let (stream_rx, task) = background_stream(
+            &core,
+            &ws,
+            "main",
+            stream_body(&id, "own", "SELECT a.x, b.x FROM t a, t b"),
+        );
+        stream_rx.recv_timeout(WAIT).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        register(&core, &ws, "main", sink(tx));
+        ends_cancelled_or_closed(&stream_rx);
+        tauri::async_runtime::block_on(task).unwrap().unwrap();
+        let event = closed_event(&rx);
+        assert_eq!(event["code"], "WINDOW_CLOSED", "{event}");
+        assert_eq!(event["connectionId"], id.as_str(), "{event}");
+        assert_eq!(alive(&core, &ws, &[&id]), json!([]));
+        assert!(Webviews::lock(&ws.webviews).streams.is_empty());
+    }
+
+    /// Decision 8: a destroyed webview's connections close too, and only
+    /// its own.
+    #[test]
+    fn a_destroyed_webview_closes_its_connections() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let (tx, rx) = mpsc::channel();
+        register(&core, &ws, "main", sink(tx));
+        let (editor_tx, _editor_rx) = mpsc::channel();
+        register(&core, &ws, "theme-editor", sink(editor_tx));
+        let main_id = sqlite_from(&core, &ws, "main", &tmp.path().join("m.db"));
+        let editor_id = sqlite_from(&core, &ws, "theme-editor", &tmp.path().join("e.db"));
+
+        forget(&core, &ws, "theme-editor");
+        let event = closed_event(&rx);
+        assert_eq!(event["code"], "WINDOW_CLOSED", "{event}");
+        assert_eq!(event["connectionId"], editor_id.as_str(), "{event}");
+        assert_eq!(alive(&core, &ws, &[&main_id, &editor_id]), json!([main_id]));
     }
 
     /// A destroyed window's sink is dropped; the others still get events.
@@ -2120,14 +2478,14 @@ mod workspace_tests {
         let tmp = tempfile::tempdir().unwrap();
         let ws = desktop(tmp.path().join("data"));
         let (tx, rx) = mpsc::channel();
-        ws.set_event_sink(&core, "main", sink(tx));
+        register(&core, &ws, "main", sink(tx));
         let (editor_tx, editor_rx) = mpsc::channel();
-        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+        register(&core, &ws, "theme-editor", sink(editor_tx));
 
-        ws.forget_webview(&core, "theme-editor");
+        forget(&core, &ws, "theme-editor");
         assert_eq!(editor_rx.try_recv(), Err(mpsc::TryRecvError::Disconnected));
         // Forgetting a label with nothing registered is fine.
-        ws.forget_webview(&core, "never-seen");
+        forget(&core, &ws, "never-seen");
 
         sqlite(&core, &ws, &tmp.path().join("d.db"), 1);
         let db = tauri::async_runtime::block_on(ws.db(&core)).unwrap();
@@ -2230,7 +2588,10 @@ mod workspace_tests {
     /// The desktop's Core ([`desktop_core`]) with the imports reading
     /// `home`, never the user's.
     fn files_core(home: &std::path::Path) -> Core {
-        desktop_core(Some(seaquel_core::ImportPaths::new(home)))
+        desktop_core_with(
+            Some(home.join("app").join("bin").join("duckdb")),
+            Some(seaquel_core::ImportPaths::new(home)),
+        )
     }
 
     /// `core_call` serves both groups through the storage workspace, on a
@@ -2245,9 +2606,9 @@ mod workspace_tests {
         assert_eq!(core.local_files(), Some(seaquel_core::LocalFiles::Allowed));
         let ws = desktop(tmp.path().join("data"));
         let (main_tx, main_rx) = mpsc::channel();
-        ws.set_event_sink(&core, "main", sink(main_tx));
+        register(&core, &ws, "main", sink(main_tx));
         let (editor_tx, editor_rx) = mpsc::channel();
-        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+        register(&core, &ws, "theme-editor", sink(editor_tx));
         let group = |label: &str, group: &str, method: &str, params: Json| {
             let inner = if params.is_null() {
                 json!({"method": method})
@@ -2401,6 +2762,377 @@ mod workspace_tests {
             assert!(answer.is_err(), "not a repo: {answer:?}");
             task.join().unwrap();
         }
+    }
+
+    // ── The desktop DuckDB helper plan, Task 1: DuckDB through the helper ──
+
+    /// `<tmp>/app.seaquel.desktop/bin/duckdb`, the folders 0700 as an
+    /// install makes them: where [`desktop_core_with`] looks in these
+    /// tests, never the user's data-local dir.
+    fn helper_dir(tmp: &std::path::Path) -> PathBuf {
+        let ident = tmp.join("app.seaquel.desktop");
+        let dir = ident.join("bin").join("duckdb");
+        std::fs::create_dir_all(&dir).unwrap();
+        #[cfg(unix)]
+        for d in [ident.as_path(), &ident.join("bin"), &dir] {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        dir
+    }
+
+    /// The app's Core registers `duckdb` once, through the helper's locator
+    /// (`with_plugins(|id| id != "duckdb")`, so a build where Cargo unified
+    /// a native driver in still has one `duckdb`), for this app version.
+    #[test]
+    fn desktop_core_registers_duckdb_once_through_the_helper() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = helper_dir(tmp.path());
+        let core = desktop_core_with(Some(dir.clone()), None);
+        let ids = core.engine_ids();
+        assert_eq!(
+            ids.iter().filter(|id| **id == "duckdb").count(),
+            1,
+            "{ids:?}"
+        );
+        for id in ["postgres", "mysql", "sqlite", "mssql"] {
+            assert!(ids.contains(&id), "{id}: {ids:?}");
+        }
+        let helper = core.duckdb_helper().expect("the helper's locator");
+        assert_eq!(helper.dir, dir);
+        assert_eq!(helper.version, cli_download::VERSION);
+
+        // No folder for it (no data-local dir): no DuckDB at all.
+        let core = desktop_core_with(None, None);
+        assert!(!core.engine_ids().contains(&"duckdb"));
+        assert!(core.duckdb_helper().is_none());
+    }
+
+    /// The helper asset's pin (Decision 4) reaches Core as the build script's
+    /// parser read it, and only a pin compiled in by `build.rs` is used: a
+    /// build without one has none.
+    #[test]
+    fn desktop_core_carries_the_pin_built_in() {
+        const HEX: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = helper_dir(tmp.path());
+        let pin = helper_pin::pin_from_inputs(Some("4096"), Some(&HEX.to_uppercase()))
+            .unwrap()
+            .unwrap();
+        let pin = helper_pin::compiled_pin(Some(&helper_pin::pin_text(&pin)));
+        let core = desktop_core_pinned(Some(dir.clone()), pin, None);
+        let got = core.duckdb_helper_pin().expect("the pin");
+        assert_eq!((got.size, got.sha256.as_str()), (4096, HEX));
+
+        let core = desktop_core_pinned(Some(dir.clone()), None, None);
+        assert!(core.duckdb_helper_pin().is_none());
+
+        // The app's own Core: what this build compiled in, nothing else.
+        let core = desktop_core_with(Some(dir), None);
+        let built = helper_pin::compiled_pin(option_env!("SEAQUEL_DUCKDB_HELPER_PIN"));
+        assert_eq!(
+            core.duckdb_helper_pin().map(|p| (p.size, p.sha256.clone())),
+            built.map(|p| (p.size, p.sha256))
+        );
+    }
+
+    /// Runs `test` again in a child process of this test binary with
+    /// `CHILD` set and `envs` changed (`None` removes one), since the
+    /// variables `desktop_core` reads are process-wide.
+    fn in_child(test: &str, envs: &[(&str, Option<&std::path::Path>)]) {
+        let mut cmd = std::process::Command::new(std::env::current_exe().unwrap());
+        cmd.args([
+            "--exact",
+            &format!("workspace_tests::{test}"),
+            "--test-threads=1",
+        ])
+        .env(DESKTOP_CORE_CHILD, "1");
+        for (key, value) in envs {
+            match value {
+                Some(v) => cmd.env(key, v),
+                None => cmd.env_remove(key),
+            };
+        }
+        let out = cmd.output().unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "{stdout}");
+        assert!(
+            stdout.contains("1 passed"),
+            "the child ran the check: {stdout}"
+        );
+    }
+
+    const DESKTOP_CORE_CHILD: &str = "SEAQUEL_TEST_DESKTOP_CORE_CHILD";
+
+    fn is_child() -> bool {
+        std::env::var_os(DESKTOP_CORE_CHILD).is_some()
+    }
+
+    /// `desktop_core(identifier, …)` takes the helper's folder from the
+    /// identifier, under `SEAQUEL_DATA_DIR` when that is set, where the
+    /// terminal binaries and the CLI's install look; with a folder there
+    /// is nothing to warn about.
+    #[test]
+    fn desktop_core_finds_the_helper_under_seaquel_data_dir() {
+        if is_child() {
+            let data = PathBuf::from(std::env::var_os("SEAQUEL_DATA_DIR").unwrap());
+            let (core, warning) = desktop_core("app.seaquel.desktop", None);
+            assert_eq!(warning, None);
+            let helper = core.duckdb_helper().expect("the helper's locator");
+            assert_eq!(helper.dir, data.join("bin").join("duckdb"));
+            assert_eq!(
+                core.engine_ids()
+                    .iter()
+                    .filter(|id| **id == "duckdb")
+                    .count(),
+                1
+            );
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        in_child(
+            "desktop_core_finds_the_helper_under_seaquel_data_dir",
+            &[("SEAQUEL_DATA_DIR", Some(tmp.path()))],
+        );
+    }
+
+    /// Without `SEAQUEL_DATA_DIR` the folder is the platform's data-local
+    /// dir (under `HOME`, here a temp folder) plus the identifier the app
+    /// passed, so a hard-coded identifier fails.
+    #[test]
+    fn desktop_core_names_the_helper_folder_after_the_identifier() {
+        const IDENT: &str = "app.seaquel.test-ident";
+        if is_child() {
+            let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+            let (core, warning) = desktop_core(IDENT, None);
+            assert_eq!(warning, None);
+            let dir = &core.duckdb_helper().expect("the helper's locator").dir;
+            assert!(
+                dir.ends_with(std::path::Path::new(IDENT).join("bin").join("duckdb")),
+                "{dir:?}"
+            );
+            assert!(dir.starts_with(&home), "{dir:?}");
+            assert!(!dir.exists(), "nothing is made before an install");
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        in_child(
+            "desktop_core_names_the_helper_folder_after_the_identifier",
+            &[
+                ("SEAQUEL_DATA_DIR", None),
+                ("HOME", Some(home.as_path())),
+                ("XDG_DATA_HOME", Some(home.join(".local/share").as_path())),
+            ],
+        );
+    }
+
+    /// I1 of Task 1's review: `desktop_core` runs before `tauri-plugin-log`
+    /// attaches its logger, so the missing folder's WARN is kept and
+    /// `setup` logs it ([`run`]).
+    #[test]
+    fn a_missing_helper_folder_is_kept_for_setup_to_log() {
+        assert_eq!(
+            helper_folder_warning(&Err("Couldn't find your data directory.".into())),
+            Some(NO_HELPER_FOLDER)
+        );
+        assert_eq!(
+            helper_folder_warning(&Ok(PathBuf::from("/x/bin/duckdb"))),
+            None
+        );
+        assert!(!NO_HELPER_FOLDER.contains('/'));
+    }
+
+    fn duckdb_form(file: &std::path::Path) -> Json {
+        json!({
+            "target": {"type": "form", "form": {
+                "name": "Duck", "type": "duckdb", "databaseName": file.display().to_string(),
+            }},
+            "createIfMissing": true,
+        })
+    }
+
+    /// With no helper installed, a DuckDB connect through `core_call` is
+    /// refused at once with `ENGINE_NOT_INSTALLED` (the GUI's dialog then
+    /// downloads between two connects, never inside one): nothing spawned,
+    /// no file made.
+    #[test]
+    fn a_duckdb_connect_without_the_helper_is_refused_at_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let core = desktop_core_with(Some(helper_dir(tmp.path())), None);
+        let ws = desktop(tmp.path().join("data"));
+        // Storage opens on the first call; time only the connect.
+        call(&core, &ws, LOAD).unwrap();
+        let dir = tmp
+            .path()
+            .join("app.seaquel.desktop")
+            .join("bin")
+            .join("duckdb");
+        let file = tmp.path().join("missing-helper.duckdb");
+        let started = std::time::Instant::now();
+        let err = db_call(&core, &ws, "connect", duckdb_form(&file)).unwrap_err();
+        let took = started.elapsed();
+        assert_eq!(err.code, "ENGINE_NOT_INSTALLED", "{err}");
+        // No download and no connect timeout: refused before any spawn.
+        assert!(took < Duration::from_secs(2), "{took:?}");
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            0,
+            "nothing installed"
+        );
+        #[cfg(unix)]
+        {
+            let children = std::process::Command::new("pgrep")
+                .args(["-P", &std::process::id().to_string(), "seaquel-duckdb"])
+                .output()
+                .unwrap();
+            assert!(children.stdout.is_empty(), "a helper was spawned");
+        }
+        assert!(!err.message.contains(&tmp.path().display().to_string()));
+    }
+
+    /// `SEAQUEL_TEST_DUCKDB_HELPER`, or `None` to skip (a failure under
+    /// `SEAQUEL_TEST_REQUIRE_ENGINES`).
+    fn built_helper() -> Option<PathBuf> {
+        match std::env::var_os("SEAQUEL_TEST_DUCKDB_HELPER") {
+            Some(path) => Some(PathBuf::from(path)),
+            None if std::env::var_os("SEAQUEL_TEST_REQUIRE_ENGINES").is_some() => {
+                panic!("SEAQUEL_TEST_DUCKDB_HELPER is not set, and SEAQUEL_TEST_REQUIRE_ENGINES requires it")
+            }
+            None => {
+                eprintln!("skipping: SEAQUEL_TEST_DUCKDB_HELPER is not set");
+                None
+            }
+        }
+    }
+
+    /// The built helper linked (else copied) into `dir/<version>/`, laid
+    /// out as an install.
+    fn install_helper(built: &std::path::Path, dir: &std::path::Path) {
+        let folder = dir.join(cli_download::VERSION);
+        std::fs::create_dir_all(&folder).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let to = folder.join(format!("seaquel-duckdb{}", std::env::consts::EXE_SUFFIX));
+        if std::fs::hard_link(built, &to).is_err() {
+            std::fs::copy(built, &to).unwrap();
+        }
+    }
+
+    /// The GUI's DuckDB paths through the app's own commands, on the
+    /// helper: a form connect through `core_call`, a run and its pages
+    /// through `core_stream`, the data tab's table page, and a grid edit
+    /// through `applyChanges`, on a DuckDB file.
+    #[test]
+    fn duckdb_runs_through_the_helper_on_the_app_s_core() {
+        let Some(built) = built_helper() else { return };
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = helper_dir(tmp.path());
+        install_helper(&built, &dir);
+        let core = desktop_core_with(Some(dir), None);
+        let ws = desktop(tmp.path().join("data"));
+        let file = tmp.path().join("app.duckdb");
+
+        // DuckDB opens only a file that exists: make it from `:memory:`.
+        let seed = db_call(
+            &core,
+            &ws,
+            "connect",
+            duckdb_form(std::path::Path::new(":memory:")),
+        )
+        .unwrap()["connectionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let sql = format!(
+            "ATTACH '{}' AS seed; CREATE TABLE seed.t AS SELECT range::INTEGER AS x \
+             FROM range(1, 1001); DETACH seed",
+            file.display()
+        );
+        for statement in sql.split("; ") {
+            db_call(
+                &core,
+                &ws,
+                "execute",
+                json!({"connectionId": seed, "sql": statement}),
+            )
+            .unwrap();
+        }
+        db_call(&core, &ws, "disconnect", json!({"connectionId": seed})).unwrap();
+        assert!(file.is_file());
+
+        let res = db_call(&core, &ws, "connect", duckdb_form(&file)).unwrap();
+        let id = res["connectionId"].as_str().unwrap().to_string();
+
+        let events = stream(
+            &core,
+            &ws,
+            &run_body(&id, "r1", "SELECT x FROM t ORDER BY x", 100),
+        );
+        assert_eq!(
+            event_types(&events),
+            ["statementStart", "batch", "statementDone", "done"],
+            "{events:?}"
+        );
+        assert_eq!(events[1]["event"]["rows"][0], json!([1]));
+        assert_eq!(events[2]["event"]["totalRows"], 1000);
+        assert_eq!(events[2]["event"]["totalPages"], 10);
+        let page = json!({"method": "db", "params": {"method": "page", "params": {
+            "connectionId": id, "streamId": "p1", "source": events[0]["event"]["source"],
+            "page": 10, "pageSize": 100,
+        }}})
+        .to_string();
+        let events = stream(&core, &ws, &page);
+        assert_eq!(
+            event_types(&events),
+            ["statementStart", "batch", "statementDone", "done"]
+        );
+        assert_eq!(events[1]["event"]["rows"][99], json!([1000]));
+
+        db_call(
+            &core,
+            &ws,
+            "execute",
+            json!({"connectionId": id, "sql": "CREATE TABLE p (id INTEGER PRIMARY KEY, name VARCHAR)"}),
+        )
+        .unwrap();
+        let target = json!({"schema": "main", "table": "p"});
+        let outcome = db_call(
+            &core,
+            &ws,
+            "applyChanges",
+            json!({"connectionId": id, "changes": [
+                {"type": "edit", "id": "a", "edit": {"type": "insertRow", "target": target, "values": [["id", 1], ["name", "x"]]}},
+                {"type": "edit", "id": "b", "edit": {"type": "insertRow", "target": target, "values": [["id", 2], ["name", "y"]]}},
+                {"type": "edit", "id": "c", "edit": {"type": "updateCell", "target": target, "key": [["id", 1]], "column": "name", "value": "z"}},
+            ]}),
+        )
+        .unwrap();
+        assert_eq!(outcome["mode"], "atomic", "{outcome}");
+        assert_eq!(outcome["applied"], 3, "{outcome}");
+
+        let body = json!({"method": "db", "params": {"method": "tablePage", "params": {
+            "connectionId": id, "streamId": "tp", "page": 1, "pageSize": 10,
+            "query": {"target": target,
+                      "filters": [{"column": "name", "op": "=", "value": "z"}]},
+        }}})
+        .to_string();
+        let events = stream(&core, &ws, &body);
+        assert!(events
+            .iter()
+            .all(|e| e["type"] == "run" && e["streamId"] == "tp"));
+        assert_eq!(
+            event_types(&events),
+            ["statementStart", "batch", "statementDone", "done"],
+            "{events:?}"
+        );
+        assert_eq!(events[1]["event"]["rows"], json!([[1, "z"]]));
+
+        db_call(&core, &ws, "disconnect", json!({"connectionId": id})).unwrap();
     }
 }
 
@@ -2627,7 +3359,7 @@ mod ai_tests {
     #[test]
     fn a_reload_cancels_a_turn_and_its_reply_is_stored() {
         let w = world();
-        w.ws.set_event_sink(&w.core, "main", Box::new(|_| true));
+        tauri::async_runtime::block_on(w.ws.set_event_sink(&w.core, "main", Box::new(|_| true)));
         w.stall_after_text();
         let (rx, task) = w.background("main", w.chat_body("t2"));
         loop {
@@ -2637,7 +3369,7 @@ mod ai_tests {
             }
         }
         assert!(Webviews::lock(&w.ws.webviews).streams["main"].contains("t2"));
-        w.ws.set_event_sink(&w.core, "main", Box::new(|_| true));
+        tauri::async_runtime::block_on(w.ws.set_event_sink(&w.core, "main", Box::new(|_| true)));
         let sent = tauri::async_runtime::block_on(task).unwrap().unwrap();
         while let Ok(event) = rx.try_recv() {
             assert!(!event["event"]["type"].as_str().unwrap().ends_with("done"));

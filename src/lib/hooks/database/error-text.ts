@@ -14,8 +14,8 @@ export const TOO_MANY_REQUESTS = "TOO_MANY_REQUESTS";
 /**
  * An error as the grid and toasts show it: the database's message alone for
  * `QUERY_ERROR`, a translated sentence when the SQL module failed, a
- * transaction opened by hand is in the way, an edit needs confirming, or the web server has too
- * many of the user's large calls running, and `CODE: message` otherwise
+ * transaction opened by hand is in the way, an edit needs confirming, the web server has too
+ * many of the user's large calls running, or DuckDB support is missing or didn't start, and `CODE: message` otherwise
  * (the code says what went wrong around the query: `CONNECTION_CLOSED`,
  * `WS_CLOSED`, `RESULT_TOO_LARGE`, …).
  */
@@ -25,6 +25,10 @@ export function errorText(code: string, message: string): string {
   if (code === TRANSACTION_OPEN) return m.edit_transaction_open();
   if (code === CONFIRM_REQUIRED) return m.edit_confirm_required();
   if (code === TOO_MANY_REQUESTS) return m.rpc_too_many_requests();
+  // The DuckDB helper (desktop): Core's own sentence for a missing one.
+  if (code === "ENGINE_UNAVAILABLE") return m.duckdb_helper_unavailable();
+  if (code === "ENGINE_NOT_AVAILABLE") return m.duckdb_helper_not_available();
+  if (code === "ENGINE_NOT_INSTALLED") return message;
   return `${code}: ${message}`;
 }
 

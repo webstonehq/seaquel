@@ -4,6 +4,9 @@
 //! workspace with a project, saved connections, AI settings and a chat.
 #![allow(dead_code)]
 
+#[path = "../common/duckdb.rs"]
+mod duckdb_helper;
+
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -515,8 +518,18 @@ impl Default for Setup {
     }
 }
 
+/// Whether there is a DuckDB helper to run (`common/duckdb.rs`); without
+/// one a real DuckDB case is skipped, or fails under
+/// `SEAQUEL_TEST_REQUIRE_ENGINES`.
+pub fn duckdb_helper_built() -> bool {
+    duckdb_helper::built_helper().is_some()
+}
+
 pub struct World {
     pub dir: tempfile::TempDir,
+    /// The DuckDB helper's install (`common/duckdb.rs`), when a real
+    /// DuckDB connection asked for one and there is a helper.
+    pub duckdb_helper: Option<tempfile::TempDir>,
     pub core: Core,
     pub ws: Arc<Workspace>,
     pub db: Arc<Db>,
@@ -531,6 +544,7 @@ pub async fn world(setup: Setup) -> World {
     let mock = MockProvider::start().await;
     let http = Redirect::new(mock.clone());
     let saved_ids: Vec<String> = setup.conns.iter().map(|c| c.id.clone()).collect();
+    let mut helper = None;
     let mut builder = if setup.scripted {
         let mut b = Core::builder();
         for id in ["postgres", "mysql", "sqlite", "mssql", "duckdb"] {
@@ -541,6 +555,10 @@ pub async fn world(setup: Setup) -> World {
             }));
         }
         b
+    } else if setup.conns.iter().any(|c| c.ty == "duckdb") {
+        let (plugins, dir) = duckdb_helper::default_plugins();
+        helper = dir;
+        plugins
     } else {
         seaquel_core::with_default_plugins()
     };
@@ -612,6 +630,7 @@ pub async fn world(setup: Setup) -> World {
     .await;
     World {
         dir,
+        duckdb_helper: helper,
         core,
         ws,
         db,

@@ -1,12 +1,18 @@
 //! `tests/fixtures/cells.json`: the typed-cell cases (`common/cells.rs`) as
-//! JSON, with their native expectations in the cell wire format, for the
-//! browser module's live suite (`src/lib/engine/engine-duckdb-browser.test.ts`),
-//! which runs them through Core in the page against DuckDB-WASM.
+//! JSON, with their expectations in the cell wire format, as the native
+//! driver decoded them (`values.rs` checked every one against it while it
+//! existed). Frozen: it is the reference the in-crate decoding tests
+//! compare against (`src/test_reference.rs`, Decision 19 of the desktop
+//! DuckDB helper plan), and the browser module's live suite
+//! (`src/lib/engine/engine-duckdb-browser.test.ts`) runs the same cases
+//! through Core in the page against DuckDB-WASM.
 //!
-//! This test fails when the file no longer matches the cases. Rewrite it
-//! with `SEAQUEL_RECORD_CELLS=1 cargo test -p seaquel-engine-duckdb --test
-//! cells_fixture`. Scratch table names are numbered in order, so the file
-//! doesn't change from run to run.
+//! This test fails when the file no longer matches the cases. Rewriting it
+//! (`SEAQUEL_RECORD_CELLS=1 cargo test -p seaquel-engine-duckdb --test
+//! cells_fixture`) needs a reason in `tests/fixtures/README.md`, as for
+//! every frozen fixture; `values.rs` then checks the new expectations
+//! through the helper. Scratch table names are numbered in order, so the
+//! file doesn't change from run to run.
 
 #[path = "common/cells.rs"]
 mod cells;

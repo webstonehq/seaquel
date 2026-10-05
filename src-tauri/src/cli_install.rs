@@ -407,7 +407,7 @@ pub fn install_and_report(app: &tauri::AppHandle) {
                 };
                 let name = format!("{outcome:?}");
                 log::info!(activity = "app.cli_install", outcome = name.as_str(); "{detail}");
-                let helper = cli_download::install_duckdb_helper(&app.config().identifier);
+                let helper = cli_download::install_duckdb_helper(&app);
                 match &helper {
                     Ok(done) => {
                         log::info!(activity = "app.cli_install", event = "duckdb_helper", downloaded = done.downloaded, pruned = done.pruned; "The CLI's DuckDB helper is installed");

@@ -3,10 +3,11 @@
 //! chunks, transactions and the read-only scaffolding. Every function runs
 //! on the thread that holds the connection (see [`crate::blocking`]).
 //!
-//! A result's chunks go to a [`ChunkSink`]. The native driver's sinks decode
-//! them into `Value`s (`driver.rs`); the DuckDB helper's sink writes them as
-//! Arrow IPC for its client. So both run the same DuckDB code and differ
-//! only in where the chunks go.
+//! A result's chunks go to a [`ChunkSink`]: the DuckDB helper's sink writes
+//! them as Arrow IPC for its client (`helper.rs`), with the column kinds
+//! [`crate::kinds::of`] reads. (The in-process native driver, whose sinks
+//! decoded them into `Value`s, was deleted in Task 12 of the desktop DuckDB
+//! helper plan; this code is what it ran.)
 //!
 //! Chunks are always read with `Statement::step()`, never duckdb-rs's Arrow
 //! iterator, which panics when a fetch fails (an interrupt included).
@@ -552,10 +553,9 @@ mod tests {
 
     use super::*;
     use seaquel_engine::RowCap;
-    use seaquel_engine_testkit::same_value;
 
     use crate::ipc::{decode_batches, KindRules};
-    use crate::test_cells as cells;
+    use crate::test_reference as reference;
 
     /// The helper's sink in miniature: the statement's Arrow schema and
     /// chunks, written as an IPC stream.
@@ -607,61 +607,40 @@ mod tests {
         open_sessions(&config).unwrap().0
     }
 
-    fn same_rows(a: &[Vec<Value>], b: &[Vec<Value>]) -> bool {
-        a.len() == b.len()
-            && a.iter()
-                .zip(b)
-                .all(|(x, y)| x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same_value(p, q)))
-    }
-
-    /// The chunks a sink receives are the ones the native driver decodes:
-    /// read back with `Kind::of_field` (the IPC path the helper's client
-    /// takes), they give the native rows for every typed-cell case, chunked
-    /// and empty results and an ENUM, materialized and streamed.
+    /// The chunks a sink receives decode to the reference
+    /// (`test_reference`): read back with `Kind::of_field` (the IPC path),
+    /// they give the fixture's cell for every typed-cell case, and the
+    /// literal rows for chunked and empty results, an ENUM and the rest,
+    /// materialized and streamed.
     #[test]
-    fn arrow_sink_chunks_decode_to_the_native_rows() {
+    fn arrow_sink_chunks_decode_to_the_reference() {
         let conn = connection();
-        let mut selects: Vec<(Vec<String>, String, Vec<String>)> = cells::cases()
-            .into_iter()
-            .map(|c| (c.setup, c.select, c.teardown))
-            .collect();
-        for sql in [
-            "SELECT range AS i, 'x' || range AS s, range::DOUBLE / 7 AS f FROM range(5000)",
-            "SELECT 1 AS a, 'b' AS b WHERE false",
-            "SELECT ['sad', 'ok'][1 + (range % 2)]::ENUM('sad', 'ok') AS e FROM range(3000)",
-            "SELECT '99999999999999999999999999999999999999'::DECIMAL(38,0) AS d, NULL AS n",
-        ] {
-            selects.push((vec![], sql.to_string(), vec![]));
-        }
+        let cases = reference::all();
         let interrupt = conn.interrupt_handle();
         let mut failures = Vec::new();
-        for (setup, select, teardown) in &selects {
-            for sql in setup {
+        for case in &cases {
+            for sql in &case.setup {
                 conn.execute_batch(sql).unwrap();
             }
-            let native = crate::driver::native_rows(&conn, select).unwrap();
             for execution in [Execution::Materialized, Execution::Streaming] {
                 let (_call, worker) = blocking::call(interrupt.clone());
                 let mut sink = ArrowSink::default();
-                if let Err(e) = rows(&conn, &worker, select, &[], execution, &mut sink) {
-                    failures.push(format!("{select} ({execution:?}): {e:?}"));
+                if let Err(e) = rows(&conn, &worker, &case.select, &[], execution, &mut sink) {
+                    failures.push(format!("{} ({execution:?}): {e:?}", case.select));
                     continue;
                 }
-                assert!(sink.finished, "{select} ({execution:?})");
+                assert!(sink.finished, "{} ({execution:?})", case.select);
                 let cap = RowCap::fail(seaquel_engine::max_query_rows());
                 match decode_batches(&sink.ipc(), cap, KindRules::default()) {
-                    Ok(r) if r.columns == native.columns && same_rows(&r.rows, &native.rows) => {}
-                    Ok(r) => failures.push(format!(
-                        "{select} ({execution:?}):\n  native: {:?} {:?}\n  sink:   {:?} {:?}",
-                        native.columns,
-                        native.rows.iter().take(2).collect::<Vec<_>>(),
-                        r.columns,
-                        r.rows.iter().take(2).collect::<Vec<_>>()
-                    )),
-                    Err(e) => failures.push(format!("{select} ({execution:?}): {e:?}")),
+                    Ok(r) => {
+                        if let Err(e) = case.check(&r.columns, &r.rows) {
+                            failures.push(format!("{e} ({execution:?})"));
+                        }
+                    }
+                    Err(e) => failures.push(format!("{} ({execution:?}): {e:?}", case.select)),
                 }
             }
-            for sql in teardown {
+            for sql in &case.teardown {
                 conn.execute_batch(sql).unwrap();
             }
         }
@@ -669,9 +648,20 @@ mod tests {
             failures.is_empty(),
             "{} of {} differ:\n{}",
             failures.len(),
-            selects.len() * 2,
+            cases.len() * 2,
             failures.join("\n")
         );
+    }
+
+    /// `sql`'s rows through a sink and the IPC reader.
+    fn decoded(conn: &Connection, sql: &str) -> Vec<Vec<Value>> {
+        let (_call, worker) = blocking::call(conn.interrupt_handle());
+        let mut sink = ArrowSink::default();
+        rows(conn, &worker, sql, &[], Execution::Materialized, &mut sink).unwrap();
+        let cap = RowCap::fail(seaquel_engine::max_query_rows());
+        decode_batches(&sink.ipc(), cap, KindRules::default())
+            .unwrap()
+            .rows
     }
 
     /// Interrupting DuckDB in the middle of a streamed result makes the
@@ -721,8 +711,7 @@ mod tests {
         assert_eq!(sink.chunks, 1);
 
         // The connection is fine.
-        let native = crate::driver::native_rows(&conn, "SELECT 42 AS n").unwrap();
-        assert_eq!(native.rows, vec![vec![Value::Int(42)]]);
+        assert_eq!(decoded(&conn, "SELECT 42 AS n"), vec![vec![Value::Int(42)]]);
     }
 
     /// A sink that stops ends the result there: no `finish`, no error, and
@@ -766,6 +755,80 @@ mod tests {
             "{:?}",
             started.elapsed()
         );
+    }
+
+    fn file_config(path: &std::path::Path, create_if_missing: bool) -> ConnectConfig {
+        serde_json::from_value(serde_json::json!({
+            "driver": "duckdb",
+            "path": path.to_str().unwrap(),
+            "create_if_missing": create_if_missing,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn missing_file_is_not_created() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("missing.duckdb");
+        let err = open_sessions(&file_config(&path, false)).err().unwrap();
+        assert_eq!(err.code, "FILE_NOT_FOUND");
+        assert!(!path.exists(), "database file must not be created");
+    }
+
+    #[test]
+    fn create_if_missing_creates_file_and_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("new.duckdb");
+        open_sessions(&file_config(&path, true)).unwrap();
+        assert!(path.exists(), "database file should be created");
+    }
+
+    #[test]
+    fn in_memory_needs_no_file() {
+        let _ = connection();
+    }
+
+    /// DuckDB clears its interrupt flag when a statement is prepared or
+    /// starts executing, so an interrupt that lands before that is lost;
+    /// the cancelled check after prepare must catch it. The drop happens
+    /// inside the call, deterministically, while it holds the connection.
+    /// Without the check the query runs to the end (seconds; the per-chunk
+    /// check then still reports "cancelled"), so the test times it. Both
+    /// executions: the streaming one clears the flag too.
+    #[test]
+    fn cancel_that_lands_before_execute_is_not_lost() {
+        let conn = connection();
+        let interrupt = conn.interrupt_handle();
+        let conn = std::sync::Mutex::new(conn);
+
+        for execution in [Execution::Materialized, Execution::Streaming] {
+            let (call, worker) = blocking::call(interrupt.clone());
+            let started = tokio::time::Instant::now();
+            let r = worker.run(&conn, Op::Query, move |conn, worker| {
+                drop(call); // flags the call and interrupts DuckDB
+                let mut sink = ArrowSink::default();
+                rows(
+                    conn,
+                    worker,
+                    "SELECT sum(i % 7) FROM range(1500000000) t(i)",
+                    &[],
+                    execution,
+                    &mut sink,
+                )
+            });
+            let took = started.elapsed();
+            let e = r.unwrap_err();
+            assert_eq!(e.code, "QUERY_ERROR");
+            assert!(e.message.contains("cancelled"), "{}", e.message);
+            assert!(
+                took < std::time::Duration::from_millis(500),
+                "the query ran ({execution:?}): {took:?}"
+            );
+        }
+
+        // The connection is fine.
+        let conn = conn.into_inner().unwrap();
+        assert_eq!(decoded(&conn, "SELECT 42"), vec![vec![Value::Int(42)]]);
     }
 
     #[test]

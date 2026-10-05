@@ -22,6 +22,9 @@
     feature = "engine-mssql"
 ))]
 
+#[path = "common/duckdb.rs"]
+mod duckdb_helper;
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -43,6 +46,8 @@ struct Fixture {
     core: Core,
     ws: Arc<Workspace>,
     store: Arc<MemoryStore>,
+    /// The DuckDB helper's install, when the fixture has one.
+    _helper: Option<tempfile::TempDir>,
 }
 
 /// A `MemoryStore` whose reads of some keys fail, as a denied keychain
@@ -95,9 +100,25 @@ async fn fixture() -> Fixture {
 }
 
 async fn fixture_with(kind: Store) -> Fixture {
+    fixture_on(kind, seaquel_core::with_default_plugins(), None).await
+}
+
+/// The fixture with DuckDB through the helper (`common/duckdb.rs`), or
+/// `None` when there is no helper to run.
+async fn fixture_with_duckdb() -> Option<Fixture> {
+    let (plugins, helper) = duckdb_helper::default_plugins();
+    helper.as_ref()?;
+    Some(fixture_on(Store::Memory, plugins, helper).await)
+}
+
+async fn fixture_on(
+    kind: Store,
+    plugins: seaquel_core::CoreBuilder,
+    helper: Option<tempfile::TempDir>,
+) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let known_hosts = dir.path().join("known_hosts");
-    let core = seaquel_core::with_default_plugins()
+    let core = plugins
         .ssh_known_hosts(&known_hosts)
         .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .build();
@@ -133,6 +154,7 @@ async fn fixture_with(kind: Store) -> Fixture {
         core,
         ws,
         store,
+        _helper: helper,
     }
 }
 
@@ -290,11 +312,14 @@ async fn a_saved_sqlite_file_connects() {
 /// `ConnectRequest::restricted` (the MCP server) locks a saved DuckDB
 /// connection's instance down: its own tables work, another file doesn't.
 /// Off, it stays as the app has it. The DuckDB crate's
-/// `restricted*.rs` tests cover the settings themselves.
-#[cfg(feature = "engine-duckdb")]
+/// `restricted*.rs` tests cover the settings themselves. Through the
+/// helper; skipped without one unless `SEAQUEL_TEST_REQUIRE_ENGINES`.
+#[cfg(feature = "engine-duckdb-remote")]
 #[tokio::test]
 async fn a_restricted_duckdb_connection_reads_only_its_own_file() {
-    let f = fixture().await;
+    let Some(f) = fixture_with_duckdb().await else {
+        return;
+    };
     let file = f.dir.path().join("app.duckdb");
     let secret = f.dir.path().join("secret.txt");
     std::fs::write(&secret, "top secret").unwrap();

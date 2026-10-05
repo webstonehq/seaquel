@@ -47,8 +47,8 @@ async fn smoke() {
 }
 
 /// DuckDB has no last-insert id: `execute` reports rows affected and
-/// `last_insert_id: None`, on either driver (`REMOTE.md`'s "Not
-/// differences"), even for a table with a sequence-backed key.
+/// `last_insert_id: None` (`HELPER.md`, "Also as it is"), even for a table
+/// with a sequence-backed key.
 #[tokio::test]
 async fn execute_has_no_last_insert_id() {
     let d = open(&memory()).await;

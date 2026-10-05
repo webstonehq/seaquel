@@ -42,6 +42,8 @@ seaquel-engine-postgres = { path = "../seaquel-engine-postgres" }
 seaquel-engine-mysql = { path = "../seaquel-engine-mysql" }
 seaquel-engine-sqlite = { path = "../seaquel-engine-sqlite" }
 seaquel-engine-mssql = { path = "../seaquel-engine-mssql" }
+# The DuckDB engine's default is the helper's client (`remote`), whose
+# dialect needs no helper and no DuckDB.
 seaquel-engine-duckdb = { path = "../seaquel-engine-duckdb" }
 # tests/imports_plan.rs decodes the TablePlus XML plists, as Core does.
 plist = "1"

@@ -414,6 +414,36 @@ the same seeded file and scratch objects, and converted rows with Arrow's
 - The schema listing, indexes, index usage, overview, table sizes, row counts
   and the other columns were identical.
 
+## The decoding reference: `cells.json` and `kinds.json`
+
+> **Frozen** since the native driver was deleted (Task 12 of the desktop
+> DuckDB helper plan, 2026-10-04, on top of HEAD `02a42c4`).
+
+Until then, the in-crate decoding tests (`session.rs`, `ipc.rs`,
+`helper.rs`) compared every path against the native driver's own decoding,
+which went through the same `decode.rs`: a mistake there showed on both
+sides and passed. They now compare against these two files and a few
+literal results (`src/test_reference.rs`):
+
+- **`cells.json`** is the typed-cell cases of `tests/common/cells.rs` with
+  their expectations in the cell wire format. `values.rs` checked every one
+  against the native driver while it existed (`SEAQUEL_TEST_DUCKDB_DRIVER`
+  was `native` by default), and now checks them through the helper;
+  `cells_fixture.rs` fails when the file and the cases disagree.
+- **`kinds.json`** is the column kinds the helper sent for each reference
+  case and a lossy-Arrow row (UHUGEINT, BIT, `LIST(BIT)`, a STRUCT with
+  HUGEINT and JSON, a MAP of BIT), recorded from its schema frames
+  (`SEAQUEL_RECORD_KINDS=1`, `helper::tests::schema_frames_carry_the_recorded_kinds`)
+  while `driver::Decoder::of` still read them, before the code moved to
+  `src/kinds.rs`. `kinds::tests::the_kinds_are_the_recorded_ones` and the
+  schema-frame test compare against it.
+
+Before the deletion the new comparisons were seen failing against a
+deliberately wrong decoding (BIT keeping its padding bits, UHUGEINT read
+signed) that the native comparisons let through, and passing on both
+drivers. Rewrite either file only when the decoding is meant to change,
+and say why here; never to make a failing comparison pass.
+
 ## Changes
 
 - **Phase 5b, Task 4 review (`paginate.json`, every case):** the limit now

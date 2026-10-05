@@ -194,9 +194,12 @@ impl fmt::Display for WorkspaceId {
     }
 }
 
-/// [`WorkspaceEvent::ConnectionClosed`]: the connection was lost. Not
-/// produced yet (Core doesn't watch its connections); reserved so the GUIs
-/// handle it from the start.
+/// [`WorkspaceEvent::ConnectionClosed`]: the connection was lost without
+/// being asked to close. Core watches each connection whose driver can tell
+/// (`Driver::closed`, the remote DuckDB driver: its helper died) and, when
+/// it fires, takes the connection out and announces it with the driver's
+/// message (the desktop DuckDB helper plan, Decision 7). Other drivers
+/// don't notice a lost connection by themselves: their calls fail instead.
 pub const CONNECTION_CLOSED: &str = "CONNECTION_CLOSED";
 
 /// [`WorkspaceEvent::ConnectionClosed`]: the connection's SSH tunnel dropped.
@@ -220,6 +223,25 @@ pub const WINDOW_CLOSED: &str = "WINDOW_CLOSED";
 /// the new one had opened (phase 6 probe F4).
 pub const CONNECTION_REPLACED: &str = "CONNECTION_REPLACED";
 
+/// [`CONNECTION_REPLACED`]'s message.
+const REPLACED_MESSAGE: &str = "This tab connected again, so its older connection was closed.";
+
+/// A workspace's receivers, held weakly by a lost connection's watcher
+/// (`lost.rs`).
+pub(crate) type EventSink = std::sync::Weak<Mutex<Vec<mpsc::UnboundedSender<WorkspaceEvent>>>>;
+
+/// Send `event` to every live receiver in `subscribers`, dropping the
+/// closed ones.
+pub(crate) fn emit_to(
+    subscribers: &Mutex<Vec<mpsc::UnboundedSender<WorkspaceEvent>>>,
+    event: WorkspaceEvent,
+) {
+    subscribers
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .retain(|tx| tx.unbounded_send(event.clone()).is_ok());
+}
+
 /// Something that happened to a workspace without the calling GUI asking,
 /// delivered through [`Workspace::events`]. `seaquel-rpc` sends it to the
 /// GUIs as `CoreEvent::ConnectionClosed` and `CoreEvent::StorageChanged`.
@@ -227,8 +249,8 @@ pub const CONNECTION_REPLACED: &str = "CONNECTION_REPLACED";
 #[non_exhaustive]
 pub enum WorkspaceEvent {
     /// One of the workspace's connections is gone. `code` is
-    /// [`WORKSPACE_EVICTED`] today; [`CONNECTION_CLOSED`] and
-    /// [`TUNNEL_CLOSED`] are reserved.
+    /// [`WORKSPACE_EVICTED`], [`WINDOW_CLOSED`], [`CONNECTION_REPLACED`] or
+    /// [`CONNECTION_CLOSED`] (lost); [`TUNNEL_CLOSED`] is reserved.
     ConnectionClosed {
         connection_id: String,
         code: String,
@@ -250,8 +272,9 @@ pub struct Workspace {
     /// cancelled through their own tokens.
     closing: CancellationToken,
     /// The receivers [`Workspace::events`] handed out; a dropped one is
-    /// pruned on the next event.
-    subscribers: Mutex<Vec<mpsc::UnboundedSender<WorkspaceEvent>>>,
+    /// pruned on the next event. `Arc`, so a lost connection's watcher can
+    /// announce it through a weak [`EventSink`].
+    subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<WorkspaceEvent>>>>,
     /// Connects and tests in flight ([`ConnectSlot`]), which count toward
     /// [`crate::ConnectionLimits::per_workspace`] with the open connections.
     #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
@@ -309,7 +332,7 @@ impl Workspace {
             closing: CancellationToken::new(),
             poll_stop: CancellationToken::new(),
             polling: AtomicBool::new(false),
-            subscribers: Mutex::default(),
+            subscribers: Arc::default(),
             connecting: Mutex::default(),
             data_dir: spec.data_dir,
             #[cfg(feature = "storage")]
@@ -506,13 +529,8 @@ impl Workspace {
             return;
         }
         log::info!(activity = "workspace.connect", replaced = older.len(); "Closing a window's older connections");
-        self.close_announced(
-            core,
-            older,
-            CONNECTION_REPLACED,
-            "This tab connected again, so its older connection was closed.",
-        )
-        .await;
+        self.close_announced(core, older, CONNECTION_REPLACED, REPLACED_MESSAGE)
+            .await;
     }
 
     /// Close `ids` (this workspace's) and announce each one that was still
@@ -527,22 +545,33 @@ impl Workspace {
         code: &str,
         message: &str,
     ) -> usize {
-        let mut closed = 0;
+        let mut taken_out = Vec::new();
         for id in ids {
-            match core.disconnect_as(&id, Some(self.id)).await {
-                Ok(()) => {}
-                Err(e) if e.code == "CONNECTION_NOT_FOUND" => continue,
-                Err(e) => {
-                    log::warn!(activity = "workspace.close", connection_id = id.as_str(), code = e.code.as_str(); "Closing a connection failed");
-                }
-            }
-            closed += 1;
+            // Out of Core and announced before any close is awaited, so a
+            // caller dropped mid-close (a reconnect that gives up) has
+            // still announced them; the dropped closes drop the drivers and
+            // the tunnels.
+            let taken = match core.take_out_as(&id, Some(self.id)) {
+                Ok(taken) => taken,
+                Err(_) => continue,
+            };
             self.emit(WorkspaceEvent::ConnectionClosed {
-                connection_id: id,
+                connection_id: id.clone(),
                 code: code.to_string(),
                 message: message.to_string(),
             });
+            taken_out.push((id, taken));
         }
+        let closed = taken_out.len();
+        // Side by side (the desktop DuckDB helper plan, Task 4 review I2):
+        // one slow close (a DuckDB helper's checkpoint) doesn't hold the
+        // others open.
+        futures::future::join_all(taken_out.into_iter().map(|(id, taken)| async move {
+            if let Err(e) = core.close_taken(taken).await {
+                log::warn!(activity = "workspace.close", connection_id = id.as_str(), code = e.code.as_str(); "Closing a connection failed");
+            }
+        }))
+        .await;
         closed
     }
 
@@ -627,10 +656,14 @@ impl Workspace {
 
     /// Send `event` to every live receiver, dropping the closed ones.
     fn emit(&self, event: WorkspaceEvent) {
-        self.subscribers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .retain(|tx| tx.unbounded_send(event.clone()).is_ok());
+        emit_to(&self.subscribers, event);
+    }
+
+    /// Where a watcher that outlives this call announces events: weak, so
+    /// it doesn't keep the workspace's receivers past the workspace.
+    #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
+    pub(crate) fn event_sink(&self) -> EventSink {
+        Arc::downgrade(&self.subscribers)
     }
 
     /// The published change sequence (Decision 17): every write numbered up
@@ -1016,17 +1049,45 @@ impl Workspace {
         log::info!(activity = "workspace.connect", target = target_kind(&req.target); "Connecting");
         let plan = self.checked_plan(core, &req).await?;
         let tunnel = open_tunnel(core, &plan, &req).await?;
+        let secrets = plan.secret_values();
+        let redacted = |e: DbError| redact(CoreError::new(e.code, e.message), &secrets);
         let connected = match config(&plan, &req, tunnel.as_ref()) {
-            Ok(config) => core
-                .connect_as(
-                    &config,
-                    Some(self.id),
-                    Some(plan.sql_engine()),
-                    saved_id.clone(),
-                    window.clone(),
-                )
-                .await
-                .map_err(|e| redact(CoreError::new(e.code, e.message), &plan.secret_values())),
+            Ok(config) => match core.prepare_connect(&config) {
+                Err(e) => Err(redacted(e)),
+                Ok(engine) => {
+                    // A file one connection holds exclusively (DuckDB
+                    // through its helper): the window's older connections
+                    // for it would block this one, so they go now, once
+                    // nothing but the open itself can refuse it (Decision
+                    // 21). A failed open then has closed them anyway;
+                    // other engines keep the replace after the open.
+                    if let (Some(window), Some(saved)) = (&window, &saved_id) {
+                        if engine.exclusive_file(&config) {
+                            let older = core.connections_of_window(self.id, window, Some(saved));
+                            if !older.is_empty() {
+                                log::info!(activity = "workspace.connect", replaced = older.len(); "Closing a window's older connections to a file before reopening it");
+                                self.close_announced(
+                                    core,
+                                    older,
+                                    CONNECTION_REPLACED,
+                                    REPLACED_MESSAGE,
+                                )
+                                .await;
+                            }
+                        }
+                    }
+                    core.open_prepared(
+                        engine,
+                        &config,
+                        Some(self.id),
+                        Some(plan.sql_engine()),
+                        saved_id.clone(),
+                        window.clone(),
+                    )
+                    .await
+                    .map_err(redacted)
+                }
+            },
             Err(e) => Err(e),
         };
         match connected {
@@ -1042,6 +1103,9 @@ impl Workspace {
                     let _ = core.disconnect(&result.connection_id).await;
                     return Err(closed_error());
                 }
+                // Its tunnel is the connection's now, so a watcher that
+                // takes a lost connection out closes that too.
+                core.watch_lost(&result.connection_id, Some(self.event_sink()));
                 if let (Some(window), Some(saved)) = (&window, &saved_id) {
                     self.replace_older(core, &result.connection_id, window, saved)
                         .await;

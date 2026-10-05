@@ -107,12 +107,21 @@ pub fn on_msg(model: &mut Model, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::Changed(changed) => on_changed(model, changed),
-        Msg::Closed { core_id, code } => {
+        Msg::Closed {
+            core_id,
+            code,
+            message,
+        } => {
             let Conn::Connected { id, core_id: ours } = &model.conn else {
                 return Vec::new();
             };
             if *ours != core_id {
                 return Vec::new();
+            }
+            // Its DuckDB helper died (the desktop DuckDB helper plan,
+            // Decision 7): as when a call meets it first ([`lost_by`]).
+            if code == "CONNECTION_CLOSED" {
+                return lost(model, CallError::new(code, message));
             }
             model.conn = Conn::Closed { id: id.clone() };
             model.typed = Default::default();
@@ -759,9 +768,10 @@ pub fn reconnect(model: &mut Model) -> Vec<Effect> {
 
 /// The `CONNECTION_CLOSED` error in `msg`, when it answers a call on the
 /// connected connection: the DuckDB helper behind it stopped (the DuckDB
-/// helper plan, Decision 8; Core's `ConnectionClosed` event stays reserved,
-/// so the first call to fail says so). Only answers about the connection
-/// panel 1 has now count, by Core's id.
+/// helper plan, Decision 8). Core also announces that as `ConnectionClosed`
+/// (the desktop DuckDB helper plan, Decision 7), which `Msg::Closed` takes
+/// to [`lost`] too; whichever arrives first wins. Only answers about the
+/// connection panel 1 has now count, by Core's id.
 pub(crate) fn lost_by(model: &Model, msg: &Msg) -> Option<CallError> {
     use super::query::RunMsg;
     let core_id = model.conn.core_id()?;
@@ -1590,6 +1600,39 @@ mod tests {
         assert!(m.schema.is_empty());
     }
 
+    /// Core announces a connection whose DuckDB helper died
+    /// (`CONNECTION_CLOSED`, the desktop DuckDB helper plan, Decision 7),
+    /// possibly before the call that met it answers: the same "connection
+    /// was lost" dialog with Reconnect as a failed call gives, typed
+    /// secrets kept for the reconnect.
+    #[test]
+    fn a_lost_helper_core_announces_offers_to_reconnect() {
+        let mut m = ready();
+        let attempt = connect_effect(&pick(&mut m, 0, 0)).unwrap().attempt;
+        connected(&mut m, attempt, "core-1");
+        m.typed.set(SecretKind::Db, Secret::new("pw"));
+        update_(
+            &mut m,
+            Msg::Closed {
+                core_id: "core-1".into(),
+                code: "CONNECTION_CLOSED".into(),
+                message: "The DuckDB helper stopped (signal 9). Reconnect to continue.".into(),
+            },
+        );
+        assert_eq!(
+            m.conn,
+            Conn::Closed {
+                id: "conn-saved".into()
+            }
+        );
+        let Some(Modal::Problem(p)) = &m.modal else {
+            panic!("no problem dialog: {:?}", m.modal)
+        };
+        assert_eq!(p.code, "CONNECTION_CLOSED");
+        let pending = p.reconnect.as_ref().expect("Reconnect offered");
+        assert!(!pending.typed.is_empty(), "typed secrets kept");
+    }
+
     #[test]
     fn a_connection_core_closed_shows_and_refuses_reloads() {
         let mut m = ready();
@@ -1602,6 +1645,7 @@ mod tests {
             Msg::Closed {
                 core_id: "core-9".into(),
                 code: "WORKSPACE_EVICTED".into(),
+                message: String::new(),
             },
         );
         assert!(m.conn.core_id().is_some());
@@ -1610,6 +1654,7 @@ mod tests {
             Msg::Closed {
                 core_id: "core-1".into(),
                 code: "WORKSPACE_EVICTED".into(),
+                message: String::new(),
             },
         );
         assert_eq!(

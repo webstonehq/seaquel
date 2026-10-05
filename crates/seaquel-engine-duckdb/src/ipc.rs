@@ -79,7 +79,7 @@ impl Columns {
     }
 
     /// Row `row` of `batch`, decoded. An Arrow type the decoder doesn't read
-    /// is `UNSUPPORTED_TYPE` naming the column, as in the native driver.
+    /// is `UNSUPPORTED_TYPE` naming the column.
     pub(crate) fn row(&self, batch: &RecordBatch, row: usize) -> Result<Vec<Value>, DbError> {
         let mut out = Vec::with_capacity(self.kinds.len());
         for (i, kind) in self.kinds.iter().enumerate() {
@@ -311,17 +311,68 @@ pub(crate) fn decode_batches(
     })
 }
 
-#[cfg(all(test, feature = "native"))]
+/// The helper's client decodes as the helper's kinds say; a column it
+/// can't read fails its row with `UNSUPPORTED_TYPE` naming the column,
+/// after the rows before it read fine (the native driver's test, moved
+/// here with the driver's deletion). No SQL value fails to decode today,
+/// so the column's kind is forced: a BIGNUM needs at least 4 bytes.
+#[cfg(all(test, feature = "remote"))]
+mod client_tests {
+    use std::sync::Arc;
+
+    use arrow_array::{BinaryArray, RecordBatch};
+    use arrow_schema::{DataType, Field, Schema};
+    use seaquel_engine::{RowCap, Value};
+
+    use super::*;
+
+    #[test]
+    fn an_undecodable_cell_is_unsupported_type() {
+        let mut cells: Vec<Option<&[u8]>> = vec![None; 3000];
+        cells.push(Some(b"\x01"));
+        let schema = Arc::new(Schema::new(vec![Field::new("t", DataType::Binary, true)]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BinaryArray::from_opt_vec(cells))],
+        )
+        .unwrap();
+        let mut ipc = Vec::new();
+        let mut w = arrow_ipc::writer::StreamWriter::try_new(&mut ipc, &schema).unwrap();
+        w.write(&batch).unwrap();
+        w.finish().unwrap();
+        drop(w);
+
+        let (mut stream, mut batches) =
+            IpcStream::start_with_kinds(ipc, vec![Kind::Bignum]).unwrap();
+        batches.extend(stream.finish().unwrap());
+        let columns = stream.columns();
+        let mut rows = Vec::new();
+        let mut kept = 0;
+        let mut outcome = Ok(true);
+        for b in &batches {
+            outcome = columns.collect(b, RowCap::fail(100_000), &mut rows, &mut kept);
+            if outcome.is_err() {
+                break;
+            }
+        }
+        let e = outcome.unwrap_err();
+        assert_eq!(rows, vec![vec![Value::Null]; 3000]);
+        assert_eq!(e.code, "UNSUPPORTED_TYPE");
+        assert!(e.message.contains("Column \"t\""), "{}", e.message);
+        assert!(e.message.contains("BIGNUM of 1 bytes"), "{}", e.message);
+    }
+}
+
+#[cfg(all(test, feature = "helper"))]
 mod tests {
     use super::*;
     use seaquel_engine::Value;
-    use seaquel_engine_testkit::same_value;
 
-    use crate::test_cells as cells;
+    use crate::test_reference::{self as reference, same_rows};
 
     fn connection() -> duckdb::Connection {
         let conn = duckdb::Connection::open_in_memory().unwrap();
-        // As the native driver opens it.
+        // As the helper opens it.
         conn.execute_batch("SET arrow_lossless_conversion = true")
             .unwrap();
         conn
@@ -351,55 +402,33 @@ mod tests {
         out
     }
 
-    fn same_rows(a: &[Vec<Value>], b: &[Vec<Value>]) -> bool {
-        a.len() == b.len()
-            && a.iter()
-                .zip(b)
-                .all(|(x, y)| x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same_value(p, q)))
-    }
-
-    /// Native DuckDB's Arrow, written as IPC and read back the way the
-    /// browser driver reads DuckDB-WASM's, decodes to the same cells as the
-    /// native driver: every typed-cell case (`tests/common/cells.rs`), in
+    /// DuckDB's own Arrow, written as IPC and read back the way the
+    /// browser driver reads DuckDB-WASM's, decodes to the reference
+    /// (`test_reference`): every typed-cell case of the frozen fixture, in
     /// both formats, plus results that span several chunks, an empty result
     /// (its columns still named) and a dictionary column.
     #[test]
-    fn decode_from_ipc_matches_decode_from_duckdb() {
+    fn decode_from_ipc_matches_the_reference() {
         let conn = connection();
-        let mut selects: Vec<(Vec<String>, String, Vec<String>)> = cells::cases()
-            .into_iter()
-            .map(|c| (c.setup, c.select, c.teardown))
-            .collect();
-        for sql in [
-            "SELECT range AS i, 'x' || range AS s, range::DOUBLE / 7 AS f FROM range(5000)",
-            "SELECT 1 AS a, 'b' AS b WHERE false",
-            "SELECT ['sad', 'ok'][1 + (range % 2)]::ENUM('sad', 'ok') AS e FROM range(3000)",
-            "SELECT '99999999999999999999999999999999999999'::DECIMAL(38,0) AS d, NULL AS n",
-        ] {
-            selects.push((vec![], sql.to_string(), vec![]));
-        }
+        let cases = reference::all();
         let mut failures = Vec::new();
-        for (setup, select, teardown) in &selects {
-            for sql in setup {
+        for case in &cases {
+            for sql in &case.setup {
                 conn.execute_batch(sql).unwrap();
             }
-            let native = crate::driver::native_rows(&conn, select).unwrap();
             for file in [true, false] {
-                let ipc = ipc_of(&conn, select, file);
+                let ipc = ipc_of(&conn, &case.select, file);
                 let cap = RowCap::fail(seaquel_engine::max_query_rows());
                 match decode_batches(&ipc, cap, KindRules::default()) {
-                    Ok(r) if r.columns == native.columns && same_rows(&r.rows, &native.rows) => {}
-                    Ok(r) => failures.push(format!(
-                        "{select} (file: {file}):\n  native: {:?} {:?}\n  ipc:    {:?} {:?}",
-                        native.columns,
-                        native.rows.iter().take(2).collect::<Vec<_>>(),
-                        r.columns,
-                        r.rows.iter().take(2).collect::<Vec<_>>()
-                    )),
-                    Err(e) => failures.push(format!("{select} (file: {file}): {e:?}")),
+                    Ok(r) => {
+                        if let Err(e) = case.check(&r.columns, &r.rows) {
+                            failures.push(format!("{e} (file: {file})"));
+                        }
+                    }
+                    Err(e) => failures.push(format!("{} (file: {file}): {e:?}", case.select)),
                 }
             }
-            for sql in teardown {
+            for sql in &case.teardown {
                 conn.execute_batch(sql).unwrap();
             }
         }
@@ -407,7 +436,7 @@ mod tests {
             failures.is_empty(),
             "{} of {} differ:\n{}",
             failures.len(),
-            selects.len() * 2,
+            cases.len() * 2,
             failures.join("\n")
         );
     }
@@ -425,14 +454,12 @@ mod tests {
             .unwrap();
         let sql = "SELECT '340282366920938463463374607431768211455'::UHUGEINT AS u, \
                    '101'::BIT AS b, ['1'::BIT] AS l";
-        let native = crate::driver::native_rows(&conn, sql).unwrap();
         let max = "340282366920938463463374607431768211455";
         let expected = vec![
             Value::Decimal(max.into()),
             Value::Text("101".into()),
             Value::Array(vec![Value::Text("1".into())]),
         ];
-        assert_eq!(native.rows, vec![expected.clone()]);
 
         let ipc = ipc_of(&conn, sql, false);
         let kinds = vec![Kind::UHugeInt, Kind::Bit, Kind::List(Box::new(Kind::Bit))];
@@ -447,7 +474,7 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(rows, vec![expected]);
-        assert_eq!(columns.names, native.columns);
+        assert_eq!(columns.names, ["u", "b", "l"]);
 
         for kinds in [vec![], vec![Kind::Plain; 2], vec![Kind::Plain; 4]] {
             let e = IpcStream::start_with_kinds(ipc.clone(), kinds)
@@ -465,15 +492,30 @@ mod tests {
     #[test]
     fn a_stream_cut_anywhere_without_its_end_marker_reads_whole() {
         let conn = connection();
-        for (sql, rows) in [
+        let chunked: Vec<Vec<Value>> = (0..5000i64)
+            .map(|r| vec![Value::Int(r), Value::Text(format!("x{r}"))])
+            .collect();
+        let enum_rows: Vec<Vec<Value>> = (0..10)
+            .map(|r| vec![Value::Text(if r % 2 == 0 { "a" } else { "b" }.into())])
+            .collect();
+        for (sql, rows, want_columns, want_rows) in [
             (
                 "SELECT range AS i, 'x' || range AS s FROM range(5000)",
                 5000,
+                vec!["i", "s"],
+                chunked,
             ),
-            ("SELECT 1 AS a, 'b' AS b WHERE false", 0),
+            (
+                "SELECT 1 AS a, 'b' AS b WHERE false",
+                0,
+                vec!["a", "b"],
+                vec![],
+            ),
             (
                 "SELECT ['a', 'b'][1 + (range % 2)]::ENUM('a', 'b') AS e FROM range(10)",
                 10,
+                vec!["e"],
+                enum_rows,
             ),
         ] {
             let mut ipc = ipc_of(&conn, sql, false);
@@ -493,7 +535,6 @@ mod tests {
             batches.extend(stream.finish().unwrap());
             let total: usize = batches.iter().map(|b| b.num_rows()).sum();
             assert_eq!(total, rows, "{sql}");
-            let native = crate::driver::native_rows(&conn, sql).unwrap();
             let columns = stream.columns();
             let mut decoded = Vec::new();
             let mut kept = 0;
@@ -502,8 +543,8 @@ mod tests {
                     .collect(b, RowCap::fail(100_000), &mut decoded, &mut kept)
                     .unwrap();
             }
-            assert!(same_rows(&decoded, &native.rows), "{sql}");
-            assert_eq!(columns.names, native.columns, "{sql}");
+            assert!(same_rows(&decoded, &want_rows), "{sql}");
+            assert_eq!(columns.names, want_columns, "{sql}");
         }
     }
 }

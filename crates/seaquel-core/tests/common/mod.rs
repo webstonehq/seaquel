@@ -114,13 +114,24 @@ impl SecretStore for TestStore {
     }
 }
 
+/// The desktop's engines: the four compiled in, and DuckDB through a
+/// helper locator, as the app registers it. The locator's folder doesn't
+/// exist: these tests write rows of every type and never connect DuckDB
+/// (that is `duckdb_remote.rs`'s, with a real helper).
+pub fn desktop_plugins() -> seaquel_core::CoreBuilder {
+    seaquel_core::with_default_plugins().duckdb_helper(seaquel_core::DuckdbHelper {
+        dir: std::path::PathBuf::from("/nonexistent/seaquel-tests/bin/duckdb"),
+        version: "0.0.0".into(),
+    })
+}
+
 /// A desktop-like Core: every engine, a clock, no limits.
 pub fn core() -> Core {
     core_with(LibraryLimits::default())
 }
 
 pub fn core_with(limits: LibraryLimits) -> Core {
-    seaquel_core::with_default_plugins()
+    desktop_plugins()
         .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .executor(Arc::new(seaquel_runtime::TokioExecutor))
         .library_limits(limits)
@@ -360,7 +371,7 @@ pub fn state_core_with(
     library: LibraryLimits,
     limits: seaquel_core::StateLimits,
 ) -> Core {
-    seaquel_core::with_default_plugins()
+    desktop_plugins()
         .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .executor(clock)
         .library_limits(library)

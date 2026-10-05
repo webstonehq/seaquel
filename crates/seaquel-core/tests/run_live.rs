@@ -7,7 +7,8 @@
 //! Live: `SEAQUEL_TEST_POSTGRES`, `_MYSQL`, `_MARIADB` and `_MSSQL` as for
 //! the engine smoke tests (each skipped when unset unless
 //! `SEAQUEL_TEST_REQUIRE_ENGINES` is set). SQLite and DuckDB run on files
-//! in a temp dir.
+//! in a temp dir, DuckDB through the helper (`common/duckdb.rs`; skipped
+//! without one unless `SEAQUEL_TEST_REQUIRE_ENGINES` is set).
 #![cfg(all(
     feature = "workspace",
     feature = "storage",
@@ -15,8 +16,11 @@
     feature = "engine-mysql",
     feature = "engine-sqlite",
     feature = "engine-mssql",
-    feature = "engine-duckdb"
+    feature = "engine-duckdb-remote"
 ))]
+
+#[path = "common/duckdb.rs"]
+mod duckdb_helper;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -91,13 +95,19 @@ struct Live {
     /// the run.
     observer: Option<String>,
     _dir: tempfile::TempDir,
+    /// The DuckDB helper's install, for as long as Core.
+    _helper: Option<tempfile::TempDir>,
 }
 
 async fn live(db: Db) -> Option<Live> {
     let config = config(db)?;
     let serial = SERIAL.lock().await;
+    let (plugins, helper) = duckdb_helper::default_plugins();
+    if db == Db::Duckdb && helper.is_none() {
+        return None;
+    }
     let dir = tempfile::tempdir().unwrap();
-    let core = seaquel_core::with_default_plugins()
+    let core = plugins
         .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .executor(Arc::new(seaquel_runtime::TokioExecutor))
         .build();
@@ -163,6 +173,7 @@ async fn live(db: Db) -> Option<Live> {
         id,
         observer,
         _dir: dir,
+        _helper: helper,
     })
 }
 

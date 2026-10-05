@@ -14,7 +14,8 @@
  *   succeeds (the page gets nothing from before it), and
  *   `onEventsUnavailable` when it fails. Registered once per page load (the
  *   desktop keeps one sink per webview, and a second registration from the
- *   same webview counts as a reload and cancels its streams).
+ *   same webview counts as a reload: it cancels its streams and closes the
+ *   connections it opened).
  */
 
 import { Channel, invoke } from "@tauri-apps/api/core";

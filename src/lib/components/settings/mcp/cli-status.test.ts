@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CliInfo } from "$lib/api/tauri";
-import { helperNeeded, offersInstall } from "./cli-status";
+import { m } from "$lib/paraglide/messages.js";
+import { helperNeeded, helperWarning, installTarget, offersInstall } from "./cli-status";
 
 function info(overrides: Partial<CliInfo> = {}): CliInfo {
   return {
@@ -46,5 +47,49 @@ describe("offersInstall", () => {
     expect(offersInstall(info({ canInstall: false, duckdbHelper: "missing" }), "macos")).toBe(
       false,
     );
+  });
+});
+
+describe("installTarget", () => {
+  it("installs only the helper when the CLI itself is current", () => {
+    expect(installTarget(info({ duckdbHelper: "missing" }), "macos")).toBe("helper");
+    expect(installTarget(info({ duckdbHelper: "outdated" }), "linux")).toBe("helper");
+    expect(installTarget(info({ duckdbHelper: "unsafe" }), "windows")).toBe("helper");
+  });
+
+  it("installs the CLI (and the helper after it) when the CLI needs it", () => {
+    expect(installTarget(info({ pathStatus: "outdated", duckdbHelper: "missing" }), "macos")).toBe(
+      "cli",
+    );
+    expect(installTarget(info({ binaryCurrent: false, duckdbHelper: "missing" }), "windows")).toBe(
+      "cli",
+    );
+    expect(installTarget(info({ pathStatus: "missing" }), "linux")).toBe("cli");
+  });
+
+  it("offers nothing when both are fine or the platform can't install", () => {
+    expect(installTarget(info(), "macos")).toBeNull();
+    expect(installTarget(info({ pathStatus: "missing" }), "windows")).toBeNull();
+    expect(installTarget(info({ canInstall: false, duckdbHelper: "missing" }), "macos")).toBeNull();
+  });
+});
+
+describe("helperWarning", () => {
+  it("names DuckDB support, not the command line tool's", () => {
+    const missing = helperWarning(info({ duckdbHelper: "missing" }));
+    const unsafe = helperWarning(info({ duckdbHelper: "unsafe" }));
+    expect(missing).toBe(m.settings_mcp_duckdb_helper_missing());
+    expect(unsafe).toBe(m.settings_mcp_duckdb_helper_unsafe());
+    for (const text of [missing, unsafe]) {
+      expect(text).toMatch(/DuckDB support/);
+      expect(text).not.toMatch(/command line tool's DuckDB|for the command line tool/);
+    }
+    expect(helperWarning(info({ duckdbHelper: "outdated" }))).toBe(missing);
+  });
+
+  it("says nothing when no install is needed", () => {
+    expect(helperWarning(info())).toBeNull();
+    expect(helperWarning(info({ binaryExists: false, duckdbHelper: "missing" }))).toBeNull();
+    expect(helperWarning(null)).toBeNull();
   });
 });

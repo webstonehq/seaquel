@@ -507,6 +507,52 @@ SQLite and DuckDB are desktop-only. The self-hosted web app runs on a
 server, where a SQLite or DuckDB "connection" would be a file on that
 server, so it doesn't offer them.
 
+### DuckDB in the desktop app
+
+The app doesn't contain DuckDB. It runs in a separate helper program,
+`seaquel-duckdb`, which the app downloads the first time you connect to a
+DuckDB database or drop a CSV, Parquet, JSON or Excel file on the window. A
+dialog says it's a separate download of about 11.5 MB and asks; a progress
+bar follows, then the connection opens. If you cancel, nothing is left
+behind and the connection stays closed until you connect again.
+
+If you already have DuckDB connections, the app fetches the helper on its own
+about ten seconds after it starts, so after an update you usually won't see
+the dialog. Each version of Seaquel needs the helper of the same version, so
+this happens once per update. The download comes from the GitHub release of
+your version and is checked against a size and SHA-256 built into the app.
+Proxies set in your system settings, `HTTPS_PROXY` and extra certificates in
+`NODE_EXTRA_CA_CERTS` are used.
+
+**Without a network**, the dialog offers **Install from a file…**. On another
+machine, download `seaquel-duckdb-<platform>.gz` for your version from the
+[releases page](https://github.com/webstonehq/seaquel/releases) (the platform
+names are those in the [Terminal UI](#install) table, with `.exe.gz` on
+Windows), copy it over and pick it. There's nothing to type: the app checks
+the file against the same built-in checksum and refuses any other file.
+
+The helper lives in the app's local data folder, one folder per version:
+
+| Platform | Folder                                                                    |
+| -------- | ------------------------------------------------------------------------- |
+| macOS    | `~/Library/Application Support/app.seaquel.desktop/bin/duckdb/<version>/` |
+| Linux    | `~/.local/share/app.seaquel.desktop/bin/duckdb/<version>/`                |
+| Windows  | `%LOCALAPPDATA%\app.seaquel.desktop\bin\duckdb\<version>\`                |
+
+`seaquel-cli` and `seaquel-tui` of the same version use the same copy, so it's
+downloaded once for all of them (see [DuckDB in the
+terminal](#duckdb-in-the-terminal)). The folders and the file are private to
+you; if their permissions are loosened, the app won't start the helper and the
+dialog offers to repair it. To remove DuckDB support, delete the `bin/duckdb`
+folder; the app asks again on the next DuckDB connect.
+
+Each DuckDB connection runs in its own helper process. If one crashes, the
+app stays up: the connection shows as lost and you can reconnect. Two
+connections can't open the same DuckDB file at once; the second is told the
+file is already open. A single statement or a single row over 16 MB is
+refused on a DuckDB connection. After you quit, a `seaquel-duckdb` process can
+stay for a few seconds while DuckDB finishes writing the file.
+
 ## MCP server
 
 The desktop app ships a command line tool, `seaquel-cli`, whose `mcp`
@@ -583,11 +629,12 @@ installing or loading extensions are refused, so a view over a CSV or Parquet
 file fails too. JSON functions work. There is no time zone support, so
 functions that need a time zone and arithmetic on `TIMESTAMPTZ` values fail.
 
-`seaquel-cli` runs DuckDB in a separate helper, a download of its own (see
-[DuckDB in the terminal](#duckdb-in-the-terminal)). **Install Command Line
-Tool…** fetches it along with the CLI. If it's missing, a DuckDB tool call
-fails with a message saying to run `seaquel-cli duckdb install`, and the
-server prints the same on stderr when it starts.
+`seaquel-cli` runs DuckDB in the same helper as the app (see [DuckDB in the
+terminal](#duckdb-in-the-terminal)). If the app has DuckDB support, a CLI of
+the same version has it too, and **Install Command Line Tool…** fetches it
+along with the CLI. If it's missing, a DuckDB tool call fails with a message
+saying to run `seaquel-cli duckdb install`, and the server prints the same on
+stderr when it starts.
 
 ### Passwords and the macOS keychain
 
@@ -647,9 +694,9 @@ seaquel-tui --version
 
 `~/.local/bin` has to be on your `PATH`; any folder that is will do.
 
-The binaries are signed but not notarized. A file fetched with `curl` starts
-as is, but macOS refuses to run one downloaded with a browser until you clear
-the quarantine flag:
+The macOS binaries are signed and notarized, so one downloaded with a
+browser runs too: the first time, macOS checks the notarization online. If
+you're offline then, macOS may refuse it; clear the quarantine flag instead:
 
 ```bash
 xattr -d com.apple.quarantine ~/.local/bin/seaquel-tui
@@ -667,7 +714,8 @@ asks for the newer app.
 
 `seaquel-tui` and `seaquel-cli` don't contain DuckDB, which would triple their
 size. DuckDB runs in a small helper program, `seaquel-duckdb`, fetched the
-first time you need it. Each DuckDB connection gets its own helper process,
+first time you need it. It's the same helper the desktop app uses, so if the
+app of the same version already has it, there's nothing to download. Each DuckDB connection gets its own helper process,
 which exits when the connection closes.
 
 - **In the TUI**, the first time you connect to a DuckDB database it says
@@ -681,7 +729,8 @@ which exits when the connection closes.
   seaquel-cli duckdb install
   ```
 
-  The app's **Install Command Line Tool…** also installs it for the CLI.
+  The desktop app installs it on its first DuckDB connect, and its
+  **Install Command Line Tool…** installs it along with the CLI.
 
 The helper is downloaded from the GitHub release that matches the program's
 version (it refuses a helper of any other version), and its size and SHA-256
@@ -833,6 +882,7 @@ npm install
 
 ```bash
 npm run tauri:dev       # Start development, note "tauri:dev" vs the default "tauri dev"
+                        # (it keeps the dev app's data and DuckDB helper out of the installed app's folder)
 npm run tauri build     # Build production app
 npm run check           # Type checking
 npm run check:watch     # Type checking (watch mode)

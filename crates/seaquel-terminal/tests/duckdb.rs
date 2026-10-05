@@ -133,6 +133,12 @@ fn the_helper_hook_installs_into_the_layout() {
     let data = temp();
     let built = data.path().join("built-helper");
     std::fs::write(&built, b"#!/bin/sh\nexit 0\n").unwrap();
+    // A built helper is executable; the start check refuses one that isn't.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&built, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let hooks = TestHooks::from_lookup("SEAQUEL_TUI_TEST", |name| {
         (name == "SEAQUEL_TUI_TEST_DUCKDB_HELPER").then(|| built.to_str().unwrap().to_string())
     });

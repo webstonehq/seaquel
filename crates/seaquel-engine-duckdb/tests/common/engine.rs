@@ -1,68 +1,60 @@
-//! The DuckDB driver the integration suites run on (the DuckDB helper plan,
-//! Task 5). Every suite that opens DuckDB gets its engine from [`engine`],
-//! never from `seaquel_engine_duckdb::engine()`, so one suite tests both
-//! drivers.
+//! The DuckDB engine the integration suites run on: the helper's client
+//! (the `remote` driver) over a `seaquel-duckdb` child process, the only
+//! way any interface reaches DuckDB since the native driver went (Task 12
+//! of the desktop DuckDB helper plan). Every suite that opens DuckDB gets
+//! its engine from [`engine`].
 //!
-//! `SEAQUEL_TEST_DUCKDB_DRIVER` picks it: `native` (duckdb-rs in this
-//! process, the `native` feature) or `remote` (a `seaquel-duckdb` child
-//! process, the `remote` feature). Unset, it is `native` when the build has
-//! it, else `remote`, so `cargo test --no-default-features --features
-//! remote` runs every suite through the helper with no DuckDB in the test
-//! binary. Any other value, or a driver the build lacks, panics: a
-//! misconfigured run fails instead of testing the other driver.
-//! `driver_switch.rs` checks the driver by what it does.
-//!
-//! The remote driver needs `SEAQUEL_TEST_DUCKDB_HELPER`, a built helper
-//! (`cargo build -p seaquel-duckdb`). Each [`engine`] installs it (a hard
-//! link, else a copy) as `bin/duckdb/<version>/seaquel-duckdb[.exe]` in a
-//! folder of its own under `CARGO_TARGET_TMPDIR`, laid out and checked as a
-//! real install is. The engine and every driver it opens hold the folder,
-//! so it is removed only after the last of them is dropped, never while
-//! its helper may still be starting or running.
+//! The helper is `SEAQUEL_TEST_DUCKDB_HELPER`, else the `seaquel-duckdb`
+//! built beside the test binary (`target/<profile>/`, which `cargo test
+//! --workspace` builds). With neither, [`engine`] panics naming `cargo
+//! build -p seaquel-duckdb`, so a suite can't pass by skipping. Each
+//! [`engine`] installs it (a hard link, else a copy) as
+//! `bin/duckdb/<version>/seaquel-duckdb[.exe]` in a folder of its own under
+//! `CARGO_TARGET_TMPDIR`, laid out and checked as a real install is. The
+//! engine and every driver it opens hold the folder, so it is removed only
+//! after the last of them is dropped, never while its helper may still be
+//! starting or running.
 
 #![allow(dead_code)]
 
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use seaquel_engine::Engine;
 
-/// The variable that picks the driver.
-pub const DRIVER_VAR: &str = "SEAQUEL_TEST_DUCKDB_DRIVER";
+/// The variable naming a built helper.
+pub const HELPER_VAR: &str = "SEAQUEL_TEST_DUCKDB_HELPER";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Which {
-    Native,
-    Remote,
+/// The helper to run: `var` (the variable's value), else `seaquel-duckdb`
+/// in the profile folder above `exe` (a test binary in
+/// `target/<profile>/deps/`), else the build hint.
+pub fn helper_from(var: Option<OsString>, exe: &Path) -> Result<PathBuf, String> {
+    if let Some(path) = var {
+        return Ok(PathBuf::from(path));
+    }
+    let sibling = exe
+        .parent()
+        .and_then(Path::parent)
+        .map(|profile| profile.join(format!("seaquel-duckdb{}", std::env::consts::EXE_SUFFIX)));
+    match sibling {
+        Some(bin) if bin.is_file() => Ok(bin),
+        _ => Err(format!(
+            "the DuckDB suites run through the helper: set {HELPER_VAR} or run \
+             cargo build -p seaquel-duckdb"
+        )),
+    }
 }
 
-/// The driver this run asked for.
-pub fn which() -> Which {
-    match std::env::var(DRIVER_VAR) {
-        Ok(v) if v == "native" => Which::Native,
-        Ok(v) if v == "remote" => Which::Remote,
-        Ok(v) => panic!("{DRIVER_VAR} is `native` or `remote`, not {v:?}"),
-        Err(std::env::VarError::NotPresent) if cfg!(feature = "native") => Which::Native,
-        Err(std::env::VarError::NotPresent) => Which::Remote,
-        Err(e) => panic!("{DRIVER_VAR}: {e}"),
-    }
+/// The helper this run uses; panics with the build hint without one.
+pub fn helper() -> PathBuf {
+    let exe = std::env::current_exe().expect("the test binary's path");
+    helper_from(std::env::var_os(HELPER_VAR), &exe).unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// The DuckDB engine this run tests.
 pub fn engine() -> Arc<dyn Engine> {
-    match which() {
-        Which::Native => native(),
-        Which::Remote => remote::engine(),
-    }
-}
-
-#[cfg(feature = "native")]
-fn native() -> Arc<dyn Engine> {
-    seaquel_engine_duckdb::engine()
-}
-
-#[cfg(not(feature = "native"))]
-fn native() -> Arc<dyn Engine> {
-    panic!("{DRIVER_VAR}=native needs the `native` feature")
+    remote::engine()
 }
 
 #[cfg(not(feature = "remote"))]
@@ -72,13 +64,13 @@ mod remote {
     use seaquel_engine::Engine;
 
     pub fn engine() -> Arc<dyn Engine> {
-        panic!("{}=remote needs the `remote` feature", super::DRIVER_VAR)
+        panic!("the DuckDB suites need the `remote` feature (the default)")
     }
 }
 
 #[cfg(feature = "remote")]
 mod remote {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::{Arc, OnceLock};
     use std::time::Duration;
 
@@ -128,11 +120,20 @@ mod remote {
         fn dialect(&self) -> Option<&dyn Dialect> {
             self.inner.dialect()
         }
+
+        fn preflight(&self, config: &ConnectConfig) -> Result<(), DbError> {
+            self.inner.preflight(config)
+        }
+
+        fn exclusive_file(&self, config: &ConnectConfig) -> bool {
+            self.inner.exclusive_file(config)
+        }
     }
 
     /// A remote driver holding its install folder. Every `Driver` method is
     /// passed on, defaults included, so the suites see the remote driver's
-    /// own answers.
+    /// own answers. (The engine above passes on every `Engine` method the
+    /// same way.)
     struct Opened {
         inner: Arc<dyn Driver>,
         _dir: Arc<tempfile::TempDir>,
@@ -140,6 +141,10 @@ mod remote {
 
     #[seaquel_runtime::async_trait]
     impl Driver for Opened {
+        fn closed(&self) -> Option<seaquel_runtime::BoxFuture<'static, Option<DbError>>> {
+            self.inner.closed()
+        }
+
         async fn query(&self, sql: &str, params: Vec<Value>) -> Result<QueryResult, DbError> {
             self.inner.query(sql, params).await
         }
@@ -226,13 +231,7 @@ mod remote {
     }
 
     pub fn engine() -> Arc<dyn Engine> {
-        let bin = match std::env::var_os("SEAQUEL_TEST_DUCKDB_HELPER") {
-            Some(path) => PathBuf::from(path),
-            None => panic!(
-                "the remote driver needs SEAQUEL_TEST_DUCKDB_HELPER: a built helper \
-                 (cargo build -p seaquel-duckdb)"
-            ),
-        };
+        let bin = super::helper();
         let version = version(&bin);
         let dir = tempfile::Builder::new()
             .prefix("suite-")
@@ -268,7 +267,7 @@ mod remote {
                 let out = std::process::Command::new(bin)
                     .arg("--version")
                     .output()
-                    .unwrap_or_else(|e| panic!("SEAQUEL_TEST_DUCKDB_HELPER --version: {e}"));
+                    .unwrap_or_else(|e| panic!("{} --version: {e}", bin.display()));
                 let text = String::from_utf8(out.stdout).unwrap();
                 text.trim()
                     .strip_prefix("seaquel-duckdb ")

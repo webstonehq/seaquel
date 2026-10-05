@@ -331,7 +331,15 @@ pub struct Asset {
 /// user. Symlinks are refused at every level from `root` down
 /// (`O_NOFOLLOW`), and each folder is tightened before the one below it is
 /// looked at. Folders above `root` aren't checked (Decision 9's residual
-/// gap). Windows checks only that each is a folder and not a symlink.
+/// gap).
+///
+/// Windows (the desktop plan's Q9 A): every level is opened without
+/// following a reparse point, and must be owned by the user or
+/// Administrators. Each of `folders`, and the file, gets a protected DACL
+/// of the user and SYSTEM (full control, inheritance from above off) unless
+/// it already has exactly that; `root` keeps its DACL unless another
+/// principal can write it (`seaquel_runtime::acl`'s rule), then it gets the
+/// same.
 #[derive(Clone)]
 pub struct InstallTarget {
     pub root: PathBuf,
@@ -387,6 +395,9 @@ pub struct Installed {
     /// Of the installed (decompressed) file.
     pub sha256: String,
     pub size: u64,
+    /// Of the asset it was installed from (the `.gz`, or a copied file as
+    /// given), as its record says; `None` for a record without it.
+    pub asset_sha256: Option<String>,
 }
 
 impl fmt::Debug for Installed {
@@ -632,7 +643,8 @@ impl Fetcher {
             return Err(err(K::SizeInvalid, "the release asset's size isn't valid"));
         }
         target.check_names()?;
-        let dir = prepare(target)?;
+        // Declared before the sink, so its partial file goes first.
+        let (dir, made) = prepare(target)?;
         let mut sink = Sink::new(&dir, Decode::Gzip, self.max_installed_bytes)?;
         let url = join(
             &self.source.download,
@@ -641,10 +653,23 @@ impl Fetcher {
         let mut resp = self
             .get(url, "application/octet-stream", Hops::Download)
             .await?;
+        let status = resp.status().as_u16();
+        if status == 404 {
+            // As the metadata says of an asset it doesn't list (Task 10's
+            // P2): a pinned install asks for nothing else, so this is where
+            // it learns the release lacks the file.
+            return Err(err(
+                K::AssetNotFound,
+                format!(
+                    "the Seaquel {} release has no {}",
+                    asset.version, asset.name
+                ),
+            ));
+        }
         if !resp.status().is_success() {
             return Err(err(
                 K::Http,
-                format!("the download server answered {}", resp.status().as_u16()),
+                format!("the download server answered {status}"),
             ));
         }
         if let Some(len) = resp.content_length() {
@@ -672,14 +697,16 @@ impl Fetcher {
         if sink.received != total {
             return Err(size_mismatch(sink.received, total));
         }
-        sink.finish(&asset.sha256, target, Some(&asset.name))
+        let done = sink.finish(&asset.sha256, target, Some(&asset.name))?;
+        made.keep();
+        Ok(done)
     }
 }
 
 fn size_mismatch(got: u64, want: u64) -> InstallError {
     err(
         K::SizeMismatch,
-        format!("the download is {got} bytes; the release says {want}"),
+        format!("the download is {got} bytes, not the expected {want}"),
     )
 }
 
@@ -893,13 +920,19 @@ impl Sink {
         file.sync_all()
             .map_err(|e| file_err("the download couldn't be synced", &e))?;
         drop(file);
+        // Private before it has its name, so it is never there loose.
+        #[cfg(windows)]
+        make_file_private(&temp)?;
         let path = target.path();
         if let Err(e) = persist_retrying(temp, &path) {
             // Windows can't replace a running file: one that is already
-            // this exact file (another install got there first) will do.
+            // this exact file (another install got there first) will do,
+            // once it is private too.
             if sha256_of(&path).ok().as_deref() != Some(installed_sha.as_str()) {
                 return Err(file_err("the download couldn't be put in place", &e.error));
             }
+            #[cfg(windows)]
+            make_file_private(&path)?;
         }
         sync_dir(&target.dir());
         write_record(
@@ -915,6 +948,7 @@ impl Sink {
             path,
             sha256: installed_sha,
             size: written,
+            asset_sha256: Some(sha256.to_ascii_lowercase()),
         })
     }
 }
@@ -1015,6 +1049,10 @@ pub fn installed(target: &InstallTarget) -> Option<Installed> {
         path,
         sha256: sha,
         size: record.size,
+        asset_sha256: record
+            .asset_sha256
+            .filter(|h| is_hex64(h))
+            .map(|h| h.to_ascii_lowercase()),
     })
 }
 
@@ -1029,6 +1067,33 @@ pub fn install_file(
     install_file_cancellable(file, sha256, target, &AtomicBool::new(false))
 }
 
+const NOT_A_FILE: &str = "the file given isn't a regular file";
+
+/// Opens `path` for reading only if it is a regular file (Task 4 review
+/// I1): a FIFO, a device or a folder is `InvalidInput` without blocking.
+/// The path's metadata is read first, and on Unix the file is opened with
+/// `O_NONBLOCK` (so a FIFO swapped in since doesn't block the open either)
+/// and checked again through the handle. `O_NONBLOCK` changes nothing for
+/// a regular file's reads.
+pub fn open_regular(path: &Path) -> io::Result<File> {
+    let not_a_file = || io::Error::new(io::ErrorKind::InvalidInput, NOT_A_FILE);
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(not_a_file());
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(not_a_file());
+    }
+    Ok(file)
+}
+
 /// [`install_file`], stopping with `CANCELLED` between reads once `cancel`
 /// is set (review I2: a caller dropping its wait sets it, so the blocking
 /// copy ends and its partial file goes). A read that blocks (a pipe) is
@@ -1039,6 +1104,20 @@ pub fn install_file_cancellable(
     target: &InstallTarget,
     cancel: &AtomicBool,
 ) -> Result<Installed, InstallError> {
+    install_file_paced(file, sha256, target, cancel, std::time::Duration::ZERO)
+}
+
+/// [`install_file_cancellable`], sleeping `pause` before each 64 KiB read:
+/// a slow copy for the terminal binaries' debug-only test hook (`Core`'s
+/// `duckdb_helper_slow_file_reads`), so a test can signal one mid-copy.
+/// [`install_file_cancellable`] passes zero.
+pub fn install_file_paced(
+    file: &Path,
+    sha256: &str,
+    target: &InstallTarget,
+    cancel: &AtomicBool,
+    pause: std::time::Duration,
+) -> Result<Installed, InstallError> {
     if !is_hex64(sha256) {
         return Err(err(
             K::DigestInvalid,
@@ -1046,11 +1125,18 @@ pub fn install_file_cancellable(
         ));
     }
     target.check_names()?;
-    let mut source = File::open(file).map_err(|e| file_err("the file can't be read", &e))?;
-    let dir = prepare(target)?;
+    let mut source = open_regular(file).map_err(|e| match e.kind() {
+        io::ErrorKind::InvalidInput => err(K::InvalidArgument, NOT_A_FILE),
+        _ => file_err("the file can't be read", &e),
+    })?;
+    // Declared before the sink, so its partial file goes first.
+    let (dir, made) = prepare(target)?;
     let mut sink = Sink::new(&dir, Decode::Detect, MAX_INSTALLED_BYTES)?;
     let mut buf = vec![0u8; 64 * 1024];
     loop {
+        if !pause.is_zero() {
+            std::thread::sleep(pause);
+        }
         if cancel.load(Ordering::Relaxed) {
             return Err(err(K::Cancelled, "the install was stopped"));
         }
@@ -1065,7 +1151,9 @@ pub fn install_file_cancellable(
         }
         sink.feed(&buf[..n])?;
     }
-    sink.finish(sha256, target, None)
+    let done = sink.finish(sha256, target, None)?;
+    made.keep();
+    Ok(done)
 }
 
 /// The release target for an OS and architecture (`std::env::consts`'s
@@ -1088,11 +1176,43 @@ pub fn target_triple(os: &str, arch: &str) -> Option<&'static str> {
 /// in.
 pub fn prepare_target(target: &InstallTarget) -> Result<PathBuf, InstallError> {
     target.check_names()?;
-    prepare(target)
+    let (dir, made) = prepare(target)?;
+    made.keep();
+    Ok(dir)
 }
 
-/// [`prepare_target`] without the name check (done by the callers).
-fn prepare(target: &InstallTarget) -> Result<PathBuf, InstallError> {
+/// The folders below the root an install made, removed again when it
+/// fails, is cancelled or is dropped (Task 10's O3), so a failure doesn't
+/// leave an empty version folder behind. Deepest first, and only while
+/// empty: [`std::fs::remove_dir`] refuses a folder holding anything (a
+/// concurrent install's partial file, another version), and the first
+/// refusal stops it, so the folders above stay too. A folder that was
+/// already there is never in the list. Best effort, logged by kind only.
+struct MadeFolders(Vec<PathBuf>);
+
+impl MadeFolders {
+    /// The install succeeded (or only prepared): the folders stay.
+    fn keep(mut self) {
+        self.0.clear();
+    }
+}
+
+impl Drop for MadeFolders {
+    fn drop(&mut self) {
+        while let Some(folder) = self.0.pop() {
+            if let Err(e) = std::fs::remove_dir(&folder) {
+                if e.kind() != io::ErrorKind::NotFound {
+                    log::debug!(activity = ACTIVITY, event = "cleanup", kind = format!("{:?}", e.kind()).as_str(); "an install folder was kept");
+                }
+                break;
+            }
+        }
+    }
+}
+
+/// [`prepare_target`] without the name check (done by the callers), with
+/// the folders it made (removed on drop unless kept).
+fn prepare(target: &InstallTarget) -> Result<(PathBuf, MadeFolders), InstallError> {
     let root = &target.root;
     if root.as_os_str().is_empty() {
         return Err(err(K::InvalidArgument, "the install has no folder"));
@@ -1105,14 +1225,17 @@ fn prepare(target: &InstallTarget) -> Result<PathBuf, InstallError> {
         make_dir(root)?;
     }
     secure(root, Level::Root)?;
+    let mut made = MadeFolders(Vec::new());
     let mut dir = root.clone();
     for f in &target.folders {
         dir.push(f);
-        make_dir(&dir)?;
+        if make_dir(&dir)? {
+            made.0.push(dir.clone());
+        }
         secure(&dir, Level::Private)?;
     }
     sweep_stale_parts(&dir, STALE_PART_AGE);
-    Ok(dir)
+    Ok((dir, made))
 }
 
 /// Removes `.seaquel-download-*.part` files in `dir` last written more
@@ -1147,7 +1270,9 @@ fn sweep_stale_parts(dir: &Path, age: Duration) {
 }
 
 /// A folder made 0700 (Unix); one already there is left to [`secure`].
-fn make_dir(path: &Path) -> Result<(), InstallError> {
+/// Whether this call made it.
+fn make_dir(path: &Path) -> Result<bool, InstallError> {
+    #[cfg_attr(not(unix), allow(unused_mut))] // the mode is Unix's
     let mut b = std::fs::DirBuilder::new();
     #[cfg(unix)]
     {
@@ -1155,8 +1280,8 @@ fn make_dir(path: &Path) -> Result<(), InstallError> {
         b.mode(0o700);
     }
     match b.create(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(false),
         Err(e) => Err(file_err("an install folder couldn't be made", &e)),
     }
 }
@@ -1169,11 +1294,19 @@ enum Level {
     Private,
 }
 
+/// What to do about it, in the message (review 10): the install never
+/// changes another user's folder or follows a link, so the user must.
+#[cfg(windows)]
+const UNSAFE_FOLDER_MESSAGE: &str = "an install folder is a link, isn't a folder or belongs to \
+     another user: remove the bin\\duckdb folder in Seaquel's data folder and install again, or \
+     point SEAQUEL_DATA_DIR at a folder of your own on this computer";
+#[cfg(not(windows))]
+const UNSAFE_FOLDER_MESSAGE: &str = "an install folder is a link, isn't a folder or belongs to \
+     another user: remove the bin/duckdb folder in Seaquel's data folder and install again, or \
+     point SEAQUEL_DATA_DIR at a folder of your own on this computer";
+
 fn unsafe_folder() -> InstallError {
-    err(
-        K::UnsafeFolder,
-        "an install folder is a link, isn't a folder or belongs to another user",
-    )
+    err(K::UnsafeFolder, UNSAFE_FOLDER_MESSAGE)
 }
 
 /// The mode a folder of `level` must have, given its current one; `None`
@@ -1217,9 +1350,75 @@ fn secure(path: &Path, level: Level) -> Result<(), InstallError> {
     Ok(())
 }
 
-/// Windows: a folder and not a link (the profile's ACLs protect it;
-/// Decision 9, M4).
-#[cfg(not(unix))]
+/// The file's DACL set to the user's and SYSTEM's (Windows, Q9 A).
+#[cfg(windows)]
+fn make_file_private(path: &Path) -> Result<(), InstallError> {
+    seaquel_runtime::acl::make_private(path, false)
+        .map_err(|e| acl_error(e, "the download's permissions couldn't be set"))
+}
+
+/// An `AclError` as an install error: a link or the wrong kind is an
+/// unsafe folder, anything else a disk error by its kind.
+#[cfg(windows)]
+fn acl_error(e: seaquel_runtime::acl::AclError, what: &str) -> InstallError {
+    use seaquel_runtime::acl::AclError;
+    match e {
+        AclError::Link | AclError::WrongKind => unsafe_folder(),
+        AclError::Io(e) => file_err(what, &e),
+    }
+}
+
+/// Windows (Q9 A): one handle per folder, opened without following a
+/// link, so what is judged is what is set. A link, a file, or an owner
+/// other than the user, Administrators or SYSTEM is refused and left
+/// unchanged. `bin` and below get the protected DACL of the user and
+/// SYSTEM unless they have exactly that. `root` is judged by the root rule
+/// (others may add files, not replace or rename them) and, when it fails,
+/// repaired in place: its entries kept, Administrators' too, with the
+/// replacing rights taken out of others' allows (`root_repair`), so reading
+/// it and the rest of the tree don't change.
+#[cfg(windows)]
+fn secure(path: &Path, level: Level) -> Result<(), InstallError> {
+    use seaquel_runtime::acl::{self, Level as Rule, Node, Problem};
+    let user =
+        acl::current_user().map_err(|e| file_err("this user's identity can't be read", &e))?;
+    let read_err = |e: io::Error| match e.kind() {
+        io::ErrorKind::NotFound => file_err("an install folder disappeared", &e),
+        _ => file_err("an install folder can't be read", &e),
+    };
+    // With `WRITE_DAC` when this user may set it; a folder it may only
+    // read is still judged (and fails below only if it needs a change).
+    let node = match Node::open(path, true, true) {
+        Ok(node) => node,
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            Node::open(path, true, false).map_err(read_err)?
+        }
+        Err(e) => return Err(read_err(e)),
+    };
+    let entry = node.entry().map_err(read_err)?;
+    let rule = match level {
+        Level::Root => Rule::Root,
+        Level::Private => Rule::Private,
+    };
+    let what = "an install folder's permissions couldn't be set";
+    match entry.problem(&user, true, rule) {
+        Some(Problem::Link | Problem::WrongKind | Problem::Owner) => Err(unsafe_folder()),
+        Some(Problem::NoDacl | Problem::OthersCanWrite | Problem::UnknownEntry) => match level {
+            Level::Private => node.make_private().map_err(|e| acl_error(e, what)),
+            Level::Root => match entry.security.root_repair(&user) {
+                Some(aces) => node.set_protected(&aces).map_err(|e| acl_error(e, what)),
+                None => Err(unsafe_folder()),
+            },
+        },
+        None if level == Level::Private && !entry.security.is_private(&user) => {
+            node.make_private().map_err(|e| acl_error(e, what))
+        }
+        None => Ok(()),
+    }
+}
+
+/// Elsewhere: a folder and not a link.
+#[cfg(not(any(unix, windows)))]
 fn secure(path: &Path, _level: Level) -> Result<(), InstallError> {
     let meta = std::fs::symlink_metadata(path)
         .map_err(|e| file_err("an install folder can't be read", &e))?;
@@ -1232,6 +1431,20 @@ fn secure(path: &Path, _level: Level) -> Result<(), InstallError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review 10: the install never changes another user's folder or
+    /// follows a link, so its refusal says what the user can do.
+    #[test]
+    fn an_unsafe_folder_says_what_to_do() {
+        let e = unsafe_folder();
+        assert_eq!(e.code(), "UNSAFE_FOLDER");
+        assert!(e.message.contains("duckdb folder"), "{e}");
+        assert!(e.message.contains("install again"), "{e}");
+        assert!(e.message.contains("SEAQUEL_DATA_DIR"), "{e}");
+        assert!(!e
+            .message
+            .contains(std::path::MAIN_SEPARATOR_STR.repeat(2).as_str()));
+    }
 
     #[test]
     fn components_are_plain_names() {

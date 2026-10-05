@@ -192,7 +192,7 @@ mod tests {
                 Value::Float(f64::NEG_INFINITY),
                 "SELECT  CAST('-inf' AS DOUBLE) ",
             ),
-            // DECIMAL as the native driver binds it: width and scale from
+            // DECIMAL as the helper binds it: width and scale from
             // the digits, one integer digit more than the scale.
             (
                 Value::Decimal("1.50".into()),
@@ -219,7 +219,7 @@ mod tests {
                 &*format!("SELECT  CAST('{}' AS DECIMAL(38, 0)) ", "9".repeat(38)).leak(),
             ),
             // Past 38 digits, or not plain digits: text, which DuckDB casts
-            // to the other side's type (the native driver binds it as text).
+            // to the other side's type (the helper binds it as text).
             (
                 Value::Decimal("340282366920938463463374607431768211455".into()),
                 "SELECT  '340282366920938463463374607431768211455' ",

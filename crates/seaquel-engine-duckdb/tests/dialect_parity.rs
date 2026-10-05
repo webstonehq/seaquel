@@ -57,7 +57,7 @@ fn engine() -> Arc<dyn Engine> {
 fn dialect(engine: &Arc<dyn Engine>) -> &dyn Dialect {
     engine
         .dialect()
-        .expect("DuckdbEngine::dialect() returns the DuckDB dialect")
+        .expect("the DuckDB engine's dialect() returns the DuckDB dialect")
 }
 
 #[derive(Deserialize)]

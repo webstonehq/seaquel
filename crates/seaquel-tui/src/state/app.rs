@@ -780,6 +780,7 @@ pub enum Msg {
     Closed {
         core_id: String,
         code: String,
+        message: String,
     },
     /// A command-log line the runtime stamped.
     Log(LogLine),

@@ -9,10 +9,11 @@
 //! database through `SEAQUEL_TEST_POSTGRES` (ConnectConfig JSON) and skip
 //! without it, unless `SEAQUEL_TEST_REQUIRE_ENGINES` is set.
 //!
-//! DuckDB runs on the driver `SEAQUEL_TEST_DUCKDB_DRIVER` names (the DuckDB
-//! helper plan, Task 5): `native` (the default) or `remote`, the
-//! `seaquel-duckdb` helper at `SEAQUEL_TEST_DUCKDB_HELPER`, installed into
-//! each test's temp dir as a real install is laid out ([`plugins`]).
+//! DuckDB runs in the `seaquel-duckdb` helper, as in the CLI:
+//! `SEAQUEL_TEST_DUCKDB_HELPER`, else the one built beside the test binary
+//! (`cargo test --workspace` builds it), installed into each test's temp
+//! dir as a real install is laid out ([`plugins`]). With neither, the
+//! tests fail naming `cargo build -p seaquel-duckdb`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -119,26 +120,36 @@ fn live(name: &str) -> Option<Json> {
     }
 }
 
-/// Core's engines, DuckDB's on the driver `SEAQUEL_TEST_DUCKDB_DRIVER`
-/// names: `native` (unset) or `remote`, the helper at
-/// `SEAQUEL_TEST_DUCKDB_HELPER` installed under `dir` (once; a hard link,
-/// else a copy) as `duckdb-helper/bin/duckdb/<version>/seaquel-duckdb`,
-/// each folder 0700, so it goes with the test's temp dir.
+/// Core's engines, DuckDB's through the helper ([`install_helper`])
+/// installed under `dir` (once; a hard link, else a copy) as
+/// `duckdb-helper/bin/duckdb/<version>/seaquel-duckdb`, each folder 0700,
+/// so it goes with the test's temp dir.
 fn plugins(dir: &Path) -> seaquel_core::CoreBuilder {
-    match std::env::var("SEAQUEL_TEST_DUCKDB_DRIVER").as_deref() {
-        Err(std::env::VarError::NotPresent) | Ok("native") => seaquel_core::with_default_plugins(),
-        Ok("remote") => seaquel_core::with_plugins(|id| id != "duckdb")
-            .duckdb_helper(install_helper(&dir.join("duckdb-helper"))),
-        other => panic!("SEAQUEL_TEST_DUCKDB_DRIVER is `native` or `remote`, not {other:?}"),
+    seaquel_core::with_plugins(|id| id != "duckdb")
+        .duckdb_helper(install_helper(&dir.join("duckdb-helper")))
+}
+
+/// The built helper: `SEAQUEL_TEST_DUCKDB_HELPER`, else `seaquel-duckdb`
+/// beside the test binary (`target/<profile>/`).
+fn built_helper() -> PathBuf {
+    if let Some(path) = std::env::var_os("SEAQUEL_TEST_DUCKDB_HELPER") {
+        return PathBuf::from(path);
     }
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            let profile = exe.parent()?.parent()?;
+            let bin = profile.join(format!("seaquel-duckdb{}", std::env::consts::EXE_SUFFIX));
+            bin.is_file().then_some(bin)
+        })
+        .expect(
+            "DuckDB needs its helper: set SEAQUEL_TEST_DUCKDB_HELPER or run \
+             cargo build -p seaquel-duckdb",
+        )
 }
 
 fn install_helper(root: &Path) -> seaquel_core::DuckdbHelper {
-    let bin = std::env::var_os("SEAQUEL_TEST_DUCKDB_HELPER")
-        .map(PathBuf::from)
-        .expect(
-            "the remote driver needs SEAQUEL_TEST_DUCKDB_HELPER (cargo build -p seaquel-duckdb)",
-        );
+    let bin = built_helper();
     let out = std::process::Command::new(&bin)
         .arg("--version")
         .output()
@@ -873,15 +884,13 @@ async fn schema_tools_on_duckdb() {
     h.stop().await;
 }
 
-/// The DuckDB tools run on the driver `SEAQUEL_TEST_DUCKDB_DRIVER` asked
-/// for: with `remote`, Core has no native engine and a helper locator, and
-/// a row only the helper refuses is refused.
+/// The DuckDB tools run in the helper: Core has a helper locator, and a
+/// row past the helper's 16 MiB frame is refused (`tests/HELPER.md` in
+/// the engine crate, "Limits").
 #[tokio::test]
-async fn duckdb_runs_on_the_driver_asked_for() {
+async fn duckdb_runs_in_the_helper() {
     let h = harness().await;
-    let remote = std::env::var("SEAQUEL_TEST_DUCKDB_DRIVER").as_deref() == Ok("remote");
-    eprintln!("SEAQUEL_TEST_DUCKDB_DRIVER remote: {remote}");
-    assert_eq!(h.core.duckdb_helper().is_some(), remote);
+    assert!(h.core.duckdb_helper().is_some());
     let out = h
         .ok(
             "run_query",
@@ -889,16 +898,9 @@ async fn duckdb_runs_on_the_driver_asked_for() {
         )
         .await;
     assert_eq!(out["rows"], json!([[42]]));
-    // What only the helper does (REMOTE.md): a row past its 16 MiB frame
-    // is refused remotely, and comes back natively (its cell cut to 64 KB).
     let big = json!({ "connection": "duck", "sql": "SELECT repeat('x', 20 * 1024 * 1024) AS big" });
-    if remote {
-        let text = h.err("run_query", big).await;
-        assert_code(&text, "RESULT_TOO_LARGE");
-    } else {
-        let out = h.ok("run_query", big).await;
-        assert_eq!(out["rows"][0][0]["truncated"], json!(true), "{out}");
-    }
+    let text = h.err("run_query", big).await;
+    assert_code(&text, "RESULT_TOO_LARGE");
     h.stop().await;
 }
 

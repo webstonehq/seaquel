@@ -5,16 +5,16 @@ edition = "2021"
 description = "Seaquel Core: registers plugins and owns connections and running queries. Every interface goes through it."
 
 [features]
-default = ["engine-postgres", "engine-mysql", "engine-sqlite", "engine-mssql", "engine-duckdb"]
+default = ["engine-postgres", "engine-mysql", "engine-sqlite", "engine-mssql"]
 engine-postgres = ["dep:seaquel-engine-postgres"]
 engine-mysql = ["dep:seaquel-engine-mysql"]
 engine-sqlite = ["dep:seaquel-engine-sqlite"]
 engine-mssql = ["dep:seaquel-engine-mssql"]
-# The native DuckDB driver (duckdb-rs, in process): the desktop app.
-engine-duckdb = ["dep:seaquel-engine-duckdb", "seaquel-engine-duckdb/native"]
-# DuckDB in a helper process (the DuckDB helper plan): the terminal
-# binaries, through `CoreBuilder::duckdb_helper`. No `duckdb` crate in the
-# build. Refused with `browser`.
+# DuckDB in a helper process (the DuckDB helper plan): every native
+# interface, through `CoreBuilder::duckdb_helper`. No `duckdb` crate in the
+# build. Refused with `browser`. (The in-process native driver and its
+# `engine-duckdb` feature were deleted in Task 12 of the desktop DuckDB
+# helper plan.)
 engine-duckdb-remote = ["dep:seaquel-engine-duckdb", "seaquel-engine-duckdb/remote"]
 # Downloading the helper (the DuckDB helper plan, Task 4):
 # `Core::duckdb_helper_asset`, `duckdb_helper_install` and
@@ -63,8 +63,8 @@ ai-system-proxy = ["ai-native", "seaquel-http/system-proxy"]
 ts = ["seaquel-workspace/ts"]
 # The wasm32 build for the browser (phase 8's Core in the web page). It
 # admits `storage` (the metadata file in memory) and `workspace`, and refuses
-# every engine (`engine-duckdb` is the native driver; the page's module
-# registers the browser driver itself) and the other infrastructure
+# every engine (the page's module registers the browser DuckDB driver
+# itself) and the other infrastructure
 # features, `imports` included (a `compile_error!` in lib.rs). It also turns
 # on `Workspace::ensure_demo_connection`. CI checks it with
 # --no-default-features --features seaquel-core/browser,seaquel-core/storage,

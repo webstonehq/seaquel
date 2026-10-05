@@ -29,6 +29,7 @@ import {
   isFeatureEnabled,
 } from "$lib/features";
 import { getKeyringService } from "$lib/services/keyring";
+import { withDuckdbHelper } from "$lib/core/duckdb-helper";
 import { VaultCancelledError, getVault } from "$lib/services/vault/vault-state.svelte";
 import { SvelteSet } from "svelte/reactivity";
 import { log } from "$lib/utils/logger";
@@ -254,6 +255,25 @@ function sshServerOf(connection: Pick<DatabaseConnection, "sshTunnel">): SshServ
   };
 }
 
+/**
+ * On desktop a DuckDB connect or test goes through `withDuckdbHelper` (the
+ * install dialog); every other engine, and the demo's in-page DuckDB, as is.
+ */
+function viaDuckdbHelper<T>(
+  type: DatabaseConnection["type"],
+  attempt: () => Promise<T>,
+  options: { interactive: boolean },
+): Promise<T> {
+  return type === "duckdb" && isTauri() ? withDuckdbHelper(attempt, options) : attempt();
+}
+
+/** A DuckDB database that is a file (not `:memory:`), as the form names it. */
+function duckdbFile(connection: Pick<DatabaseConnection, "type" | "databaseName">): string | null {
+  if (connection.type !== "duckdb") return null;
+  const path = connection.databaseName?.trim() ?? "";
+  return path && path !== ":memory:" ? path : null;
+}
+
 /** What a `connectionClosed` event's toast says. */
 function connectionClosedMessage(name: string, event: ConnectionClosedEvent): string {
   switch (event.code) {
@@ -461,16 +481,27 @@ export class ConnectionManager {
     }
   }
 
-  /** `provider.connect`, with the SSH host-key prompt and its retry. */
+  /**
+   * `provider.connect`, with the SSH host-key prompt and its retry, and on
+   * desktop, for DuckDB, the DuckDB support install (`withDuckdbHelper`):
+   * an `interactive` connect that finds it missing asks to install it and
+   * connects again with the same request. Background reconnects never ask.
+   */
   private async connectCore(
     type: DatabaseConnection["type"],
     request: ConnectRequest,
     ssh: SshServer,
+    options: { interactive: boolean },
   ): Promise<string> {
     const provider = await this.providers.getForType(type);
-    return withHostKeyPrompt(
-      (trustHostKey) => provider.connect(trustHostKey ? { ...request, trustHostKey } : request),
-      ssh,
+    return viaDuckdbHelper(
+      type,
+      () =>
+        withHostKeyPrompt(
+          (trustHostKey) => provider.connect(trustHostKey ? { ...request, trustHostKey } : request),
+          ssh,
+        ),
+      options,
     );
   }
 
@@ -537,6 +568,17 @@ export class ConnectionManager {
       (c) => c.providerConnectionId === providerConnectionId,
     );
     if (!connection) return;
+    // On desktop Core drops a DuckDB connection unasked only when its
+    // helper died (Decision 7, Task 2 review M3): shown lost, never
+    // reconnected quietly, since the query that killed the helper may do
+    // it again. The `CONNECTION_CLOSED` event says the same if it comes
+    // first; then this finds nothing.
+    if (connection.type === "duckdb" && isTauri()) {
+      void log.warn(`Core no longer holds DuckDB connection ${connection.id}`);
+      this.markDisconnected(connection);
+      errorToast(m.connection_closed_lost({ name: connection.name }));
+      return;
+    }
     void log.warn(`Core no longer holds connection ${connection.id}; reconnecting`);
     this.reconnectQuietly(connection, () => m.connection_closed_lost({ name: connection.name }));
   }
@@ -611,6 +653,7 @@ export class ConnectionManager {
         connection.type,
         formConnectRequest(connection),
         sshServerOf(connection),
+        { interactive: true },
       );
       const projectId = connection.projectId || this.state.activeProjectId || DEFAULT_PROJECT_ID;
 
@@ -788,18 +831,24 @@ export class ConnectionManager {
 
   /**
    * Reconnect to an existing connection from the reconnect tab's form.
+   * `askToInstall: false` (the tab's own auto-connect) never opens the
+   * DuckDB support dialog; the tab's Connect does.
    */
   reconnect(
     connectionId: string,
     connection: ConnectionInput,
     baseline?: ConnectionFields,
+    options: { askToInstall?: boolean } = {},
   ): Promise<string> {
     // One at a time per connection (review M1), as `autoReconnect`.
     const running = this.reconnects.get(connectionId);
     if (running) return running;
-    const attempt = this.reconnectOnce(connectionId, connection, baseline).finally(() => {
-      this.reconnects.delete(connectionId);
-    });
+    const interactive = options.askToInstall ?? true;
+    const attempt = this.reconnectOnce(connectionId, connection, baseline, interactive).finally(
+      () => {
+        this.reconnects.delete(connectionId);
+      },
+    );
     this.reconnects.set(connectionId, attempt);
     return attempt;
   }
@@ -807,7 +856,8 @@ export class ConnectionManager {
   private async reconnectOnce(
     connectionId: string,
     connection: ConnectionInput,
-    baseline?: ConnectionFields,
+    baseline: ConnectionFields | undefined,
+    interactive: boolean,
   ): Promise<string> {
     void log.info(`Reconnecting: ${connectionId}`);
     const existingConnection = this.state.connections.find((c) => c.id === connectionId);
@@ -830,6 +880,7 @@ export class ConnectionManager {
         // changed since `baseline` (what it opened with), so another
         // window's edit to another field survives, and the secrets it saves.
         { input: connection, baseline },
+        { interactive },
       );
       return connectionId;
     } finally {
@@ -848,9 +899,10 @@ export class ConnectionManager {
     existingConnection: DatabaseConnection,
     request: ConnectRequest,
     ssh: SshServer,
-    form?: { input: ConnectionInput; baseline?: ConnectionFields },
-    background = false,
+    form: { input: ConnectionInput; baseline?: ConnectionFields } | undefined,
+    options: { background?: boolean; interactive: boolean },
   ): Promise<void> {
+    const background = options.background ?? false;
     const connectionId = existingConnection.id;
     // Disconnect the existing connection first and mark it disconnected (Core
     // closes its tunnel with it). If the new connect fails, the connection
@@ -863,7 +915,9 @@ export class ConnectionManager {
       );
     }
 
-    const providerConnectionId = await this.connectCore(existingConnection.type, request, ssh);
+    const providerConnectionId = await this.connectCore(existingConnection.type, request, ssh, {
+      interactive: options.interactive,
+    });
     // The user disconnected it while a background reconnect ran: theirs wins.
     if (background && this.userDisconnected.has(connectionId)) {
       await this.disconnectCore(existingConnection.type, providerConnectionId);
@@ -1031,11 +1085,35 @@ export class ConnectionManager {
   async test(connection: ConnectionInput): Promise<void> {
     assertDatabaseTypeAvailable(connection.type);
     this.assertSshAvailable(connection);
+    // Decision 6: a DuckDB file a connected connection holds can't be
+    // opened twice (Core refuses at once). It is open and working, so the
+    // test passes without asking, when the form names it the same way: the
+    // same path, and no connection string or the row's own (one with other
+    // options is Core's to test). Core compares files, this paths: another
+    // spelling of the same file gets Core's answer as it is.
+    const file = isTauri() ? duckdbFile(connection) : null;
+    const formString = connection.connectionString?.trim() ?? "";
+    if (
+      file &&
+      this.state.connections.some(
+        (c) =>
+          !!c.providerConnectionId &&
+          duckdbFile(c) === file &&
+          (formString === "" || formString === (c.connectionString?.trim() ?? "")),
+      )
+    ) {
+      return;
+    }
     const provider = await this.providers.getForType(connection.type);
     const request = formConnectRequest(connection);
-    await withHostKeyPrompt(
-      (trustHostKey) => provider.test(trustHostKey ? { ...request, trustHostKey } : request),
-      sshServerOf(connection),
+    await viaDuckdbHelper(
+      connection.type,
+      () =>
+        withHostKeyPrompt(
+          (trustHostKey) => provider.test(trustHostKey ? { ...request, trustHostKey } : request),
+          sshServerOf(connection),
+        ),
+      { interactive: true },
     );
   }
 
@@ -1214,7 +1292,8 @@ export class ConnectionManager {
         },
         sshServerOf(connection),
         undefined,
-        background,
+        // A background reconnect never opens the DuckDB support dialog.
+        { background, interactive: !background },
       );
       void log.info(`Auto-reconnect successful: ${connectionId}`);
       return true;

@@ -109,71 +109,25 @@ jobs:
           Set-Content $configPath $config
           Write-Host "Transformed version for Windows build"
 
-      # The CLI is a separate release asset downloaded only when a user installs
-      # it from Settings. It is no longer included in the desktop bundles.
-      - name: Build seaquel-cli
-        shell: bash
-        run: node scripts/build-cli.mjs --release --target ${{ matrix.target }}
-
-      - name: Sign macOS CLI
-        if: runner.os == 'macOS'
-        run: codesign --force --sign "$CERT_ID" --options runtime --entitlements src-tauri/macos/entitlements.plist src-tauri/binaries/seaquel-cli-${{ matrix.target }}
-
-      - name: Sign Windows CLI
-        if: runner.os == 'Windows'
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-        shell: bash
-        run: trusted-signing-cli -e https://eus.codesigning.azure.net -a Seaquel -c Seaquel -d Seaquel src-tauri/binaries/seaquel-cli-${{ matrix.target }}.exe
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: seaquel-cli-${{ matrix.target }}
-          path: src-tauri/binaries/seaquel-cli-${{ matrix.target }}*
-          if-no-files-found: error
-
-      # The TUI (phase 7a) is a release asset of its own, built, signed and
-      # uploaded exactly as the CLI is.
-      - name: Build seaquel-tui
-        shell: bash
-        run: node scripts/build-cli.mjs --release --bin seaquel-tui --target ${{ matrix.target }}
-
-      - name: Sign macOS TUI
-        if: runner.os == 'macOS'
-        run: codesign --force --sign "$CERT_ID" --options runtime --entitlements src-tauri/macos/entitlements.plist src-tauri/binaries/seaquel-tui-${{ matrix.target }}
-
-      - name: Sign Windows TUI
-        if: runner.os == 'Windows'
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-        shell: bash
-        run: trusted-signing-cli -e https://eus.codesigning.azure.net -a Seaquel -c Seaquel -d Seaquel src-tauri/binaries/seaquel-tui-${{ matrix.target }}.exe
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: seaquel-tui-${{ matrix.target }}
-          path: src-tauri/binaries/seaquel-tui-${{ matrix.target }}*
-          if-no-files-found: error
-
       # The DuckDB helper (the DuckDB helper plan, Decision 14): the terminal
       # binaries link no DuckDB and download this on first use, so it is the
       # one DuckDB compile per target besides the app's. Built, signed and
-      # uploaded as the CLI and TUI are, with the same entitlements file:
-      # DuckDB loads its extensions (httpfs, …) as dylibs signed by DuckDB,
-      # which the hardened runtime refuses without
-      # `disable-library-validation` (issue #114). It is gzipped after
-      # signing, so the .gz holds the signed binary; only the .gz is uploaded.
+      # uploaded as the CLI and TUI are, but with an entitlements file of its
+      # own: DuckDB loads its extensions (httpfs, …) as dylibs signed by
+      # DuckDB, which the hardened runtime refuses without
+      # `disable-library-validation` (issue #114). The app, the CLI and the
+      # TUI load no DuckDB in process, so they carry no entitlements (the
+      # desktop DuckDB helper plan, Q12 B; scripts/macos-entitlements.test.mjs).
+      # It is gzipped after signing, so the .gz holds the signed binary; only
+      # the .gz is uploaded, by this job, right after the app (Decision 15).
+      # It comes first: the app's build needs its pin.
       - name: Build seaquel-duckdb
         shell: bash
         run: node scripts/build-cli.mjs --release --bin seaquel-duckdb --target ${{ matrix.target }}
 
       - name: Sign macOS DuckDB helper
         if: runner.os == 'macOS'
-        run: codesign --force --sign "$CERT_ID" --options runtime --entitlements src-tauri/macos/entitlements.plist src-tauri/binaries/seaquel-duckdb-${{ matrix.target }}
+        run: codesign --force --sign "$CERT_ID" --options runtime --timestamp --entitlements src-tauri/macos/duckdb-helper.entitlements.plist src-tauri/binaries/seaquel-duckdb-${{ matrix.target }}
 
       - name: Sign Windows DuckDB helper
         if: runner.os == 'Windows'
@@ -184,6 +138,20 @@ jobs:
         shell: bash
         run: trusted-signing-cli -e https://eus.codesigning.azure.net -a Seaquel -c Seaquel -d Seaquel src-tauri/binaries/seaquel-duckdb-${{ matrix.target }}.exe
 
+      # Notarized (the desktop DuckDB helper plan, Task 9 review M4) so a copy
+      # someone downloads in a browser and gunzips by hand passes Gatekeeper;
+      # the app's, CLI's and TUI's own downloads carry no quarantine flag. With
+      # the same Apple ID tauri-action notarizes the app with. A bare binary
+      # can't be stapled, so Gatekeeper fetches the ticket online. Notarizing
+      # doesn't change the file, so the order is sign, notarize, gzip, pin.
+      - name: Notarize macOS DuckDB helper
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash scripts/notarize-macos.sh src-tauri/binaries/seaquel-duckdb-${{ matrix.target }}
+
       - name: Gzip the signed DuckDB helper
         shell: bash
         run: |
@@ -192,13 +160,79 @@ jobs:
           node --input-type=module -e "import { gzipFile } from './scripts/build-cli.mjs'; gzipFile(process.argv[1], process.argv[1] + '.gz');" "$bin"
           ls -l "$bin" "$bin.gz"
 
+      # The pin (the desktop DuckDB helper plan, Q1 B, Decision 4): the .gz's
+      # size (plain decimal) and SHA-256 (64 lowercase hex, no prefix) go to
+      # $GITHUB_ENV, so the app built below compiles them in and downloads
+      # exactly this file. Also written to release-pins/ for check-release.
+      # Nothing may touch the .gz after this step: it is uploaded as hashed.
+      - name: Pin the DuckDB helper for the app's build
+        shell: bash
+        run: node scripts/release-pin.mjs export --target ${{ matrix.target }}
+
+      # The CLI is a separate release asset downloaded only when a user installs
+      # it from Settings. It is no longer included in the desktop bundles.
+      - name: Build seaquel-cli
+        shell: bash
+        run: node scripts/build-cli.mjs --release --target ${{ matrix.target }}
+
+      - name: Sign macOS CLI
+        if: runner.os == 'macOS'
+        run: codesign --force --sign "$CERT_ID" --options runtime --timestamp src-tauri/binaries/seaquel-cli-${{ matrix.target }}
+
+      - name: Sign Windows CLI
+        if: runner.os == 'Windows'
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        shell: bash
+        run: trusted-signing-cli -e https://eus.codesigning.azure.net -a Seaquel -c Seaquel -d Seaquel src-tauri/binaries/seaquel-cli-${{ matrix.target }}.exe
+
+      # The TUI (phase 7a) is a release asset of its own, built, signed and
+      # uploaded exactly as the CLI is.
+      - name: Build seaquel-tui
+        shell: bash
+        run: node scripts/build-cli.mjs --release --bin seaquel-tui --target ${{ matrix.target }}
+
+      - name: Sign macOS TUI
+        if: runner.os == 'macOS'
+        run: codesign --force --sign "$CERT_ID" --options runtime --timestamp src-tauri/binaries/seaquel-tui-${{ matrix.target }}
+
+      - name: Sign Windows TUI
+        if: runner.os == 'Windows'
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        shell: bash
+        run: trusted-signing-cli -e https://eus.codesigning.azure.net -a Seaquel -c Seaquel -d Seaquel src-tauri/binaries/seaquel-tui-${{ matrix.target }}.exe
+
+      # The CLI and the TUI are notarized together (submitted at once, waited
+      # for together), for the same reason as the helper: a copy downloaded
+      # in a browser keeps the quarantine flag. Not stapled (a bare binary
+      # can't be). Uploaded only after this.
+      - name: Notarize macOS CLI and TUI
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash scripts/notarize-macos.sh src-tauri/binaries/seaquel-cli-${{ matrix.target }} src-tauri/binaries/seaquel-tui-${{ matrix.target }}
+
       - uses: actions/upload-artifact@v4
         with:
-          name: seaquel-duckdb-${{ matrix.target }}
-          path: src-tauri/binaries/seaquel-duckdb-${{ matrix.target }}*.gz
+          name: seaquel-cli-${{ matrix.target }}
+          path: src-tauri/binaries/seaquel-cli-${{ matrix.target }}*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seaquel-tui-${{ matrix.target }}
+          path: src-tauri/binaries/seaquel-tui-${{ matrix.target }}*
           if-no-files-found: error
 
       - name: build and publish
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -214,16 +248,71 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           NODE_OPTIONS: "--max-old-space-size=4096"
+          # src-tauri/build.rs fails the build without the pin exported above
+          # (SEAQUEL_DUCKDB_HELPER_SIZE and _SHA256 come from $GITHUB_ENV).
+          SEAQUEL_DUCKDB_HELPER_REQUIRE_PIN: "1"
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Release ${{ github.ref_name }}"
+          # The title is the gate (the desktop DuckDB helper plan, Task 9
+          # review I1): only check-release sets "Release <tag>", once every
+          # target's app, helper, CLI, TUI and updater entry are in.
+          releaseName: "NOT CHECKED: Release ${{ github.ref_name }}"
           releaseBody: |
             See the assets to download this version and install.
 
             > These binaries follow Seaquel's [pricing terms](https://seaquel.app/pricing): free for personal use, license required for commercial use. The source is MIT licensed and can be built and run for free, for both personal and commercial use.
           releaseDraft: true
-          prerelease: false
+          # A pre-release (review I3): the website's update check skips
+          # pre-releases, so publishing the draft reaches no installed app.
+          # Promoting it to the latest release, after the manual checks, is
+          # the deliberate step.
+          prerelease: true
           args: ${{ matrix.args }}
+
+      # The app that was just built and uploaded holds this helper's pin
+      # (`<size>:<sha256>`, compiled in by src-tauri/build.rs). Recorded for
+      # check-release either way.
+      - name: Check the app carries the pin
+        shell: bash
+        run: node scripts/release-pin.mjs verify-app --target ${{ matrix.target }}
+
+      # The helper goes into the draft with its app (Decision 15), so a job
+      # that failed leaves neither. Through actions/github-script rather than
+      # `gh` (review I2): `gh` isn't promised on the partner images
+      # (windows-11-arm, ubuntu-24.04-arm) and installing it there isn't
+      # reliable; github-script runs on the action's own Node with the job's
+      # token. The script re-hashes the .gz against the pin's record, uploads
+      # those same bytes (replacing an earlier upload on a re-run) and checks
+      # GitHub's size and digest (scripts/upload-helper-asset.mjs).
+      - name: Upload the DuckDB helper to the draft
+        uses: actions/github-script@v7
+        env:
+          TARGET: ${{ matrix.target }}
+          RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const path = require("node:path");
+            const root = process.env.GITHUB_WORKSPACE;
+            const { uploadHelper } = await import(pathToFileURL(path.join(root, "scripts", "upload-helper-asset.mjs")).href);
+            await uploadHelper({
+              github,
+              context,
+              root,
+              target: process.env.TARGET,
+              tag: context.ref.replace(/^refs\/tags\//, ""),
+              releaseId: process.env.RELEASE_ID,
+            });
+
+      # The record (target, asset, size, sha256, whether the app is pinned),
+      # even when a step above failed, so check-release can say which.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: duckdb-pin-${{ matrix.target }}
+          path: release-pins/duckdb-pin-${{ matrix.target }}.json
+          if-no-files-found: ignore
+          overwrite: true
 
   publish-cli:
     needs: publish-tauri
@@ -241,14 +330,9 @@ jobs:
           pattern: seaquel-tui-*
           path: cli-assets
           merge-multiple: true
-      # The DuckDB helper's .gz per target (`seaquel-duckdb-<triple>[.exe].gz`),
-      # the names Core's install asks the release for.
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: seaquel-duckdb-*
-          path: cli-assets
-          merge-multiple: true
-      - name: Add standalone CLI and TUI binaries and the DuckDB helper to the release
+      # The DuckDB helpers are uploaded by each target's own job, with its
+      # app (the desktop DuckDB helper plan, Decision 15).
+      - name: Add standalone CLI and TUI binaries to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -284,3 +368,64 @@ jobs:
           else
             echo "Version already correct: $CURRENT"
           fi
+
+  # Q11 B, Decision 15 of the desktop DuckDB helper plan: the draft is
+  # published by hand, and the website's update check offers the newest
+  # published release at once, so a draft with an app but not its helper
+  # must never be published. This runs after every other job, whatever they
+  # ended with, and fails naming each problem unless every target has its
+  # app (pinned to its helper), its helper's .gz byte for byte as pinned,
+  # its CLI and TUI, and its latest.json entry (scripts/check-release.mjs).
+  # The title is the gate: tauri-action creates the draft "NOT CHECKED: …",
+  # and only a pass here makes it "Release <tag>" (a failure makes it "NOT
+  # READY …"). The release is a pre-release, which the update check skips;
+  # promoting it to latest after the manual checks is the step that reaches
+  # users (the plan's "Risks: no fallback build").
+  check-release:
+    needs: [publish-tauri, publish-cli, fix-updater-manifest]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+      # The matrix jobs' records. None at all is reported by the script.
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: duckdb-pin-*
+          path: release-check/pins
+          merge-multiple: true
+      - name: Check the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -u
+          mkdir -p release-check/download
+          # A missing draft or asset is reported by the script, not here.
+          gh release view "$TAG" --json assets,isDraft,isPrerelease > release-check/release.json || rm -f release-check/release.json
+          gh release download "$TAG" --dir release-check/download --pattern 'seaquel-duckdb-*.gz' --pattern latest.json || true
+          status=0
+          node scripts/check-release.mjs --tag "$TAG" --dir release-check \
+            --job "publish-tauri=${{ needs.publish-tauri.result }}" \
+            --job "publish-cli=${{ needs.publish-cli.result }}" \
+            --job "fix-updater-manifest=${{ needs.fix-updater-manifest.result }}" || status=$?
+          # The title is the gate (review I1): "Release <tag>" only on a pass.
+          # Only a draft or a pre-release is retitled, never a release the
+          # owner has already promoted.
+          unpromoted=$(jq -r '.isDraft or .isPrerelease' release-check/release.json 2>/dev/null || echo false)
+          if [ "$unpromoted" = true ]; then
+            if [ "$status" -eq 0 ]; then
+              gh release edit "$TAG" --title "Release $TAG" \
+                || echo "::warning::check-release passed but couldn't set the title; it still says NOT CHECKED"
+            else
+              gh release edit "$TAG" --title "NOT READY (check-release failed): Release $TAG" \
+                || echo "::warning::couldn't set the NOT READY title"
+            fi
+          fi
+          exit "$status"

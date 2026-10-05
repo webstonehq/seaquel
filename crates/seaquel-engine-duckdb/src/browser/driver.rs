@@ -4,8 +4,8 @@
 //! - **One DuckDB-WASM connection per Core connection**, on the page's one
 //!   database; the connect config's path is ignored. A `restricted` connect
 //!   (the MCP server's) is `NOT_SUPPORTED`.
-//! - **Calls take turns** on the connection (an async mutex, as the native
-//!   driver's blocking thread holds its connection), so a transaction or a
+//! - **Calls take turns** on the connection (an async mutex, as the helper's
+//!   main session holds its connection), so a transaction or a
 //!   stream is never interleaved with another call.
 //! - **Every statement runs as a pending query**, unprepared: bound values
 //!   are written in as literals ([`super::binds`]), the result arrives as
@@ -45,7 +45,7 @@ const RULES: KindRules = KindRules {
     decimal38_is_hugeint: true,
 };
 
-/// Rows per streamed batch, as in the native driver.
+/// Rows per streamed batch, as in the sqlx drivers.
 const BATCH_SIZE: usize = 5000;
 
 /// The DuckDB engine over the page's DuckDB-WASM. Its id is `duckdb`, so
@@ -212,7 +212,7 @@ impl<'b> Pending<'b> {
             // DuckDB-WASM's pending results carry no ENUM dictionary; its
             // `runQuery` files do. A lone SELECT changes nothing, so it is
             // cancelled and run again that way (not cancellable, and read
-            // whole before the caps apply, as natively). Anything else has
+            // whole before the caps apply, as in the helper). Anything else has
             // already run: its ENUM column fails with `UNSUPPORTED_TYPE`
             // when its rows are read.
             bridge.post_cancel(conn);
@@ -314,7 +314,7 @@ async fn query_capped(
 /// Runs `sql` on `conn` to the end and returns the rows it changed: the
 /// `Count` column DuckDB answers INSERT, UPDATE and DELETE with (and
 /// `CREATE TABLE … AS`), 0 for anything else. Rows of other results are
-/// read (so the statement runs to its end, as natively) but not decoded.
+/// read (so the statement runs to its end, as in the helper) but not decoded.
 async fn execute_on(bridge: &Bridge, conn: u32, sql: &str, op: Op) -> Result<u64, DbError> {
     let mut pending = Pending::start(bridge, conn, sql, op, None).await?;
     let columns = pending.columns();
@@ -335,7 +335,7 @@ async fn execute_on(bridge: &Bridge, conn: u32, sql: &str, op: Op) -> Result<u64
 
 /// Whether a transaction opened by hand is running on `conn`: inside one,
 /// two `txid_current()` calls return the same id; in autocommit each
-/// statement has its own. A probe that fails counts as open, as natively.
+/// statement has its own. A probe that fails counts as open, as in the helper.
 async fn transaction_open(bridge: &Bridge, conn: u32) -> bool {
     let cap = RowCap::fail(2);
     let txid = || async {
@@ -354,7 +354,7 @@ async fn transaction_open(bridge: &Bridge, conn: u32) -> bool {
 /// The read-only wrapper's text, which DuckDB's errors point at.
 const READ_ONLY_WRAPPER: &str = "SELECT * FROM query(";
 
-/// DuckDB's refusals on the read-only path, as in the native driver.
+/// DuckDB's refusals on the read-only path, as in the helper (`session.rs`).
 const READ_ONLY_REFUSALS: &[&str] = &[
     "Expected a single SELECT statement",
     "transaction is launched in read-only mode",
@@ -549,7 +549,7 @@ impl Driver for BrowserDriver {
         })
     }
 
-    /// Every statement or none, as the native driver: refused before BEGIN
+    /// Every statement or none, as in the helper: refused before BEGIN
     /// while a transaction opened by hand is running ([`TRANSACTION_OPEN`]),
     /// each statement's `expect_rows` checked, the first failure rolled back
     /// and returned with its index. Dropping the call cancels the statement

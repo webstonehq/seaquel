@@ -7,9 +7,17 @@
 	import { Checkbox } from "$lib/components/ui/checkbox";
 	import { errorToast } from "$lib/utils/toast";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
-	import { getCliInfo, installCli, type CliInfo } from "$lib/api/tauri";
+	import {
+		DuckdbHelperError,
+		getCliInfo,
+		installCli,
+		type CliInfo,
+		type DuckdbHelperProgress,
+	} from "$lib/api/tauri";
+	import { installDuckdbHelperJoined } from "$lib/core/duckdb-helper";
+	import { sizeText } from "$lib/utils/size-text";
 	import McpSnippet from "./mcp-snippet.svelte";
-	import { helperNeeded, offersInstall } from "./cli-status";
+	import { helperWarning, installTarget } from "./cli-status";
 	import {
 		claudeCodeCommand,
 		claudeDesktopConfig,
@@ -37,6 +45,8 @@
 	let info = $state<CliInfo | null>(null);
 	let loadError = $state<string | null>(null);
 	let installing = $state(false);
+	/** The helper-only install's download, for the button. */
+	let progress = $state<DuckdbHelperProgress | null>(null);
 
 	const selectedProjects = new SvelteSet<string>();
 	const selectedConnections = new SvelteSet<string>();
@@ -57,11 +67,29 @@
 	async function install() {
 		installing = true;
 		try {
-			await installCli();
+			// Only the helper when the CLI is current (Decision 12); the CLI's
+			// install adds the helper after it. A running download (the
+			// startup prefetch, the install dialog) is joined, not repeated, and
+			// a dialog opened meanwhile joins this one.
+			if (target === "helper") {
+				await installDuckdbHelperJoined((p) => {
+					progress = p;
+				});
+			} else {
+				await installCli();
+			}
 		} catch (error) {
-			errorToast(error instanceof Error ? error.message : String(error));
+			if (error instanceof DuckdbHelperError) {
+				// Cancelled from the install dialog, which joined this download.
+				if (error.code !== "CANCELLED") {
+					errorToast(m.settings_mcp_duckdb_install_failed({ error: `${error.code}: ${error.message}` }));
+				}
+			} else {
+				errorToast(error instanceof Error ? error.message : String(error));
+			}
 		} finally {
 			installing = false;
+			progress = null;
 			await refresh();
 		}
 	}
@@ -84,8 +112,10 @@
 			.map((c) => c.id),
 	});
 
-	// The CLI's DuckDB helper (installed beside it by the same button).
-	const needsHelper = $derived(helperNeeded(info));
+	// DuckDB support: the app's and the CLI's (one helper). The button
+	// installs it alone when the CLI is current.
+	const warning = $derived(helperWarning(info));
+	const target = $derived(info ? installTarget(info, os) : null);
 
 	const nothingSelected = $derived(selection.projectIds.length === 0 && selection.connectionIds.length === 0);
 	const binary = $derived(info?.commandPath ?? "seaquel-cli");
@@ -141,15 +171,23 @@
 					{info.appImage ? m.settings_mcp_path_missing_appimage() : m.settings_mcp_path_missing()}
 				</p>
 			{/if}
-			{#if needsHelper}
+			{#if warning}
 				<p class="flex items-center gap-1.5 text-xs text-amber-600">
 					<TriangleAlertIcon class="size-3.5 shrink-0" />
-					{info.duckdbHelper === "unsafe" ? m.settings_mcp_duckdb_unsafe() : m.settings_mcp_duckdb_missing()}
+					{warning}
 				</p>
 			{/if}
-			{#if offersInstall(info, os)}
+			{#if target}
 				<Button variant="outline" size="sm" onclick={install} disabled={installing}>
-					{installing ? m.settings_mcp_installing() : m.settings_mcp_install()}
+					{#if installing && progress && progress.bytes > 0}
+						{m.duckdb_install_progress({ bytes: sizeText(progress.bytes), total: sizeText(progress.total) })}
+					{:else if installing}
+						{m.settings_mcp_installing()}
+					{:else if target === "helper"}
+						{m.settings_mcp_install_duckdb()}
+					{:else}
+						{m.settings_mcp_install()}
+					{/if}
 				</Button>
 			{/if}
 		{/if}

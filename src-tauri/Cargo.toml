@@ -26,11 +26,13 @@ tauri-build = { version = "2", features = [] }
 # workspace, saved rows and forms alike.
 # `ai-native` (phase 6): Core runs the assistant and calls models with
 # seaquel-http's client; `ai-system-proxy` adds the OS proxy settings to it.
-# `duckdb-helper-install` (the DuckDB helper plan, Q4 C): "Install Command
-# Line Tool…" also installs the CLI's DuckDB helper through Core's install,
-# into the folder the terminal binaries look in. It adds the remote DuckDB
-# client to Core; the app itself keeps the native driver (Q6 A).
-seaquel-core = { path = "../crates/seaquel-core", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports", "ai-native", "ai-system-proxy", "duckdb-helper-install"] }
+# `duckdb-helper-install` (the DuckDB helper plan, Q4 C): Core's install of
+# the `seaquel-duckdb` helper, into the folder the terminal binaries look
+# in, with the remote DuckDB client (`engine-duckdb-remote`).
+# No default features (the desktop DuckDB helper plan, Decision 2): the
+# four engines that run in process, and DuckDB through the helper, so the
+# app links no DuckDB (`libduckdb-sys`).
+seaquel-core = { path = "../crates/seaquel-core", default-features = false, features = ["engine-postgres", "engine-mysql", "engine-sqlite", "engine-mssql", "storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports", "ai-native", "ai-system-proxy", "duckdb-helper-install"] }
 seaquel-types = { path = "../crates/seaquel-types" }
 # `TokioExecutor`, Core's clock for the editor's runs (phase 5b).
 seaquel-runtime = { path = "../crates/seaquel-runtime", features = ["tokio"] }
@@ -45,7 +47,7 @@ futures = "0.3"
 # OnceCell for the lazily opened workspace. SSH moved to seaquel-ssh.
 # `time`: the bound on a stopped turn's last write (phase 6).
 # `rt`: the helper install's own runtime (cli_download.rs).
-tokio = { version = "1", features = ["sync", "time", "rt"] }
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 tauri-plugin-os = "2"
 tauri-plugin-clipboard-manager = "2.3.2"
 arboard = "3.6.1"
@@ -69,6 +71,11 @@ tokio = { version = "1", features = ["sync", "time", "macros", "rt-multi-thread"
 # The DuckDB helper's install (cli_download.rs): `MockReleases` on
 # 127.0.0.1 and the platform triple table. Never the real network.
 seaquel-http = { path = "../crates/seaquel-http", features = ["release-asset", "testing"] }
+# `CoreBuilder::duckdb_helper_releases` (the tests' loopback release
+# server) outside debug builds, so `cargo test --release -p seaquel`
+# compiles (Task 10's P3). Dev-dependency features reach test builds only:
+# the app's own build still fetches only from GitHub.
+seaquel-core = { path = "../crates/seaquel-core", default-features = false, features = ["duckdb-helper-testing"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

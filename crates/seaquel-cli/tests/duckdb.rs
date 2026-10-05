@@ -268,50 +268,32 @@ fn parts(sb: &Sandbox) -> Vec<String> {
 }
 
 /// Review I2: SIGINT during `install --from` stops the blocking copy
-/// between reads and waits for it, so no `.part` file is left. The file
-/// is a FIFO the test feeds slowly, so the install is mid-copy when the
-/// signal arrives.
+/// between reads and waits for it, so no `.part` file is left, and the CLI
+/// exits 130. The file is a regular file of 8 MiB (128 reads of 64 KiB),
+/// copied with a 50 ms pause before each read through the debug-only
+/// `SEAQUEL_CLI_TEST_SLOW_READ_MS` hook: about 6.4 s in all, well past the
+/// CLI's 3 s wait for the copy to stop, so a copy that ignored the cancel
+/// would leave its `.part` behind when the process exits. (It used a FIFO until Task 4's review I1 made
+/// `--from` refuse anything but a regular file.)
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn sigint_during_install_from_leaves_no_partial_file() {
-    use std::io::Write;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
     let sb = Sandbox::new();
-    let fifo = sb.dir.path().join("asset.gz");
-    assert!(std::process::Command::new("mkfifo")
-        .arg(&fifo)
-        .status()
-        .unwrap()
-        .success());
-    let stop = Arc::new(AtomicBool::new(false));
-    let writer = {
-        let (fifo, stop) = (fifo.clone(), stop.clone());
-        std::thread::spawn(move || {
-            let Ok(mut f) = std::fs::OpenOptions::new().write(true).open(&fifo) else {
-                return;
-            };
-            let chunk = vec![0u8; 64 * 1024];
-            for _ in 0..1500 {
-                if stop.load(Ordering::Relaxed) || f.write_all(&chunk).is_err() {
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-        })
-    };
+    let file = sb.dir.path().join("asset.gz");
+    std::fs::write(&file, vec![0u8; 8 * 1024 * 1024]).unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_seaquel-cli"));
     let zeros = "0".repeat(64);
     cmd.args([
         "duckdb",
         "install",
         "--from",
-        fifo.to_str().unwrap(),
+        file.to_str().unwrap(),
         "--sha256",
         &zeros,
     ])
     .env("SEAQUEL_DATA_DIR", sb.data())
     .env("SEAQUEL_CLI_TEST_DUCKDB_RELEASES", NO_RELEASES)
+    .env("SEAQUEL_CLI_TEST_SLOW_READ_MS", "50")
     .stdin(std::process::Stdio::null())
     .stdout(std::process::Stdio::piped())
     .stderr(std::process::Stdio::piped())
@@ -321,7 +303,7 @@ async fn sigint_during_install_from_leaves_no_partial_file() {
     let mut waited = 0;
     while parts(&sb).is_empty() {
         assert!(waited < 400, "the install never started copying");
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
         waited += 1;
     }
     let pid = child.id().unwrap().to_string();
@@ -334,11 +316,47 @@ async fn sigint_during_install_from_leaves_no_partial_file() {
         .await
         .expect("exits after SIGINT")
         .unwrap();
-    // The writer ends on EPIPE now that the reader is gone (or at `stop`).
-    stop.store(true, Ordering::Relaxed);
-    writer.join().unwrap();
     assert_eq!(out.status.code(), Some(130), "{}", stderr(&out));
     assert_eq!(stdout(&out), "");
     assert_eq!(parts(&sb), Vec::<String>::new(), "a partial file was left");
+    assert!(!sb.helper_path().exists());
+}
+
+/// Task 4 review I1: a FIFO given to `--from` (nothing writing to it, so
+/// opening it would block) is refused at once with a plain error, and
+/// nothing is made.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fifo_given_to_from_is_refused_at_once() {
+    let sb = Sandbox::new();
+    let fifo = sb.dir.path().join("asset.gz");
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap()
+        .success());
+    let zeros = "0".repeat(64);
+    let out = tokio::time::timeout(
+        Duration::from_secs(10),
+        sb.run(
+            NO_RELEASES,
+            &[
+                "duckdb",
+                "install",
+                "--from",
+                fifo.to_str().unwrap(),
+                "--sha256",
+                &zeros,
+            ],
+        ),
+    )
+    .await
+    .expect("refused at once, not blocked on the FIFO");
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    let err = stderr(&out);
+    assert!(err.contains("isn't a regular file"), "{err}");
+    assert!(!err.contains(&*sb.dir.path().to_string_lossy()), "{err}");
+    assert_eq!(parts(&sb), Vec::<String>::new());
     assert!(!sb.helper_path().exists());
 }

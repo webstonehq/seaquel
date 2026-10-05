@@ -612,6 +612,20 @@ pub trait Driver: MaybeSend + MaybeSync {
 
     async fn close(&self) -> Result<(), DbError>;
 
+    /// A future that ends when the connection does (the desktop DuckDB
+    /// helper plan, Decision 7): `Some(error)` when it was lost without
+    /// being asked to close (the remote DuckDB driver's helper died: a
+    /// signal, a protocol break), with the error every call now gets;
+    /// `None` when it ended as asked ([`Driver::close`], or the driver was
+    /// dropped). Core watches it and, on `Some`, takes the connection out
+    /// and announces it as `ConnectionClosed` with `CONNECTION_CLOSED`.
+    ///
+    /// `None` (the default): the driver doesn't notice a lost connection
+    /// by itself. The future must not keep the driver alive.
+    fn closed(&self) -> Option<seaquel_runtime::BoxFuture<'static, Option<DbError>>> {
+        None
+    }
+
     // ── Introspection ──
     //
     // Engines whose dialect still lives in TypeScript leave these alone; the
@@ -683,6 +697,24 @@ pub trait Engine: MaybeSend + MaybeSync {
     }
 
     /// The engine's SQL dialect, when it has moved to Rust.
+    /// What can be checked before anything is opened or closed, so a
+    /// refusal comes before Core closes the connections a reconnect would
+    /// replace (the remote DuckDB engine: the helper's install check,
+    /// `ENGINE_NOT_INSTALLED`). Default `Ok`.
+    fn preflight(&self, _config: &ConnectConfig) -> Result<(), DbError> {
+        Ok(())
+    }
+
+    /// Whether a connection `config` opens holds its database file
+    /// exclusively, so a second connection to it can't open while the
+    /// first is open (the remote DuckDB driver: one helper per file, and
+    /// DuckDB's file lock). Core then closes the connections a window's
+    /// reconnect replaces before opening the new one, not after (the
+    /// desktop DuckDB helper plan, review I1). Default `false`.
+    fn exclusive_file(&self, _config: &ConnectConfig) -> bool {
+        false
+    }
+
     fn dialect(&self) -> Option<&dyn Dialect> {
         None
     }

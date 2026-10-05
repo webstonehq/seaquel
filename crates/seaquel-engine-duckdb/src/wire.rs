@@ -50,10 +50,19 @@ pub(crate) const MAX_FRAME: usize = 16 * 1024 * 1024;
 pub(crate) const MAX_BATCH_FRAME: usize = 8 * 1024 * 1024;
 
 /// Batch frames a streaming call may have in flight ahead of the client's
-/// `credit` frames: the native driver's `STREAM_BUFFER`.
+/// `credit` frames (what the native driver held in flight, while there was
+/// one).
 // Both sides' (dead only in a test build with neither).
 #[cfg_attr(not(any(feature = "remote", feature = "helper")), allow(dead_code))]
 pub(crate) const STREAM_CREDIT: u32 = 2;
+
+/// Read-only calls (`readOnly`, `explainReadOnly`) a helper runs at once,
+/// each on a DuckDB clone and a thread of its own; past it the helper
+/// answers `TOO_MANY_REQUESTS`. The client sends at most this many and
+/// queues the rest (the desktop DuckDB helper plan, Decision 5), so the
+/// helper's refusal is only a backstop.
+#[cfg_attr(not(any(feature = "remote", feature = "helper")), allow(dead_code))]
+pub(crate) const MAX_READ_ONLY_CALLS: usize = 16;
 
 /// The error code of a broken wire: a frame over the limit, a kind or a
 /// control message that doesn't parse.
@@ -269,8 +278,8 @@ pub(crate) async fn read_frame_async(
 
 /// A schema frame's payload: `[kinds_len u32 LE][kinds JSON][IPC schema
 /// message]`. The kinds are the result's columns' [`Kind`]s from DuckDB's
-/// logical types (the native driver's `kind_of`), one per column; with them
-/// the client decodes as the native driver does even where the Arrow field
+/// logical types (`kinds::of`), one per column; with them the client
+/// decodes by DuckDB's types even where the Arrow field
 /// is ambiguous (a session that reset `arrow_lossless_conversion` sends
 /// UHUGEINT as `Decimal128(38, 0)` and BIT as plain binary).
 #[cfg_attr(not(feature = "helper"), allow(dead_code))] // the helper's
@@ -883,8 +892,8 @@ mod tests {
         }
     }
 
-    /// A schema frame carries the columns' kinds (the native driver's,
-    /// from DuckDB's logical types) ahead of the IPC schema message, nested
+    /// A schema frame carries the columns' kinds (from DuckDB's logical
+    /// types) ahead of the IPC schema message, nested
     /// kinds included. A payload that doesn't hold them is a broken wire,
     /// reported without its bytes.
     #[test]

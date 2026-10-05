@@ -56,9 +56,9 @@ use seaquel_engine::Value;
 /// one): DuckDB types that share an Arrow carrier with another type.
 ///
 /// The DuckDB helper sends each result's kinds, made from DuckDB's logical
-/// types as the native driver makes them, in its schema frame
-/// (`wire::schema_payload`), so its client decodes as natively whatever
-/// the session did to `arrow_lossless_conversion`.
+/// types (`kinds::of`), in its schema frame (`wire::schema_payload`), so its
+/// client decodes the same whatever the session did to
+/// `arrow_lossless_conversion`.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(
     any(feature = "remote", feature = "helper", test),
@@ -87,8 +87,8 @@ pub(crate) enum Kind {
 
 impl Kind {
     /// The kind of an Arrow field, for the browser driver and the DuckDB
-    /// helper's client, which have no DuckDB logical types (the native
-    /// driver walks those). DuckDB marks the
+    /// helper's client, which have no DuckDB logical types (the helper
+    /// walks those, `kinds::of`). DuckDB marks the
     /// types Arrow has no carrier for with extension metadata
     /// (`ARROW:extension:name`): `arrow.uuid`, `arrow.json`, `arrow.bool8`
     /// and DuckDB's own under `arrow.opaque` (with a `type_name`) or

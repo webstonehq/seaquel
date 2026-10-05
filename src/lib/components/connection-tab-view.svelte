@@ -170,7 +170,11 @@
 		try {
 			const connectionData = getConnectionData(formData as ConnectionFormData);
 			if (tabConnectionId) {
-				await db.connections.reconnect(tabConnectionId, connectionData, baseline ?? undefined);
+				// The tab's own connect never opens the DuckDB support dialog
+				// (the user may just have declined it); its Connect button does.
+				await db.connections.reconnect(tabConnectionId, connectionData, baseline ?? undefined, {
+					askToInstall: false,
+				});
 			}
 			// Mark onboarding as complete
 			onboardingStore.completeWizard();

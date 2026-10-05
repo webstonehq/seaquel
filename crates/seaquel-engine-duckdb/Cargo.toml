@@ -2,13 +2,14 @@
 name = "seaquel-engine-duckdb"
 version = "0.1.0"
 edition = "2021"
-description = "DuckDB engine for Seaquel: the native driver (duckdb-rs), the DuckDB helper's two halves, and, for the browser demo, a driver over DuckDB-WASM."
+description = "DuckDB engine for Seaquel: the DuckDB helper's two halves (the client and the helper's loop) and, for the browser demo, a driver over DuckDB-WASM."
 
 [features]
-default = ["native"]
-# duckdb-rs, run on tokio's blocking threads: desktop, the CLI and the MCP
-# server.
-native = ["dep:duckdb", "dep:tokio"]
+# The helper's client: every native interface reaches DuckDB this way, so
+# `cargo test -p seaquel-engine-duckdb` runs every suite through the helper
+# with no DuckDB in the test binaries. (The in-process native driver was
+# deleted in Task 12 of the desktop DuckDB helper plan.)
+default = ["remote"]
 # The browser demo (phase 8): DuckDB-WASM through a JavaScript bridge the page
 # passes in. Its driver is compiled only for wasm32 (`src/browser/`); the
 # literal binds and the IPC reader are pure and also run in native tests.
@@ -22,8 +23,10 @@ browser = [
 ]
 # The DuckDB helper (the DuckDB helper plan): `remote` is the client half, a
 # `Driver` over a `seaquel-duckdb` child process, with no `duckdb` crate;
-# `helper` is the server half the helper binary runs, on the native session
-# code. Both share the frames (`wire.rs`) and the IPC reader (`ipc.rs`).
+# `helper` is the server half the helper binary runs: duckdb-rs, the session
+# code (`session.rs`), the interrupt guard (`blocking.rs`) and the column
+# kinds (`kinds.rs`). Both share the frames (`wire.rs`); the client reads
+# the IPC (`ipc.rs`) the helper writes.
 # The helper's loop is `helper.rs` (`serve`, run by `crates/seaquel-duckdb`);
 # the remote driver is `remote/` (`remote_engine`). Native only: it spawns
 # a process.
@@ -38,10 +41,13 @@ remote = [
     "tokio/process",
     "tokio/sync",
     "tokio/time",
+    # Windows: every start reads the helper's and its folders' DACLs
+    # (`process::check`; the desktop DuckDB helper plan, Task 7).
+    "seaquel-runtime/acl",
 ]
 # `tokio/time`: the end's wait for DuckDB's close is measured on tokio's
 # clock (std's `Instant` is kept out of the engine crates).
-helper = ["native", "dep:arrow-buffer", "dep:arrow-ipc", "dep:serde", "tokio/time"]
+helper = ["dep:duckdb", "dep:tokio", "dep:arrow-buffer", "dep:arrow-ipc", "dep:serde", "tokio/time"]
 
 [dependencies]
 seaquel-engine = { path = "../seaquel-engine" }
@@ -55,13 +61,14 @@ async-stream = { workspace = true }
 log = { workspace = true }
 serde_json = { workspace = true }
 # The decoder reads arrow-rs arrays. The version is the one duckdb-rs
-# re-exports (`duckdb::arrow`, 58.4), so the native driver hands it the same
-# types; the browser driver gets them from `arrow-ipc`.
+# re-exports (`duckdb::arrow`, 58.4), so the helper writes the same types
+# the clients read back from `arrow-ipc`.
 arrow-array = "58.4"
 arrow-schema = "58.4"
 
+# helper: DuckDB itself.
 duckdb = { workspace = true, optional = true }
-# `rt` for spawn_blocking: duckdb-rs is synchronous.
+# remote and helper.
 tokio = { workspace = true, features = ["rt"], optional = true }
 
 # browser, remote and helper (the helper writes IPC, the others read it)
@@ -85,8 +92,9 @@ seaquel-engine-testkit = { path = "../seaquel-engine-testkit" }
 serde_json = { workspace = true }
 tokio = { version = "1", features = ["io-util", "macros", "rt", "time"] }
 futures = { workspace = true }
-# `decode_from_ipc_matches_decode_from_duckdb`: native DuckDB's Arrow written
-# as IPC and read back the way the browser driver reads DuckDB-WASM's.
+# `decode_from_ipc_matches_the_reference`: DuckDB's Arrow written as IPC and
+# read back the way the browser driver reads DuckDB-WASM's; and the
+# client's decode of a column it can't read.
 arrow-buffer = "58.4"
 arrow-ipc = { version = "58.4", default-features = false }
 # tests/remote.rs installs the built helper into folders of its own.

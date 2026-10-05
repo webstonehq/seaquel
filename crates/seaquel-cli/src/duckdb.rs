@@ -172,7 +172,10 @@ async fn install_until_stopped(core: &Core, args: InstallArgs) -> ExitCode {
 async fn install(core: &Core, args: InstallArgs) -> ExitCode {
     let from_file = args.from.is_some();
     let result = match (args.from, args.sha256) {
-        (Some(file), Some(sha256)) => core.duckdb_helper_install_from_file(&file, &sha256).await,
+        (Some(file), Some(sha256)) => {
+            core.duckdb_helper_install_from_file(&file, Some(&sha256))
+                .await
+        }
         _ => {
             let mut progress = ProgressLines::default();
             core.duckdb_helper_install(&mut |p| progress.report(p))
@@ -307,8 +310,9 @@ fn failure(code: &str, from_file: bool) -> (&'static str, &'static str) {
         ),
         "UNSAFE_FOLDER" => (
             "Seaquel's data folder can't be used",
-            "A folder on the way to the DuckDB helper belongs to another user or is a link. Fix \
-             or remove it, then try again.",
+            "A folder on the way to the DuckDB helper belongs to another user or is a link. \
+             Remove the bin/duckdb folder in Seaquel's data folder and install again; if \
+             SEAQUEL_DATA_DIR is set, point it at a folder of your own on this computer.",
         ),
         "NOT_SUPPORTED" => (
             "DuckDB support can't be installed here",
@@ -347,6 +351,15 @@ mod tests {
             failure("UNSAFE_FOLDER", true),
             failure("UNSAFE_FOLDER", false)
         );
+    }
+
+    /// A folder the install won't touch: the line says what to do (the
+    /// desktop plan's Task 7 review, item 10).
+    #[test]
+    fn an_unsafe_folder_says_what_to_do() {
+        let (_, hint) = failure("UNSAFE_FOLDER", false);
+        assert!(hint.contains("install again"), "{hint}");
+        assert!(hint.contains("SEAQUEL_DATA_DIR"), "{hint}");
     }
 
     #[test]
