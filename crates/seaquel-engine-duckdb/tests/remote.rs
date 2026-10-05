@@ -81,6 +81,10 @@ impl Install {
         for d in [&bin, &root, &folder] {
             private(d);
         }
+        // On Windows the start reads each level's DACL up to the folder
+        // above `bin` too, which inherits whatever the checkout's has.
+        #[cfg(windows)]
+        private(dir.path());
         Install {
             dir,
             locator: HelperLocator {
@@ -95,8 +99,16 @@ impl Install {
     fn helper(bin: &Path, version: &str) -> Install {
         let install = Install::empty(version);
         let to = install.path();
+        // A hard link would share the built file's DACL, so Windows copies
+        // it and makes the copy private.
+        #[cfg(unix)]
         if std::fs::hard_link(bin, &to).is_err() {
             std::fs::copy(bin, &to).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            std::fs::copy(bin, &to).unwrap();
+            seaquel_runtime::acl::make_private(&to, false).unwrap();
         }
         install
     }
@@ -189,8 +201,10 @@ fn private(path: &Path) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
 }
 
-#[cfg(not(unix))]
-fn private(_: &Path) {}
+#[cfg(windows)]
+fn private(path: &Path) {
+    seaquel_runtime::acl::make_private(path, true).unwrap();
+}
 
 #[cfg(unix)]
 fn kill(signal: &str, pid: u32) -> bool {

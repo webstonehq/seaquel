@@ -748,6 +748,12 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// The suffix of [`write_atomic`]'s temp files.
 const TEMP_SUFFIX: &str = ".seaquel-tmp";
 
+/// The most of the target's name a temp file's name keeps. A file name is
+/// at most 255 bytes on Linux (255 characters on macOS), and the stems go
+/// up to `MAX_STEM_BYTES` (250), so the whole name would not fit beside the
+/// temp file's own parts.
+const TEMP_NAME_BYTES: usize = 128;
+
 /// Flushes a folder's entries after a rename, so the new name survives a
 /// crash (Unix; best effort).
 #[cfg(unix)]
@@ -764,10 +770,17 @@ fn sync_dir(_dir: &Path) {}
 /// `target`.
 fn write_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = target.parent().unwrap_or(Path::new("."));
-    let name = target
+    let mut name = target
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
+    if name.len() > TEMP_NAME_BYTES {
+        let mut cut = TEMP_NAME_BYTES;
+        while !name.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        name.truncate(cut);
+    }
     let (tmp, mut file) = loop {
         let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let tmp = dir.join(format!(".{name}.{}-{n}{TEMP_SUFFIX}", std::process::id()));
