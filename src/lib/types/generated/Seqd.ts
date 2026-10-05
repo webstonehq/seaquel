@@ -6,7 +6,7 @@ import type { ChangeSeq } from "./ChangeSeq";
  */
 export type Seqd<T> = { value: T, seq: ChangeSeq, 
 /**
- * Phase 5e, Decision 36: what a library write did to its row's file
+ * What a library write did to its row's file
  * in a shared project (desktop only). Absent when nothing was
  * published: no link, a row that isn't shared, nothing that changes
  * the file, or a Core without `LocalFiles`. A `failed` write leaves

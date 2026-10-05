@@ -168,7 +168,7 @@ pub const NAME_KEY_LOOKUP: &str = "\
 
 /// The ids and names of a project's dashboards whose name has `key`
 /// (`seaquel_types::names::name_key`), in rowid order: Core's duplicate
-/// check (Decision 21). Rows with no stored key (an older release wrote or
+/// check. Rows with no stored key (an older release wrote or
 /// renamed them) are read too and compared by their name; a name that
 /// isn't UTF-8 matches nothing.
 pub async fn with_name_key(

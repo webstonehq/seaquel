@@ -1,4 +1,4 @@
-//! The model (Decision 2): pure state and `update`, no terminal and no Core.
+//! The model: pure state and `update`, no terminal and no Core.
 
 pub mod app;
 pub mod ask;

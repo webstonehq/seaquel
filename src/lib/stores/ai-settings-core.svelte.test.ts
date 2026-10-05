@@ -1,8 +1,8 @@
 /**
- * Settings → AI on Core (phase 6 Task 7): the model list and the provider
+ * Settings → AI on Core: the model list and the provider
  * test are `ai.models` and `ai.test` (no `fetch` from the page), and "a key
- * is saved" comes from `aiSettingsGet`'s `hasKey` on the desktop (the page
- * can't read the key, Decision 7) and from the vault's rows on web.
+ * is saved" comes from `aiSettingsGet`'s `hasKey` on the desktop (the page can't read the key)
+ * and from the vault's rows on web.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -110,7 +110,7 @@ describe("hasKey", () => {
     keychain.add("prov-1");
     const store = new AISettingsStore();
     await store.initialize();
-    // Loading the settings asks about no key (review I2).
+    // Loading the settings asks about no key.
     expect(settings.aiProviderHasKey).not.toHaveBeenCalled();
     expect(await store.hasKey("prov-1")).toBe(true);
     expect(settings.aiProviderHasKey).toHaveBeenCalledTimes(1);

@@ -1,7 +1,7 @@
-//! The AI's read-only check (Task 3, fix 14). Port of `validateReadOnlyQuery`
+//! The AI's read-only check. Port of `validateReadOnlyQuery`
 //! (`src/lib/services/ai/context.ts`, whose body phase 2b deleted), on tokens,
 //! with the rules of `readOnlyModel` in the recorder's `statements-model.ts`
-//! (`docs/plans/artifacts/2026-09-27-sql-recorder-statements-model.ts.txt`).
+//! (in git history).
 //!
 //! This check gates which statements the AI may run; it isn't a sandbox (a
 //! user-defined function can do anything, and no list can cover those).
@@ -120,7 +120,7 @@ const BLOCKED_FUNCTIONS: &[&str] = &[
 const BLOCKED_FUNCTION_PREFIXES: &[&str] = &["dblink_", "pg_stat_reset"];
 
 /// DuckDB table functions that are SELECTs but change state outside the
-/// query, blocked on DuckDB only (AI safety, Task 4 review):
+/// query, blocked on DuckDB only (AI safety):
 ///
 /// - `enable_logging` and friends switch on logging for the whole database
 ///   instance: `duckdb_logs` then shows the user's editor SQL, `CREATE
@@ -380,7 +380,7 @@ mod tests {
         );
     }
 
-    /// Phase 4 security probe: SQL Server ends a `--` comment at a lone `\r`,
+    /// SQL Server ends a `--` comment at a lone `\r`,
     /// so `SELECT 1 AS a -- x\rDELETE …` ran the DELETE through the MCP
     /// server. Every engine refuses code after a `\r` in a line comment, also
     /// where the engine itself keeps the comment going (MySQL, MariaDB,

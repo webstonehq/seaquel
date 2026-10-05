@@ -1,10 +1,10 @@
-//! `query_read_only` on Postgres (AI safety plan, Task 2): every attack goes
+//! `query_read_only` on Postgres: every attack goes
 //! through the read-only path and is then checked from a normal session.
 //!
 //! Set SEAQUEL_TEST_POSTGRES to a ConnectConfig JSON to run this, e.g.
 //! {"driver":"postgres","connection_string":"postgres://postgres@127.0.0.1:5432/seaquel_test"}
 //!
-//! Accepted gaps (plan, "Probe results"), not asserted here:
+//! Accepted gaps ("Probe results"), not asserted here:
 //! - A function that already exists and has outside effects still runs
 //!   them: `COPY … TO PROGRAM` inside a plpgsql function ran under `BEGIN
 //!   READ ONLY` as superuser, and `dblink_exec` opens its own session. Fix

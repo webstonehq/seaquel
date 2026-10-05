@@ -1,6 +1,6 @@
 /**
  * The AI assistant's `@mention` autocomplete. Core expands the mentions a
- * message holds (phase 6, Decision 13); the page only offers them.
+ * message holds (phase 6); the page only offers them.
  * @module services/ai-mentions
  */
 
@@ -59,7 +59,7 @@ export function buildMentionItems(
 
 /**
  * What the chat's `@` popover offers: nothing when the chat's connection
- * doesn't share its schema with AI (phase 6, Decision 5). Core resolves
+ * doesn't share its schema with AI (phase 6). Core resolves
  * the mentions a message holds, under the same flag, so a mention typed
  * anyway reaches the model as a bare name.
  */

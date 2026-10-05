@@ -1,4 +1,4 @@
-//! The `settings` group of the workspace RPC (phase 5d-2, Decision 20): the
+//! The `settings` group of the workspace RPC (phase 5d-2): the
 //! app-state settings (a closed set of keys), the AI settings record and
 //! its providers (with their API keys on the desktop), themes, onboarding,
 //! tutorial progress and import state, written through Core
@@ -11,7 +11,7 @@
 //! {"method":"settings","result":{"method":"settingSet","result":{"value":"vim","seq":{"epoch":"…","n":7}}}}
 //! ```
 //!
-//! - Every result is a `Seqd` (`{value, seq}`, Decision 17), and a write
+//! - Every result is a `Seqd` (`{value, seq}`), and a write
 //!   answers the whole record or row it wrote (a theme write: the
 //!   preferences and every user theme).
 //! - A setting's `key` is a string on the wire (`SettingKey` in the
@@ -97,8 +97,8 @@ pub enum SettingsRequest {
     AiProviderRemove {
         id: String,
     },
-    /// Whether the keychain holds the provider's API key (desktop; the page
-    /// can't read the key, Decision 7). One read, for that provider: the
+    /// Whether the keychain holds the provider's API key (desktop; the page can't read the key).
+    /// One read, for that provider: the
     /// settings form asks when it opens one. `NOT_SUPPORTED` without a
     /// secret store (web: the page asks its vault).
     AiProviderHasKey {

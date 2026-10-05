@@ -10,19 +10,19 @@ engine-postgres = ["dep:seaquel-engine-postgres"]
 engine-mysql = ["dep:seaquel-engine-mysql"]
 engine-sqlite = ["dep:seaquel-engine-sqlite"]
 engine-mssql = ["dep:seaquel-engine-mssql"]
-# DuckDB in a helper process (the DuckDB helper plan): every native
+# DuckDB in a helper process: every native
 # interface, through `CoreBuilder::duckdb_helper`. No `duckdb` crate in the
 # build. Refused with `browser`. (The in-process native driver and its
-# `engine-duckdb` feature were deleted in Task 12 of the desktop DuckDB
-# helper plan.)
+# `engine-duckdb` feature were deleted once every interface used the
+# helper.)
 engine-duckdb-remote = ["dep:seaquel-engine-duckdb", "seaquel-engine-duckdb/remote"]
-# Downloading the helper (the DuckDB helper plan, Task 4):
+# Downloading the helper:
 # `Core::duckdb_helper_asset`, `duckdb_helper_install` and
 # `duckdb_helper_install_from_file`, over `seaquel-http`'s `release_asset`.
 # `Core::duckdb_helper_status` needs only `engine-duckdb-remote`.
 duckdb-helper-install = ["engine-duckdb-remote", "dep:seaquel-http", "seaquel-http/release-asset", "dep:tokio"]
 # `CoreBuilder::duckdb_helper_releases` (another release source) in a
-# build without debug assertions: tests only (review I1). Debug builds have
+# build without debug assertions: tests only. Debug builds have
 # it anyway, for the terminal binaries' test hooks.
 duckdb-helper-testing = ["duckdb-helper-install", "seaquel-http/testing"]
 # Infrastructure (phase 3), off by default. src-tauri will enable storage,

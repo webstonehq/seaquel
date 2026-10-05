@@ -1,5 +1,4 @@
-//! Pairing and the sync and publish plans (Decisions 33, 34, 36, 39–41,
-//! 53; Q20–Q30).
+//! Pairing and the sync and publish plans.
 //!
 //! [`plan_sync`] takes a scan of one linked project's directory and all
 //! that project's rows with their links (`shared_path`, `shared_base`,
@@ -10,7 +9,7 @@
 //! just changed. Neither reads a file or the clock; ids come from an
 //! [`IdSource`].
 //!
-//! **Hashes (Decision 34).** A file hashes as `write(parse(text))` and a
+//! **Hashes.** A file hashes as `write(parse(text))` and a
 //! row as `write(parse(write(row)))`, `write` being the kind's
 //! `*_content` (no id; no viewport for a dashboard, no labels for a
 //! template). See [`row_hash`].
@@ -21,7 +20,7 @@
 //! for queries; a file at the row's slug path wins a tie), then a file at
 //! the row's slug path. A file that claims, by name, a row another file
 //! has is `Unpaired` and isn't imported. Only shared queries and
-//! dashboards, and only connections linked to a template (Decision 53),
+//! dashboards, and only connections linked to a template,
 //! pair.
 //!
 //! **Order for Core.** `SyncPlan::rows`, applied in plan order (a rename
@@ -71,7 +70,7 @@ pub enum Kind {
 
 /// A row's link to its file (migration `0004`). `None` is NULL: a path
 /// NULL means today's rule (the slug path), a base NULL means no sync has
-/// recorded one (Q20's rule applies).
+/// recorded one (a conflict then goes to the file).
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct Link {
     /// Repo-relative (`.seaquel/projects/<dir>/…`).
@@ -158,7 +157,7 @@ impl fmt::Debug for RawFile {
     }
 }
 
-/// Why the scan skipped a path (Decision 32), or why the planner did.
+/// Why the scan skipped a path, or why the planner did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -197,7 +196,7 @@ impl fmt::Debug for Skipped {
 pub struct DirScan {
     pub files: Vec<RawFile>,
     pub skipped: Vec<Skipped>,
-    /// The repo has conflicted files: nothing is planned (Decision 35).
+    /// The repo has conflicted files: nothing is planned.
     pub conflicted: bool,
 }
 
@@ -258,7 +257,7 @@ pub struct SharedRows {
 }
 
 /// Where new ids come from: Core's are `<prefix><uuid v4>` for rows and a
-/// uuid v4 for files (Q22).
+/// uuid v4 for files.
 pub trait IdSource {
     fn row_id(&mut self, kind: Kind) -> String;
     fn file_id(&mut self) -> String;
@@ -271,7 +270,7 @@ pub enum RowOp {
         id: String,
         draft: SavedQueryDraft,
     },
-    /// The file's content (`R = B, F ≠ B`, or the file winning Q20); Core
+    /// The file's content (`R = B, F ≠ B`, or the file winning a conflict); Core
     /// keeps the previous text as a version (its keyframe rule). Also a
     /// folder that follows the file.
     UpdateQuery {
@@ -293,7 +292,7 @@ pub enum RowOp {
         id: String,
         draft: ConnectionDraft,
     },
-    /// The template's fields (Q23, Q27, Q28): name, host, port, database,
+    /// The template's fields: name, host, port, database,
     /// SSL mode and SSH host and port. Never the user name, a secret,
     /// labels or the type.
     UpdateConnection {
@@ -359,7 +358,7 @@ pub enum FileOp {
     /// means no file may be there. When the disk differs (another hash, a
     /// file where none was expected, or none where one was), the write is
     /// stale: Core doesn't write, it syncs that pair instead, and the file
-    /// wins (Q20).
+    /// wins.
     Write {
         rel_path: String,
         text: String,
@@ -399,7 +398,7 @@ fn js_number_opt_opt<S: Serializer>(v: &Option<Option<f64>>, s: S) -> Result<S::
     }
 }
 
-/// The local values a template overwrote (Q27), only those that differed.
+/// The local values a template overwrote, only those that differed.
 /// Never a user name or a secret: the type has neither.
 #[derive(Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -447,8 +446,7 @@ impl fmt::Debug for ReplacedValues {
     }
 }
 
-/// What a sync tells the user. Paths are relative to `.seaquel/`
-/// (Decision 50).
+/// What a sync tells the user. Paths are relative to `.seaquel/`.
 #[derive(Clone, PartialEq, Serialize)]
 #[serde(
     tag = "type",
@@ -458,8 +456,7 @@ impl fmt::Debug for ReplacedValues {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub enum SyncNotice {
     /// Changed here and in the repo: the repo's version is shown, the
-    /// previous content is a version (Q20); `replaced` for connections
-    /// (Q27).
+    /// previous content is a version; `replaced` for connections.
     Conflict {
         kind: Kind,
         id: String,
@@ -487,9 +484,9 @@ pub enum SyncNotice {
         path: String,
         why: SkipReason,
     },
-    /// The template names another database type (Q28): the connection is
+    /// The template names another database type: the connection is
     /// unlinked and kept, and `imported` is the connection this sync made
-    /// from the template (Q29).
+    /// from the template.
     TemplateTypeChanged {
         kind: Kind,
         id: String,
@@ -582,8 +579,8 @@ pub struct SyncPlan {
     pub notices: Vec<SyncNotice>,
 }
 
-/// A row a library call changed, read again after its commit (Decision
-/// 36), with the link it had. `row: None` is a removal.
+/// A row a library call changed, read again after its commit,
+/// with the link it had. `row: None` is a removal.
 pub enum RowChange<'a> {
     Query {
         row: Option<&'a PersistedSavedQuery>,
@@ -600,12 +597,12 @@ pub enum RowChange<'a> {
         row: Option<&'a PersistedConnection>,
         link: &'a Link,
         renamed: bool,
-        /// The user shared it just now (the local-only toggle, or ticked at
-        /// the first link, Q30): write and link its template. Otherwise a
-        /// connection without a link publishes nothing (Decision 53).
+        /// The user shared it just now (the local-only toggle, or ticked at the first link):
+        /// write and link its template. Otherwise a
+        /// connection without a link publishes nothing.
         shared_now: bool,
     },
-    /// A linked project's name (Q25): `project.yaml` follows, the
+    /// A linked project's name: `project.yaml` follows, the
     /// directory never moves.
     Project { name: &'a str },
 }
@@ -661,8 +658,7 @@ pub struct PublishPlan {
     pub on_failure: Option<LinkUpdate>,
 }
 
-/// Where Core records the result of a publish in the answer's `Seqd`
-/// (Decision 36).
+/// Where Core records the result of a publish in the answer's `Seqd`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PublishStatus {
@@ -679,7 +675,7 @@ pub struct PublishOutcome {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     /// The GUI-facing message; may name a path relative to `.seaquel/`,
-    /// never logged (Decision 50).
+    /// never logged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
@@ -753,7 +749,7 @@ fn template_file(row: &PersistedConnection) -> TemplateFile {
 const HASH_QUERY_DIR: &str = ".seaquel/projects/x/queries";
 
 fn query_hash(q: &QueryFile) -> String {
-    // Core's own text: its escapes are undone whatever the id (probe fix 2).
+    // Core's own text: its escapes are undone whatever the id.
     let again = parse_query_core(
         &query_content(q),
         &format!("{HASH_QUERY_DIR}/x.sql"),
@@ -773,7 +769,7 @@ fn template_hash(t: &TemplateFile) -> String {
     content_hash(&template_content(&again))
 }
 
-/// A row's hash, `write(parse(write(row)))` (Decision 34), or `None` for a
+/// A row's hash, `write(parse(write(row)))`, or `None` for a
 /// removal or a project.
 pub fn row_hash(change: &RowChange<'_>) -> Option<String> {
     match change {
@@ -869,7 +865,7 @@ fn file_content_hash(c: &Content) -> String {
     }
 }
 
-/// A shared file's hash (Decision 34: [`content_hash`] of
+/// A shared file's hash ([`content_hash`] of
 /// `write(parse(text))`) and its stable id, by its repo-relative path:
 /// a query, dashboard or template, or a project's `project.yaml` (name and
 /// description; no id). `None` for a file that doesn't parse or isn't one
@@ -1150,7 +1146,7 @@ impl Sync<'_> {
         })
     }
 
-    /// The paths a row's file would have by name: Q21's stem and today's,
+    /// The paths a row's file would have by name: the current stem rule's and today's,
     /// as `path_key`s.
     fn slug_keys(&self, kind: Kind, name: &str, folder: &str) -> Vec<String> {
         let mut dir = self.link.kind_dir(kind);
@@ -1406,7 +1402,7 @@ impl Sync<'_> {
             }
         }
 
-        // The rule (Decision 34), each pair, in row order.
+        // The rule, each pair, in row order.
         let mut created: HashSet<String> = HashSet::new();
         for (ri, r) in rows.iter().enumerate() {
             if let Some(fi) = row_file[ri] {
@@ -1495,7 +1491,7 @@ impl Sync<'_> {
         if let Content::Template(t) = &f.content {
             let row = &self.rows.connections[r.at].row;
             if t.ty != row.ty {
-                // Q28/Q29: unlink and keep the connection; the template is
+                // A changed type: unlink and keep the connection; the template is
                 // imported as a new one, which this notice announces.
                 self.plan.rows.push(RowOp::Unshare {
                     kind,
@@ -1579,7 +1575,7 @@ impl Sync<'_> {
             );
         } else {
             // `R = B, F ≠ B` takes the file; anything else with `R ≠ F` is
-            // Q20's conflict, the file winning.
+            // a conflict, the file winning.
             let conflict = base != Some(r.hash.as_str());
             self.take_file(kind, r, f, conflict, held);
         }
@@ -1625,7 +1621,7 @@ impl Sync<'_> {
         true
     }
 
-    /// The row takes the file's content (Q20, Q27). A name another row
+    /// The row takes the file's content. A name another row
     /// holds is withheld (flag 4): the row keeps its name, takes the rest,
     /// the notice names the file, and the base is the row's own hash after
     /// the partial patch, so every later sync tries again.
@@ -1827,7 +1823,7 @@ impl Sync<'_> {
 
     /// A new row from a file no row has; its id, or `None` when the library
     /// would refuse it. A template whose name the project holds is
-    /// imported under a free one ("Warehouse (2)", Q29): that name is
+    /// imported under a free one ("Warehouse (2)"): that name is
     /// withheld like an update's (flag 4), the base being the row's own
     /// hash, and `announce` names the file.
     fn create(
@@ -1894,7 +1890,7 @@ impl Sync<'_> {
 }
 
 /// The patch that gives `row` the template's fields, and the local values
-/// it replaces (Q27's `replaced`). `keep_name` withholds the name.
+/// it replaces (the notice's `replaced`). `keep_name` withholds the name.
 fn template_patch(
     row: &PersistedConnection,
     t: &TemplateFile,
@@ -1965,8 +1961,8 @@ fn template_patch(
     (patch, was)
 }
 
-/// One reconcile of a linked project's directory against its rows
-/// (Decision 34). A conflicted scan plans nothing (Decision 35). Every
+/// One reconcile of a linked project's directory against its rows.
+/// A conflicted scan plans nothing. Every
 /// planned row write passes the library's checks under `limits` (C1).
 pub fn plan_sync(
     link: &ProjectLink,
@@ -1999,12 +1995,12 @@ pub fn plan_sync(
     sync.plan
 }
 
-/// The file operations for one row a library call changed (Decision 36).
-/// Nothing for a row that isn't shared (or a connection never shared,
-/// Decision 53); a rename moves the file (write the new path, then delete
+/// The file operations for one row a library call changed.
+/// Nothing for a row that isn't shared (or a connection never shared);
+/// a rename moves the file (write the new path, then delete
 /// the old one unless they are the same ignoring case); a content-neutral
-/// change (a viewport, Q24; `starred`) writes nothing. A query folder that
-/// fails Decision 32 is `INVALID_ARGUMENT`.
+/// change (a viewport; `starred`) writes nothing. A query folder that
+/// fails the path rules is `INVALID_ARGUMENT`.
 pub fn plan_publish(
     link: &ProjectLink,
     change: &RowChange<'_>,
@@ -2248,8 +2244,8 @@ pub fn plan_publish(
     })
 }
 
-/// `project.yaml` with the project's name and the file's description
-/// (Q25); nothing when it already says so.
+/// `project.yaml` with the project's name and the file's description;
+/// nothing when it already says so.
 fn publish_project(link: &ProjectLink, name: &str, ctx: &PublishContext<'_>) -> PublishPlan {
     let existing = ctx.existing.map(|t| parse_project(t, &link.dir));
     if existing.as_ref().is_some_and(|p| p.name == name) {
@@ -2275,9 +2271,9 @@ fn publish_project(link: &ProjectLink, name: &str, ctx: &PublishContext<'_>) -> 
     }
 }
 
-/// The directory a first link uses (Decision 40): an existing one whose
+/// The directory a first link uses: an existing one whose
 /// `project.yaml` name has the project's `name_key`, else a free stem
-/// (Q21) among them. `dirs` holds each directory under `projects/` with
+/// among them. `dirs` holds each directory under `projects/` with
 /// the name its `project.yaml` gives (the directory's own without one).
 pub fn pick_project_dir(name: &str, dirs: &[(String, String)]) -> String {
     let key = name_key(name);

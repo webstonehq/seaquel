@@ -1,4 +1,4 @@
-//! `StorageChanged` and the change sequence (phase 5d, Decisions 16–17):
+//! `StorageChanged` and the change sequence (phase 5d):
 //! one event per stored write, after its commit, none for a refusal; `seq`
 //! in commit order; a read's `seq` never newer than its data; the origin
 //! carried; no values in an event.

@@ -67,7 +67,7 @@
 	async function install() {
 		installing = true;
 		try {
-			// Only the helper when the CLI is current (Decision 12); the CLI's
+			// Only the helper when the CLI is current; the CLI's
 			// install adds the helper after it. A running download (the
 			// startup prefetch, the install dialog) is joined, not repeated, and
 			// a dialog opened meanwhile joins this one.

@@ -1,4 +1,4 @@
-//! The `ai` group (phase 6 Task 5): `ai.chat` is a stream served by
+//! The `ai` group: `ai.chat` is a stream served by
 //! `dispatch_stream` only, `respond`, `generate`, `models` and `test` are
 //! unary, every params type refuses unknown fields, and `db.connect`
 //! records a `savedConnectionId`. Every model call goes to a local mock
@@ -575,7 +575,7 @@ async fn connect_records_a_saved_connection_id() {
     assert_eq!(err.code, "INVALID_ARGUMENT");
 }
 
-/// Task 7 review I1: a supplied key names the provider it is for, and Core
+/// A supplied key names the provider it is for, and Core
 /// refuses it for any other (the connection's provider changed after the
 /// page read the key) before a request goes out; a key with no provider
 /// is refused too.
@@ -615,7 +615,7 @@ async fn a_supplied_key_for_another_provider_is_refused_before_any_request() {
     assert!(env.stored(&ids.chat).await.is_empty());
 }
 
-/// Phase 6 Task 7: a connection the page opened before its row existed
+/// A connection the page opened before its row existed
 /// (`add` connects the form, then `connectionCreate` answers the id) is
 /// recorded for the saved connection afterwards with `db.bindSaved`, once.
 #[tokio::test]
@@ -669,8 +669,8 @@ async fn bind_saved_records_a_connection_opened_before_its_row() {
     drop(events);
 
     // Rebinding a saved target's connection is refused. Connecting the
-    // saved row from the same window replaced the bound connection (phase
-    // 6 probe F4): it is gone.
+    // saved row from the same window replaced the bound connection:
+    // it is gone.
     let saved = env.connect(&ids.saved).await;
     let err = env
         .group("db", "bindSaved", bind(&saved, "conn-other"))
@@ -684,7 +684,7 @@ async fn bind_saved_records_a_connection_opened_before_its_row() {
     assert_eq!(err.code, "CONNECTION_NOT_FOUND");
 }
 
-/// Review M1: a stopped turn's last write may wait out a full storage
+/// A stopped turn's last write may wait out a full storage
 /// write turn (`WRITE_WAIT`) before it starts, so the transports give it
 /// that and 15 s more.
 #[test]
@@ -695,7 +695,7 @@ fn a_stopped_turn_outwaits_a_storage_write() {
     );
 }
 
-/// Review M3: the `secret` group names only the keys it takes; an AI key
+/// The `secret` group names only the keys it takes; an AI key
 /// is refused as Core's to manage.
 #[tokio::test]
 async fn the_secret_group_lists_no_ai_key() {

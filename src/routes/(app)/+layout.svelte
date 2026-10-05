@@ -70,7 +70,7 @@
     );
 
     /**
-     * The demo's start (phase 8, Decision 19): its Core opened before the
+     * The demo's start (phase 8): its Core opened before the
      * app rendered (`src/routes/+layout.ts`); this shows Core's notices
      * once and connects and seeds the demo database. The branch is on the
      * build-time constant, so desktop and web bundles don't contain it.
@@ -104,7 +104,7 @@
             : null;
 
     /**
-     * DuckDB support's install dialog (desktop DuckDB helper plan, Task 5):
+     * DuckDB support's install dialog:
      * desktop only. The branch is on the build-time constant, so the web
      * and demo bundles don't contain the dialog or its store.
      */
@@ -177,8 +177,7 @@
         // Web and the demo save on `pagehide` instead (below), where the
         // active project's pending save leaves outside the write queue: as a
         // `keepalive` request on web, into the view-state journal in the demo
-        // (Chromium runs no task between `beforeunload` and `pagehide`, so a
-        // save queued here would miss the snapshot; Task 7 probe, item 1).
+        // (Chromium runs no task between `beforeunload` and `pagehide`, so a save queued here would miss the snapshot).
         // Flushing here first would put it on the queue instead.
         if (savesOnPageHide()) return;
         // Browsers don't await async unload work, so this is best-effort. On

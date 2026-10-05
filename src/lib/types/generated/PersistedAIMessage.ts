@@ -2,8 +2,8 @@
 
 export type PersistedAIMessage = { id: string, chatId: string, role: "user" | "assistant", content: string, timestamp: string, query?: string, dashboardId?: string, 
 /**
- * A reply's tool calls (`ai_messages.parts`, migration `0007`; phase
- * 6, Decision 23): a list of `{round, type: "text", text}` and
+ * A reply's tool calls (`ai_messages.parts`, migration `0007`; phase 6):
+ * a list of `{round, type: "text", text}` and
  * `{round, type: "tool", callId, name, input, ok, result,
  * resultBytes?}`. Absent for a message without tool calls, for every
  * user message, and for rows an older release wrote.

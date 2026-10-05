@@ -1,12 +1,12 @@
 //! Task 1's TypeScript baseline replayed against the registry, the prompt
-//! and the renderers (Task 3): every case of `prompts.json`,
+//! and the renderers: every case of `prompts.json`,
 //! `mentions.json`, `tool-results.json` and `history.json` must equal its
 //! recording with `changes.json`'s `expected` fields in their place.
 //!
 //! `turns.json`, `page.json`, `generate.json`, `models.json` and
 //! `errors.json` need a turn, a store, the provider mock or the page's
-//! wording: Core replays them (Task 4) and the page words the errors
-//! (Task 7). [`the_files_left_to_task_4_are_not_replayed_here`] keeps that
+//! wording: Core replays them and the page words the errors.
+//! [`the_files_left_to_task_4_are_not_replayed_here`] keeps that
 //! list honest.
 //!
 //! Tool calls go through a small stand-in for Core: the registry's
@@ -308,7 +308,7 @@ fn saved_queries() -> Vec<PersistedSavedQuery> {
 }
 
 /// `changes.json`'s `*` rule 1: a `run_query` input's `query` is sent as
-/// `sql` (Decision 3).
+/// `sql`.
 fn renamed(tool: &str, input: &Json) -> Json {
     match input {
         Json::Object(map) if tool == "run_query" => Json::Object(
@@ -640,8 +640,8 @@ fn every_change_for_these_files_names_a_case() {
 #[test]
 fn the_files_left_to_task_4_are_not_replayed_here() {
     // Core's turn, the page's store, the inline prompt and the model list
-    // replay these against the mock provider (Task 4); the page words the
-    // errors (Task 7).
+    // replay these against the mock provider; the page words the
+    // errors.
     for (file, count) in [
         ("turns", 73),
         ("page", 21),

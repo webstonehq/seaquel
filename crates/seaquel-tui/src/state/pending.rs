@@ -1,4 +1,4 @@
-//! The staged queue (Decision 12), the TUI's own: a port of the GUI's
+//! The staged queue, the TUI's own: a port of the GUI's
 //! documented rules (`PendingChangesManager`), not its code. Task 4 builds
 //! the edit half: staging cell edits, Set default, row deletes and inserts,
 //! the per-cell replacement rules, undo, and each entry's plan from Core.
@@ -240,11 +240,11 @@ pub struct Queue {
     /// [`row_index`]), rebuilt after every change.
     cells: HashMap<String, usize>,
     deletes: HashMap<String, usize>,
-    /// The entry the last apply stopped at, and why (Task 5): cleared by
+    /// The entry the last apply stopped at, and why: cleared by
     /// the next staging action.
     failure: Option<(String, CallError)>,
-    /// An apply lost its connection before it answered (the DuckDB
-    /// helper plan's probe F1): some of the queue may have been applied.
+    /// An apply lost its connection before it answered:
+    /// some of the queue may have been applied.
     /// Cleared by an apply that answers, or by emptying the queue.
     interrupted: bool,
 }
@@ -945,7 +945,7 @@ mod tests {
     }
 
     // A plan that lands after a later edit of the same cell is dropped
-    // (Decision 12; GUI's per-cell sequence).
+    // (GUI's per-cell sequence).
     #[test]
     fn a_late_plan_is_dropped() {
         let mut q = Queue::default();
@@ -1331,7 +1331,7 @@ mod tests {
         assert_eq!(order, [0, 2, 1, 3]);
     }
 
-    // Decision 12: entries left unplanned are planned again before the
+    // Entries left unplanned are planned again before the
     // commit dialog shows their SQL; an empty insert isn't sent.
     #[test]
     fn replan_asks_again_for_what_is_unplanned_and_changes_skip_empty_inserts() {

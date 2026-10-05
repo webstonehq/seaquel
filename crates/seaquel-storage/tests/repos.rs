@@ -4,7 +4,7 @@
 //! as JSON values) and leave the same rows, storage classes included. See
 //! `tests/fixtures/README.md` for the format.
 //!
-//! Then the password stripping of Decision 13.1: `connections::save` and
+//! Then the password stripping: `connections::save` and
 //! the `strip_connection_string_passwords` data step.
 
 #![cfg(not(target_arch = "wasm32"))]
@@ -831,7 +831,7 @@ async fn a_prune_only_touches_its_own_parent() {
 }
 
 // ---------------------------------------------------------------------------
-// Password stripping (Decision 13.1)
+// Password stripping
 // ---------------------------------------------------------------------------
 
 fn connection(id: &str, connection_string: &str) -> seaquel_types::storage::PersistedConnection {

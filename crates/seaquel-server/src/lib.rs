@@ -45,7 +45,7 @@ pub struct AppState {
     pub internal_secret: Option<Arc<str>>,
 }
 
-/// The engines the web build serves (Decision 11b): PostgreSQL, MySQL (which
+/// The engines the web build serves: PostgreSQL, MySQL (which
 /// also serves MariaDB) and SQL Server. SQLite and DuckDB are never offered
 /// on web: their "connection string" is a path on the server, so a signed-in
 /// user could open `auth.db` or another user's `meta.db`, and DuckDB's
@@ -79,10 +79,10 @@ pub const WEB_CONNECTION_LIMITS: ConnectionLimits = ConnectionLimits {
 
 /// What one run on the web may carry (owner, 2026-10-02: web only). Frames
 /// are 8 MiB, and planning one statement that long took ~560 MB and ~0.5 s
-/// of a worker (phase 5b probe, I1); at 2 MiB the worst is ~140 MB and
+/// of a worker; at 2 MiB the worst is ~140 MB and
 /// ~150 ms. 10,000 statements bound the results and round trips of one run.
-/// 1,000 parameter values and 1 MiB of them bound what planning looks up
-/// (phase 5b review, C1); the dialog sends one per `{{name}}` in the text.
+/// 1,000 parameter values and 1 MiB of them bound what planning looks up;
+/// the dialog sends one per `{{name}}` in the text.
 pub const WEB_RUN_LIMITS: RunLimits = RunLimits {
     max_text_bytes: Some(2 * 1024 * 1024),
     max_statements: Some(10_000),
@@ -90,7 +90,7 @@ pub const WEB_RUN_LIMITS: RunLimits = RunLimits {
     max_param_bytes: Some(1024 * 1024),
 };
 
-/// What one edit call on the web may carry (phase 5c, Decision 17): 10,000
+/// What one edit call on the web may carry (phase 5c): 10,000
 /// changes per apply or plan touching at most 100 distinct tables (each is a
 /// metadata read), 2 MiB of typed SQL and 16 MiB of values
 /// among them; a data tab page with 100 filters (and 100 sort columns), 1,000
@@ -107,13 +107,13 @@ pub const WEB_EDIT_LIMITS: EditLimits = EditLimits {
     max_filter_value_bytes: Some(64 * 1024),
 };
 
-/// What one user may store in the library on the web (phase 5d, Decision
-/// 15): names, label names, folders and tags of 1 KiB, other fields of
+/// What one user may store in the library on the web (phase 5d):
+/// names, label names, folders and tags of 1 KiB, other fields of
 /// 64 KiB, a saved query's text of 2 MiB (as [`WEB_RUN_LIMITS`]), 1,000
 /// items per list, and 10,000 connections, 1,000 projects and 50,000 saved
 /// queries per user. Sizes are refused before anything is read. A saved
-/// query's versions keep at most 16 MiB together (8 versions of a 2 MiB
-/// query; phase 5d-1 probe fix), pruned oldest first.
+/// query's versions keep at most 16 MiB together (8 versions of a 2 MiB query),
+/// pruned oldest first.
 pub const WEB_LIBRARY_LIMITS: LibraryLimits = LibraryLimits {
     max_name_bytes: Some(1024),
     max_field_bytes: Some(64 * 1024),
@@ -125,13 +125,13 @@ pub const WEB_LIBRARY_LIMITS: LibraryLimits = LibraryLimits {
     max_version_bytes: Some(16 * 1024 * 1024),
 };
 
-/// What one user may store in state on the web (phase 5d-2, Decision
-/// 27): a window's view state of 8 MiB (one tab's text 2 MiB, 500 tabs),
+/// What one user may store in state on the web (phase 5d-2):
+/// a window's view state of 8 MiB (one tab's text 2 MiB, 500 tabs),
 /// 50 windows and 20 view states per project (windows unused for 30 days
 /// pruned, `main` not spared), a saved workflow of 16 MiB and 1,000 of
 /// them, a dashboard's widgets, viewport and filter of 4 MiB, 1,000
 /// dashboards and 16 MiB of versions each, an AI message of 1 MiB, 5,000
-/// messages and 64 MiB of content per chat (Q17) and 10,000 chats, and a
+/// messages and 64 MiB of content per chat and 10,000 chats, and a
 /// setting, the AI settings record or a user theme of 256 KiB, with 200
 /// user themes and 50 AI providers. Names are bounded by
 /// [`WEB_LIBRARY_LIMITS`]' `max_name_bytes`. Sizes are refused before
@@ -157,7 +157,7 @@ pub const WEB_STATE_LIMITS: StateLimits = StateLimits {
     max_ai_providers: Some(50),
 };
 
-/// What the assistant may do per web user (phase 6, Decision 14): four
+/// What the assistant may do per web user (phase 6): four
 /// turns in flight at once (a fifth is `TOO_MANY_REQUESTS`, 429; each holds
 /// a model stream and, while a tool runs, a database connection), and a
 /// user's message of at most 1 MiB, the chat budget's message cap
@@ -175,7 +175,7 @@ pub const WEB_AI_LIMITS: seaquel_core::ai::AiLimits = seaquel_core::ai::AiLimits
 /// driver on `db.connect` and `db.test` with `ENGINE_NOT_AVAILABLE`,
 /// whatever features Cargo unified into this build.
 ///
-/// Model calls (phase 6, Q1) go through seaquel-http's native client under
+/// Model calls (phase 6) go through seaquel-http's native client under
 /// `egress` (`SEAQUEL_AI_EGRESS`, [`startup::ai_egress_from_env`]), the
 /// same rule Core checks, trusting `extra_ca_file` (`NODE_EXTRA_CA_CERTS`)
 /// on top of the built-in roots and using the environment's proxies.

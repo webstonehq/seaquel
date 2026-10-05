@@ -2,8 +2,7 @@
  * Phase 5d-2 Task 6b's state fixtures replayed through the GUI on Core
  * (`crates/seaquel-workspace/tests/fixtures/state`, the README's
  * "TypeScript replay"). The case definitions and the harness are the
- * recorder's (`docs/plans/artifacts/2026-10-04-record-state-fixtures.test.ts.txt`),
- * with the managers and stores wired as `UseDatabase` wires them: the
+ * recorder's, with the managers and stores wired as `UseDatabase` wires them: the
  * `library`, `settings` and `ui` groups go to `CoreLibrary`, `CoreSettings`
  * and `CoreUi` over the browser module (phase 8: Core in the demo's page),
  * each window under its own window id, with the recorder's stubs, clock,
@@ -171,7 +170,7 @@ interface CoreCall {
    */
   binds?: string;
   /**
-   * `windowStateLoad`: what Core answers, by Decision 22's rules;
+   * `windowStateLoad`: what Core answers, by its per-window rules;
    * `chatMessagesList`: the message ids today's load returned, in order.
    */
   expect?: Json;
@@ -659,7 +658,7 @@ function byKey<T>(o: Record<string, T>, f: (v: T, k: string) => Json): Obj {
 
 /**
  * How many nodes each listed workflow's body holds. The page lists saved
- * workflows without their bodies (5d-2 Task 7), so the view reads each one
+ * workflows without their bodies, so the view reads each one
  * (`workflowGet`) as opening it would, raw: a workflow that won't decode is
  * listed, and says so only when it's opened.
  */
@@ -1034,7 +1033,7 @@ const EXEMPT: Record<string, string> = {
  * Cases this replay can't set up, each with where it is replayed instead.
  * A stale entry (a case no file defines) fails the test.
  */
-/** Phase 6 Task 7: Core stores a turn (two writes, Decision 31), not the page. */
+/** Core stores a turn (two writes), not the page. */
 const CORE_STORES_THE_TURN =
   "Core stores the assistant's turn since phase 6 (Decision 31): its rows are pinned by " +
   "Rust's `seaquel-core/tests/ai_replay.rs` (`page.json`), and the page's view of a turn " +
@@ -1057,7 +1056,7 @@ const SKIPPED_CASES: Record<string, string> = {
     "Its recorded rows hold the turn's messages, which Core stores since phase 6 (Decision 31; " +
     "`seaquel-core/tests/ai_replay.rs`). The page's title write (`chatUpdate {title, touched}`) " +
     "is pinned by `hooks/database/ai/turn.svelte.test.ts`.",
-  // A turn now needs the chat's connection open in Core (Decision 6); this
+  // A turn now needs the chat's connection open in Core; this
   // replay's connections aren't. Deleting a streaming chat is pinned by
   // `ai/turn.svelte.test.ts` ("a chat deleted during a turn cancels it").
   "chats/delete-streaming": CORE_STORES_THE_TURN,
@@ -1260,7 +1259,7 @@ function standard(extra: Seed = {}): Seed {
   const base: Seed = {
     projects: [P1, P2],
     connections: [C1, C2],
-    // Retired (Q13): no call reads or writes it, and every page case checks it survives.
+    // Retired: no call reads or writes it, and every page case checks it survives.
     connection_overrides: [
       {
         shared_connection_id: "repo-1:prod",
@@ -2196,7 +2195,7 @@ const dashboardCases: Case[] = [
     steps: [
       open(),
       step("dashboards.restoreVersion", { dashboardId: "dash-1", version: 1 }, async (t) => {
-        // The history lists no snapshots: the one restored is read (5d-2 Task 7).
+        // The history lists no snapshots: the one restored is read.
         const [listed] = t.page.dashboards.getVersionsForDashboard("dash-1");
         const v = await t.page.dashboards.loadVersion("dash-1", listed.id);
         await t.page.dashboards.restoreVersion("dash-1", v!);

@@ -1,7 +1,7 @@
 /**
  * Never save what failed to load: the license, whose save writes a whole
  * record, refuses to save after its load failed. The settings stores moved
- * to targeted `settings` calls in phase 5d-2 (Decision 20): a change there
+ * to targeted `settings` calls in phase 5d-2: a change there
  * replaces nothing, so it is sent after a failed load too.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";

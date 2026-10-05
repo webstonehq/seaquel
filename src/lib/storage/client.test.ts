@@ -98,7 +98,7 @@ const LIBRARY_RETIRED = new Set([
   "queryVersionsRepo.loadByProject",
   "queryVersionsRepo.insert",
   "queryVersionsRepo.pruneOldVersions",
-  // Phase 5d-2 Task 6a: the project state is the `ui` group's now (a
+  // The project state is the `ui` group's now (a
   // window's view state, `UiService`), and left the storage client.
   "projectStateRepo.load",
   "projectStateRepo.save",
@@ -108,7 +108,7 @@ const LIBRARY_RETIRED = new Set([
 /**
  * The repositories whose storage methods phase 5d-2 retired: the `library`,
  * `settings` and `ui` groups replaced them (Task 6b moved the GUI), and
- * connection overrides were retired (Q13). Phase 5e retired the shared
+ * connection overrides were retired. Phase 5e retired the shared
  * repos' storage methods too (the `shared` group's repo calls replaced
  * them). They are gone from both clients; `repos.rs` replays them natively.
  */

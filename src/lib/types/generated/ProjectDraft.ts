@@ -5,7 +5,7 @@
  */
 export type ProjectDraft = { name: string, description?: string, 
 /**
- * A shared-project import (Decision 13): a taken name becomes the
+ * A shared-project import: a taken name becomes the
  * first free `"<name> (n)"`.
  */
 renameIfTaken?: boolean, };

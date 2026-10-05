@@ -1,6 +1,6 @@
 /**
- * Chart nodes are stored without the rows their source holds (Q16,
- * Decision 23): the save drops the copy, the load fills it back from the
+ * Chart nodes are stored without the rows their source holds:
+ * the save drops the copy, the load fills it back from the
  * source. Workflows saved before 5d-2 keep their copies until saved again.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -79,7 +79,7 @@ function setup(saved: SavedWorkflow[] = []) {
   const state = $state({
     activeProjectId: "p",
     activeConnectionId: "conn",
-    // The page lists workflows without their bodies (5d-2 Task 7).
+    // The page lists workflows without their bodies.
     savedWorkflowsByProject: { p: saved.map(summary) } as Record<string, SavedWorkflowSummary[]>,
     librarySeqs: new RowSeqs(),
   });

@@ -1,12 +1,16 @@
 # library fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`.
+
 These files record what today's TypeScript does with the library: saved connections (their fields, labels, AI settings, the local-only flag, `lastConnected` and secrets), projects, custom labels, saved queries and their versions, the TablePlus, DBeaver and shared-project imports, and the pre-5a connection strings. Phase 5d-1 moves that work into Core (`seaquel_workspace::library`, the `Workspace` library methods and the `library` RPC group), and these cases pin it the way `../edits` pinned the grid's edits. See `docs/plans/2026-10-04-rust-core-phase-5d-plan.md`, "Parity fixtures" and Task 2.
 
 **The fixtures are frozen.** After 5d-1 the GUI writes the library through Core, and the TypeScript survives only in the demo (`TsLibrary`) until phase 8. Change a case only when Core is meant to behave differently, say why in `changes.json` and in "`changes.json`" below, and never re-record to make a failing test pass.
 
 ## How they were made
 
-The recorder is `docs/plans/artifacts/2026-10-04-record-library-fixtures.test.ts.txt`, a vitest file. It ran on `1cf3ddb` plus the phase 5d working tree after Task 1 (saves and removals that throw after their toast, `add` rolling back a failed save, the web vault unlocked before the save, `removeCustomLabel` saving the connections it changed, imports with `conn-<uuid>` ids, the five-field duplicate check and the connection order, the shared-query rename, the stale-tab stopgap, and the review's follow-ups: TablePlus and DBeaver imports local-only, a cleared git path taking the removed connections out of the connection order, and the version limit settings clamped to at least 10 on save). To rerun it, copy it to `src/lib/hooks/database/record-library.test.ts`, run it with `FREEZE_LIBRARY=1`, and delete the copy. It needs a tree that still has the TypeScript library managers.
+The recorder was `docs/plans/artifacts/2026-10-04-record-library-fixtures.test.ts.txt`, a vitest file. It ran on `1cf3ddb` plus the phase 5d working tree after Task 1 (saves and removals that throw after their toast, `add` rolling back a failed save, the web vault unlocked before the save, `removeCustomLabel` saving the connections it changed, imports with `conn-<uuid>` ids, the five-field duplicate check and the connection order, the shared-query rename, the stale-tab stopgap, and the review's follow-ups: TablePlus and DBeaver imports local-only, a cleared git path taking the removed connections out of the connection order, and the version limit settings clamped to at least 10 on save). To rerun it, copy it to `src/lib/hooks/database/record-library.test.ts`, run it with `FREEZE_LIBRARY=1`, and delete the copy. It needs a tree that still has the TypeScript library managers.
 
 It runs the real code:
 

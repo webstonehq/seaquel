@@ -1,5 +1,4 @@
-//! The browser `Driver`: DuckDB-WASM through the page's bridge (phase 8,
-//! Decisions 8–11).
+//! The browser `Driver`: DuckDB-WASM through the page's bridge (phase 8).
 //!
 //! - **One DuckDB-WASM connection per Core connection**, on the page's one
 //!   database; the connect config's path is ignored. A `restricted` connect
@@ -155,7 +154,7 @@ impl Drop for CancelOnDrop<'_> {
 
 /// A statement running as a pending query. Dropped before its result was
 /// read to the end (from its start on, while DuckDB still executes it), it
-/// cancels the query: `cancelPendingQuery` stops one still executing (S4),
+/// cancels the query: `cancelPendingQuery` stops one still executing,
 /// and a result being fetched is discarded by the connection's next
 /// statement.
 struct Pending<'b> {

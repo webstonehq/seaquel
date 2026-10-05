@@ -1,6 +1,5 @@
 // Uploads a target's DuckDB helper `.gz` into the draft release, from
-// `release.yml`'s matrix job through `actions/github-script` (the desktop
-// DuckDB helper plan, Task 9 review I2).
+// `release.yml`'s matrix job through `actions/github-script`.
 //
 // Not `gh release upload`: `gh` isn't promised on every runner image the
 // matrix uses (`windows-11-arm`, `ubuntu-24.04-arm` are partner images), and

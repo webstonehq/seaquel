@@ -1,12 +1,12 @@
 /**
- * `ConnectionManager` and DuckDB support's install on desktop (desktop
- * DuckDB helper plan, Task 5): every interactive connect path (`add`,
+ * `ConnectionManager` and DuckDB support's install on desktop:
+ * every interactive connect path (`add`,
  * `reconnect`, `autoReconnect` that isn't background, `test`, the file
  * drop) that meets `ENGINE_NOT_INSTALLED` opens the dialog once and sends
  * the same request again after the install; background reconnects never
- * ask; a decline adds no toast. Also Decision 6's GUI half (Test of a
- * file a connected DuckDB connection holds answers at once) and Task 2's
- * M3 (a DuckDB connection whose helper died isn't reconnected quietly).
+ * ask; a decline adds no toast. Also Test of a file a connected DuckDB
+ * connection holds (answered at once by the page), and a DuckDB
+ * connection whose helper died isn't reconnected quietly.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConnectRequest, ProviderRegistry } from "$lib/providers";
@@ -301,7 +301,7 @@ describe("declining", () => {
   });
 });
 
-// Decision 6's GUI half: Test on a DuckDB file that a connected
+// The GUI's half: Test on a DuckDB file that a connected
 // connection holds would be refused by Core ("already open"); it is open
 // and working, so Test answers at once. The page compares paths, Core
 // files: a path the page doesn't match falls back to Core's answer.
@@ -369,7 +369,7 @@ describe("Test of a file a connected DuckDB connection holds", () => {
   });
 });
 
-// Task 2's review M3 (Decision 7): a helper that dies is announced as
+// A helper that dies is announced as
 // CONNECTION_CLOSED and its connection taken out of Core. No quiet
 // reconnect follows, whatever reports the loss first: the query that
 // killed the helper may do it again.

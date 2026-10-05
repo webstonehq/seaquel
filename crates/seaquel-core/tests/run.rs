@@ -524,7 +524,7 @@ fn read(file: &str) -> Json {
 }
 
 /// The fixture's `driver` as the calls Core makes: a page is `query_stream`
-/// of the dialect's pagination (Decision 5).
+/// of the dialect's pagination.
 fn script(ty: &str, driver: &Json) -> Vec<Expect> {
     driver
         .as_array()
@@ -1034,7 +1034,7 @@ async fn a_failed_count_is_estimated_and_flagged() {
     }
 }
 
-/// Probe F2 (DuckDB helper plan): a count that fails because the
+/// A count that fails because the
 /// connection is gone ends the statement with that error, so the client
 /// sees the lost connection; it isn't estimated.
 #[tokio::test]
@@ -1071,7 +1071,7 @@ async fn a_count_on_a_lost_connection_fails_the_statement() {
     }
 }
 
-/// Probe M3: a page past the end comes back empty, and its offset says
+/// A page past the end comes back empty, and its offset says
 /// nothing about the total, so the count runs (estimated when it fails).
 #[tokio::test]
 async fn an_empty_page_past_the_start_counts() {
@@ -1926,7 +1926,7 @@ async fn history_row_uses_the_first_non_utility_statement() {
     assert_eq!(last(&ev)["history"]["rowCount"], 0);
 }
 
-// ── Decision 18: `other` statements that return rows ──
+// ── `other` statements that return rows ──
 
 #[tokio::test]
 async fn a_row_returning_other_statement_shows_its_rows() {

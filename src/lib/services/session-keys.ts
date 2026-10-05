@@ -1,5 +1,5 @@
 /**
- * The demo's AI keys (phase 6 Task 8, Q2 B): the key a visitor enters in
+ * The demo's AI keys: the key a visitor enters in
  * Settings → AI, kept in this page's memory for the session and nowhere
  * else. Not in Core's metadata file (the provider is stored without it),
  * not in IndexedDB, `localStorage` or `sessionStorage`, never logged. A

@@ -140,7 +140,7 @@ export function normalizeGitUrl(url: string): string {
  * row whose `sharedPath` is the link's path, once the project linked to its
  * directory has synced; a file not stored yet says so (bug 24). No "active
  * repo" is set: the repo is the link's, and the project is the one linked
- * to the file's directory (Task 1, M5).
+ * to the file's directory (M5).
  */
 export async function handleDeepLink(url: string, db: DatabaseContext): Promise<void> {
   const action = parseDeepLink(url);
@@ -256,10 +256,10 @@ async function handleFileDeepLink(
 
 /**
  * A connection template: in a project linked to its directory, the sync
- * imports it (Q23) and the connection whose template is the link's path
+ * imports it and the connection whose template is the link's path
  * opens. In a directory no local project links, the import dialog asks
- * to import that project (Q32: the directory ticked); once imported, which
- * imports its templates (Decision 40), the connection opens. Cancelling
+ * to import that project (the directory ticked); once imported, which
+ * imports its templates, the connection opens. Cancelling
  * does nothing.
  */
 async function handleConnectionDeepLink(

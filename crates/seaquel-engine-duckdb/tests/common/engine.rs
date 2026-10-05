@@ -1,7 +1,7 @@
 //! The DuckDB engine the integration suites run on: the helper's client
 //! (the `remote` driver) over a `seaquel-duckdb` child process, the only
-//! way any interface reaches DuckDB since the native driver went (Task 12
-//! of the desktop DuckDB helper plan). Every suite that opens DuckDB gets
+//! way any interface reaches DuckDB since the native driver went.
+//! Every suite that opens DuckDB gets
 //! its engine from [`engine`].
 //!
 //! The helper is `SEAQUEL_TEST_DUCKDB_HELPER`, else the `seaquel-duckdb`
@@ -241,7 +241,7 @@ mod remote {
         let root = bin_dir.join("duckdb");
         let folder = root.join(&version);
         std::fs::create_dir_all(&folder).unwrap();
-        // The start refuses a folder others can write (Decision 9).
+        // The start refuses a folder others can write.
         #[cfg(unix)]
         for d in [&bin_dir, &root, &folder] {
             use std::os::unix::fs::PermissionsExt;

@@ -3,13 +3,13 @@
 //! The GUI sends intents ([`Edit`]): a table, a key, a column and a value.
 //! [`plan_edit`] turns one into its statement with the connection's
 //! [`Dialect`] builders and the table's metadata, which Core reads from the
-//! database per call (Decision 3): the Postgres cast map ([`cast_map`]),
+//! database per call: the Postgres cast map ([`cast_map`]),
 //! SQLite's default expression for Set default, the primary key the key
-//! must be (Decision 4), and the JSON columns whose values bind as JSON
-//! (Decision 19). [`plan_sql`] checks a statement the editor deferred or the
-//! table editor generated. [`classify`] decides how a batch applies
-//! (Decision 5), and [`table_select`] builds the data tab's SELECT from a
-//! typed [`TableQuery`] (Decision 9).
+//! must be, and the JSON columns whose values bind as JSON.
+//! [`plan_sql`] checks a statement the editor deferred or the
+//! table editor generated. [`classify`] decides how a batch applies,
+//! and [`table_select`] builds the data tab's SELECT from a
+//! typed [`TableQuery`].
 //!
 //! Everything here is pure (no I/O), builds for wasm32 and never panics on
 //! its input. The rules are pinned by the fixtures in `tests/fixtures/edits`
@@ -18,7 +18,7 @@
 //!
 //! The wire types are serialised to the GUIs through `seaquel-rpc`. Their
 //! `Debug` shows table and column names, counts, modes and codes, never
-//! values, keys or SQL (Decision 18).
+//! values, keys or SQL.
 
 use std::collections::HashSet;
 use std::fmt;
@@ -40,10 +40,10 @@ use crate::run::{param_bytes, DestructiveStatement, HistoryContext, PageSource, 
 pub use crate::run::{CONFIRM_REQUIRED, INVALID_ARGUMENT, MAX_DESTRUCTIVE_LISTED};
 
 /// An edit Core won't build: the table isn't there or has no primary key,
-/// or the key sent isn't the table's primary key (Decision 4).
+/// or the key sent isn't the table's primary key.
 pub const NOT_EDITABLE: &str = "NOT_EDITABLE";
 /// A keyed edit (update, Set default, delete) that matched no row: its key
-/// went stale (Decision 4). The same code as a transaction's
+/// went stale. The same code as a transaction's
 /// `expect_rows` shortfall.
 pub const NO_ROWS_AFFECTED: &str = "NO_ROWS_AFFECTED";
 
@@ -75,7 +75,7 @@ pub enum ObjectKind {
     MaterializedView,
 }
 
-/// An edit intent (Decision 1). Keys are `[column, value]` pairs picked out
+/// An edit intent. Keys are `[column, value]` pairs picked out
 /// of the row by the GUI's routing, in the order it has them; values are in
 /// the cell wire format. `Debug` shows the table, the column and counts.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -141,8 +141,7 @@ impl Edit {
         }
     }
 
-    /// An update, Set default or delete by key: it must affect a row
-    /// (Decision 4).
+    /// An update, Set default or delete by key: it must affect a row.
     pub fn is_keyed(&self) -> bool {
         matches!(
             self,
@@ -197,8 +196,8 @@ impl fmt::Debug for Edit {
     }
 }
 
-/// A pending-changes queue entry as `db.applyChanges` takes it back
-/// (Decision 2). `id` is the GUI's. `Debug` shows no SQL or values.
+/// A pending-changes queue entry as `db.applyChanges` takes it back.
+/// `id` is the GUI's. `Debug` shows no SQL or values.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -262,8 +261,8 @@ impl fmt::Debug for PlanEditsParams {
 }
 
 /// One planned change: its SQL and binds (for display; Core builds again
-/// at apply time), its query type, whether it counts as DML (Decision 5)
-/// and what it does (Decision 12). `Debug` shows no SQL or values.
+/// at apply time), its query type, whether it counts as DML
+/// and what it does. `Debug` shows no SQL or values.
 #[derive(Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -298,13 +297,13 @@ impl fmt::Debug for PlannedChange {
 pub struct ApplyChangesParams {
     pub connection_id: String,
     pub changes: Vec<Change>,
-    /// The user confirmed the destructive statements (Decision 7). Absent
+    /// The user confirmed the destructive statements. Absent
     /// is false.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub confirmed: bool,
-    /// Record each applied change in history under this saved connection
-    /// (Decision 8). Without it nothing is recorded.
+    /// Record each applied change in history under this saved connection.
+    /// Without it nothing is recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub history: Option<HistoryContext>,
@@ -321,7 +320,7 @@ impl fmt::Debug for ApplyChangesParams {
     }
 }
 
-/// How a batch applies (Decision 5).
+/// How a batch applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -355,11 +354,11 @@ pub enum ApplyOutcome {
         failed: Option<ApplyFailure>,
         /// An applied change wasn't DML: reload the schema.
         ddl: bool,
-        /// The history rows appended (Decision 8), in queue order.
+        /// The history rows appended, in queue order.
         history: Vec<PersistedQueryHistoryItem>,
     },
     /// Nothing ran: the batch holds destructive statements and wasn't
-    /// confirmed (Decision 7).
+    /// confirmed.
     ConfirmRequired {
         /// The first [`MAX_DESTRUCTIVE_LISTED`]; `index` is the change's.
         destructive: Vec<DestructiveStatement>,
@@ -587,16 +586,16 @@ pub struct Sort {
 
 // ── Limits ──
 
-/// What one interface lets an edit call carry (Decision 17), set with
+/// What one interface lets an edit call carry, set with
 /// `CoreBuilder::edit_limits`. The default is no limit: the desktop app,
 /// the CLI and the MCP server. The web server sets all seven
 /// (`WEB_EDIT_LIMITS`). Every check runs before anything is planned or read.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct EditLimits {
-    /// The most changes (apply) or edits (plan) one call may carry.
+    /// The most changes (apply) or edits one call may carry.
     pub max_changes: Option<usize>,
     /// The most distinct tables one call's edits may touch: each is one
-    /// metadata read (Decision 3). Checked before any is read.
+    /// metadata read. Checked before any is read.
     pub max_tables: Option<usize>,
     /// The most bytes of typed SQL an apply may carry, all changes together.
     pub max_sql_bytes: Option<usize>,
@@ -636,7 +635,7 @@ fn edit_names(edit: &Edit) -> impl Iterator<Item = &str> {
         .chain(pairs.iter().map(|(name, _)| name.as_str()))
 }
 
-/// `INVALID_ARGUMENT` for a NUL in any of `names` (probe M2). No engine
+/// `INVALID_ARGUMENT` for a NUL in any of `names`. No engine
 /// takes one in an identifier: Postgres refuses the byte with a protocol
 /// error, and quoting can't make it safe. The message doesn't repeat the
 /// name.
@@ -650,7 +649,7 @@ fn check_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<(), PlanE
     Ok(())
 }
 
-/// `INVALID_ARGUMENT` for a NUL in any name `edit` carries (probe M2).
+/// `INVALID_ARGUMENT` for a NUL in any name `edit` carries.
 pub fn check_edit_names(edit: &Edit) -> Result<(), PlanError> {
     check_names(edit_names(edit))
 }
@@ -771,7 +770,7 @@ const UNCAST_TYPES: [&str; 4] = ["text", "character varying", "user-defined", "a
 /// widened to `bit varying` and `bpchar` (a cast to their unbounded
 /// information_schema names truncates to one character). Columns that need
 /// no cast are absent. Only Postgres gets one; the types come from the
-/// catalog Core read, never from the wire (Decision 3).
+/// catalog Core read, never from the wire.
 pub fn cast_map(columns: &[SchemaColumn]) -> CastMap {
     columns
         .iter()
@@ -846,7 +845,7 @@ fn f64_exact(text: &str) -> bool {
     significant.len() <= f64::DIGITS as usize && exponent.abs() < 290
 }
 
-/// Decision 19: a JSON column's array, number or bool binds as JSON. The
+/// A JSON column's array, number or bool binds as JSON. The
 /// providers decode a JSON cell to its plain value and the wire sends an
 /// array as a SQL array and a number as a number, which no engine casts to
 /// JSON. `Text` stays text (the grid sends typed JSON as a string, which
@@ -864,7 +863,7 @@ fn json_value(value: Value, json_column: bool) -> Value {
 }
 
 /// The placeholder and filter text type [`table_select`] uses on `engine`:
-/// the engine's `crud.rs` placeholders (Decision 9).
+/// the engine's `crud.rs` placeholders.
 fn select_style(engine: SqlEngine) -> (fn(usize) -> String, &'static str) {
     match engine {
         SqlEngine::Postgres | SqlEngine::Sqlite => (dollar_placeholder, "TEXT"),
@@ -878,7 +877,7 @@ fn qualified(target: &TableTarget) -> String {
     format!("{}.{}", target.schema, target.table)
 }
 
-/// Plan one edit (Decisions 1, 3, 4, 11 and 19). `meta` is the table's
+/// Plan one edit. `meta` is the table's
 /// metadata as Core read it this call; the sidebar's TRUNCATE and DROP
 /// ([`Edit::metadata_target`] `None`) take none. Pure. Refusals, before
 /// anything runs:
@@ -1039,7 +1038,7 @@ fn check_columns(target: &TableTarget, edit: &Edit, meta: &TableMeta) -> Result<
 }
 
 /// `NOT_EDITABLE` unless `key`'s columns are exactly the table's primary
-/// key's (Decision 4), as a set: each once, none missing, none extra.
+/// key's, as a set: each once, none missing, none extra.
 fn check_key(target: &TableTarget, key: &RowValues, meta: &TableMeta) -> Result<(), PlanError> {
     let primary: Vec<&str> = meta
         .columns
@@ -1074,7 +1073,7 @@ fn check_key(target: &TableTarget, key: &RowValues, meta: &TableMeta) -> Result<
 /// Plan a typed statement (the editor's deferred statements, the table
 /// editor's): it must be exactly one statement, split as the run splits (a
 /// MySQL `/*! … */` or MariaDB `/*M! … */` is code), else
-/// `INVALID_ARGUMENT` (Decision 5). DML is `insert`, `update` or `delete`
+/// `INVALID_ARGUMENT`. DML is `insert`, `update` or `delete`
 /// by its first word; everything else applies in order.
 pub fn plan_sql(
     sql: &str,
@@ -1100,8 +1099,8 @@ pub fn plan_sql(
     })
 }
 
-/// How a batch whose changes are DML or not (`dml`, in order) applies
-/// (Decision 5): one change is `single`; two or more are `atomic` when all
+/// How a batch whose changes are DML or not (`dml`, in order) applies:
+/// one change is `single`; two or more are `atomic` when all
 /// are DML, else `inOrder`.
 pub fn classify(dml: &[bool]) -> ApplyMode {
     match dml {
@@ -1127,7 +1126,7 @@ fn tiberius_unreadable(ty: &str) -> bool {
 /// `INVALID_ARGUMENT` for a table page past `limits`, before anything is
 /// built: too many filters or sort columns, a filter value too long, or
 /// too many `IN` items. Also, whatever the limits, for a NUL in the
-/// schema, the table or a filter or sort column (probe M2).
+/// schema, the table or a filter or sort column.
 pub fn check_query_limits(query: &TableQuery, limits: EditLimits) -> Result<(), PlanError> {
     if let Some(max) = over(limits.max_filters, query.filters.len()) {
         return Err(error(
@@ -1177,7 +1176,7 @@ fn in_items(value: &str) -> impl Iterator<Item = &str> {
     value.split(',').map(str::trim).filter(|s| !s.is_empty())
 }
 
-/// The data tab's SELECT for `query` (Decision 9), with no paging: Core
+/// The data tab's SELECT for `query`, with no paging: Core
 /// pages and counts it as a run's SELECT. `columns` is the table's
 /// metadata, read on SQL Server only: a table with a column tiberius can't
 /// read is listed column by column with those cast to `NVARCHAR(MAX)`.
@@ -1285,7 +1284,7 @@ pub fn metadata_targets<'a>(edits: impl IntoIterator<Item = &'a Edit>) -> Vec<&'
     out
 }
 
-/// Whether a change counts as DML (Decision 5), read before it is planned:
+/// Whether a change counts as DML, read before it is planned:
 /// a grid edit, a SQLite TRUNCATE (built as `DELETE FROM`), or typed SQL
 /// whose first word is INSERT, UPDATE or DELETE. [`plan_edit`] and
 /// [`plan_sql`] set [`PlannedChange::dml`] the same way.
@@ -1309,7 +1308,7 @@ pub fn is_dml(change: &Change, engine: SqlEngine) -> bool {
 
 // ── DuckDB extensions ──
 
-/// What the DuckDB extensions tab asks for (`db.duckdbExtension`, Q9).
+/// What the DuckDB extensions tab asks for (`db.duckdbExtension`).
 /// `name` must be `^[A-Za-z0-9_]+$`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]

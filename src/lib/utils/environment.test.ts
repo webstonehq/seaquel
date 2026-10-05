@@ -1,5 +1,5 @@
 /**
- * Which build this is (Task 6 review, I2): the demo is the demo build only,
+ * Which build this is: the demo is the demo build only,
  * never a desktop or dev build that happens to run in a plain browser.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";

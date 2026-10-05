@@ -76,7 +76,7 @@ struct Outcome {
 
 impl Workspace {
     /// Run the editor's text on one of this workspace's connections
-    /// (`db.run`, Decisions 1–11 and 18 of the phase 5b plan), under
+    /// (`db.run`), under
     /// `params.stream_id` in this workspace's scope.
     ///
     /// Events: per statement a `statementStart`, its `batch`es and a
@@ -102,7 +102,7 @@ impl Workspace {
     }
 
     /// [`Workspace::run`] for the window or tab `origin`: the history
-    /// row's `StorageChanged` event carries it (phase 5d, Decision 18).
+    /// row's `StorageChanged` event carries it (phase 5d).
     pub fn run_from<'a>(
         &'a self,
         core: &'a Core,
@@ -368,7 +368,7 @@ impl Workspace {
         );
         match seaquel_storage::query_history::append(self.storage(), &item).await {
             Ok(()) => {
-                // Phase 5d, Decision 16: history appends emit too, with
+                // History appends emit too, with
                 // the running window's origin.
                 self.record_storage_write(
                     origin,
@@ -564,7 +564,7 @@ pub(crate) fn execute<'a>(
                 let mut estimated = false;
                 // A full page says there's more; an empty one past the start
                 // (a stale page number, rows deleted since) says nothing
-                // about the total: both count (probe M3). Any other page is
+                // about the total: both count. Any other page is
                 // the last, and its offset plus its rows is the total.
                 let full = rows.len() as u64 > size;
                 let total = if full || (rows.is_empty() && offset > 0) {
@@ -581,7 +581,7 @@ pub(crate) fn execute<'a>(
                         Some(Ok(result)) => count_of(&result).ok_or("COUNT_NOT_NUMERIC".to_string()),
                         // A lost connection isn't a count to estimate: the
                         // statement fails with it, so the client sees the
-                        // connection is gone (DuckDB helper probe F2).
+                        // connection is gone.
                         Some(Err(e)) if connection_lost(&e.code) => {
                             let end = executor.monotonic();
                             yield error(e, end);
@@ -644,7 +644,7 @@ pub(crate) fn execute<'a>(
                 }
                 let end = executor.monotonic();
                 match result {
-                    // Decision 18: rows when it returned columns.
+                    // Rows when it returned columns.
                     Some(Ok(QueryResult { columns, rows }))
                         if !columns.is_empty() && !is_status(engine, &sql, &columns, &rows) =>
                     {

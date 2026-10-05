@@ -1,8 +1,8 @@
-//! The query view (Decision 14; design 1b): the editor box with its tabs,
+//! The query view (design 1b): the editor box with its tabs,
 //! highlighted lines, cursor and completion popup, the results box (Results,
 //! Explain, Messages), and the query's dialogs. Drawn from the model only.
 //!
-//! The editor draws its own lines (Q7 A: the textarea keeps the buffer):
+//! The editor draws its own lines (the textarea keeps the buffer):
 //! only the visible lines are read, tabs expand, control, bidi and
 //! zero-width characters show as `�`, and wide characters are measured, so
 //! a 2 MB text costs a frame what a short one does.
@@ -348,7 +348,7 @@ fn results_box(model: &Model, tab: &QueryTab, area: Rect, frame: &mut Frame) {
 }
 
 /// The result row and column drawn at `(x, y)` of the Results tab drawn
-/// into `inner`, as [`results`] draws it (the mouse, probe F3).
+/// into `inner`, as [`results`] draws it (the mouse).
 pub fn result_cell_at(
     model: &Model,
     inner: Rect,

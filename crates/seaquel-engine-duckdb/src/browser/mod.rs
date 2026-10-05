@@ -1,8 +1,8 @@
 //! The browser driver (phase 8): DuckDB-WASM in the page, behind a bridge.
 //!
-//! - [`binds`]: bound values written into the SQL as literals (Decision 9).
-//! - DuckDB-WASM's Arrow IPC bytes are read into rows by [`crate::ipc`]
-//!   (Decision 8), which the DuckDB helper's client shares.
+//! - [`binds`]: bound values written into the SQL as literals.
+//! - DuckDB-WASM's Arrow IPC bytes are read into rows by [`crate::ipc`],
+//!  which the DuckDB helper's client shares.
 //! - `bridge` and `driver` (wasm32 only): the JavaScript bridge and the
 //!   `Driver` over it.
 //!

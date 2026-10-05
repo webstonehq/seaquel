@@ -1,4 +1,4 @@
-//! The one keymap table (Decision 9). Every binding has a context, its keys,
+//! The one keymap table. Every binding has a context, its keys,
 //! a help line and, where the key bar shows it, a bar label. `update` looks
 //! keys up here, and the key bar ([`bar`]) and `?` help ([`help`]) are
 //! generated from it, so neither can drift from what the keys do.
@@ -33,7 +33,7 @@ pub enum Context {
     Pending,
     /// The main view (`0`).
     Main,
-    /// The main view's data grid (Task 4), on top of [`Context::Main`].
+    /// The main view's data grid, on top of [`Context::Main`].
     Grid,
     /// A cell being edited (its text takes every printable key).
     CellEdit,
@@ -73,7 +73,7 @@ pub enum Context {
     InstallFailed,
     /// It failed in a way a retry can't fix (`NOT_SUPPORTED`).
     InstallFailedFinal,
-    /// The commit dialog (Task 5).
+    /// The commit dialog.
     Commit,
     /// The commit dialog on a `prod` connection: printable keys are the
     /// confirm text, on top of [`Context::Commit`].
@@ -86,7 +86,7 @@ pub enum Context {
     QueueSwitch,
     /// A staged value being edited (its text takes every printable key).
     EditValue,
-    /// The query view (Task 6), under the editor's and results' contexts.
+    /// The query view, under the editor's and results' contexts.
     Query,
     /// The editor in Insert mode (printable keys are its text).
     Insert,
@@ -214,7 +214,7 @@ pub enum Action {
     GiveUp,
     /// Connect again after the DuckDB helper didn't start or stopped.
     Reconnect,
-    /// Download DuckDB support (the DuckDB helper plan, Task 7).
+    /// Download DuckDB support.
     Download,
     /// Look up or download DuckDB support again.
     InstallRetry,
@@ -223,7 +223,7 @@ pub enum Action {
     StopInstall,
     /// `u`: take back the last staging action.
     Undo,
-    // The data grid (Task 4).
+    // The data grid.
     CellUp,
     CellDown,
     CellLeft,
@@ -252,7 +252,7 @@ pub enum Action {
     FormNext,
     ApplyForm,
     CancelForm,
-    // Pending Changes and commit (Task 5).
+    // Pending Changes and commit.
     /// `c`: the commit dialog.
     Commit,
     /// Panel 4's `space`.
@@ -275,7 +275,7 @@ pub enum Action {
     KeepQueue,
     /// Discard them.
     DiscardQueue,
-    // Query (Task 6).
+    // Query.
     /// `+`: a new query tab.
     NewQuery,
     /// `Q`: the query editor.
@@ -323,7 +323,7 @@ pub enum Action {
     SaveAsSubmit,
     CellScrollUp,
     CellScrollDown,
-    // Ask AI (Task 7).
+    // Ask AI.
     /// Ctrl+K: the popup.
     Ask,
     /// Enter: send the request.
@@ -1026,7 +1026,7 @@ pub static BINDINGS: &[Binding] = &[
         "connect again",
         Some(("Connect again", "r")),
     ),
-    // DuckDB support isn't installed (the DuckDB helper plan, Task 7).
+    // DuckDB support isn't installed.
     b(
         C::InstallChecking,
         ESC,
@@ -1134,7 +1134,7 @@ pub static BINDINGS: &[Binding] = &[
         Some(("Keep", "esc")),
     ),
     // "Commit again?": the last commit lost its connection and may have
-    // been applied (the DuckDB helper plan's probe F1).
+    // been applied.
     b(
         C::ConfirmRecommit,
         &[Key::char('y')],
@@ -1193,7 +1193,7 @@ pub static BINDINGS: &[Binding] = &[
         "cancel",
         Some(("Cancel", "esc")),
     ),
-    // The query view (Task 6): keys that work in the editor and the results.
+    // The query view: keys that work in the editor and the results.
     b(
         C::Query,
         &[
@@ -1206,7 +1206,7 @@ pub static BINDINGS: &[Binding] = &[
         "run the whole text (ctrl+enter too)",
         Some(("Run", "ctrl+r")),
     ),
-    // Ctrl+E first (probe F8): macOS terminals type `®` for Option+R
+    // Ctrl+E first: macOS terminals type `®` for Option+R
     // unless Option is set to send Meta. Alt+R stays.
     b(
         C::Query,
@@ -1281,7 +1281,7 @@ pub static BINDINGS: &[Binding] = &[
         "complete a name (opens itself after .)",
         Some(("Complete", "tab")),
     ),
-    // Normal mode (Q7 A).
+    // Normal mode.
     b(
         C::Normal,
         &[Key::char('i')],
@@ -1661,7 +1661,7 @@ pub static BINDINGS: &[Binding] = &[
         "close",
         Some(("Close", "esc")),
     ),
-    // Ask AI (Task 7, design 1d): printable keys are the request.
+    // Ask AI (design 1d): printable keys are the request.
     b(
         C::AskPrompt,
         ENTER,
@@ -1809,7 +1809,7 @@ pub enum BarContext {
     Picker,
     Password,
     /// The password prompt while the secret store isn't available: no
-    /// "Save password" (probe F4).
+    /// "Save password".
     PasswordNoSave,
     Trust,
     Problem,
@@ -2017,7 +2017,7 @@ impl BarContext {
             BarContext::ConfirmRecommit => &[A::ConfirmRecommit, A::Cancel],
             BarContext::QueueSwitch => &[A::KeepQueue, A::DiscardQueue, A::Cancel],
             BarContext::EditValue => &[A::ApplyValue, A::Cancel],
-            // Design 1b's bar (Decision 14's keys).
+            // Design 1b's bar.
             BarContext::QueryInsert => &[
                 A::RunAll,
                 A::RunCurrent,
@@ -2270,7 +2270,7 @@ mod tests {
             Some(A::Retry)
         );
         assert!(lookup(BarContext::Problem.chain(), Key::char('r')).is_none());
-        // The DuckDB helper's dialogs (Task 7 of the DuckDB helper plan).
+        // The DuckDB helper's dialogs.
         assert_eq!(
             lookup(BarContext::ProblemReconnect.chain(), Key::char('r')).map(|b| b.action),
             Some(A::Reconnect)
@@ -2342,7 +2342,7 @@ mod tests {
         }
     }
 
-    /// Probe F8: on macOS, Option+R and Option+X type `®` and `≈` unless
+    /// On macOS, Option+R and Option+X type `®` and `≈` unless
     /// the terminal is set to send Option as Meta (off by default in
     /// Terminal.app and iTerm2). So no bar names an Alt key: each action
     /// the bar shows has a key every terminal sends.
@@ -2362,7 +2362,7 @@ mod tests {
         assert_eq!(lookup(chain, Key::alt('r')).unwrap().action, A::RunCurrent);
     }
 
-    /// Probe F2, F3 and F8: what the terminal does with the mouse and the
+    /// What the terminal does with the mouse and the
     /// Esc and Option keys, at the end of the help.
     #[test]
     fn the_help_ends_with_the_terminal_notes() {

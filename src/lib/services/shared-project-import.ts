@@ -1,6 +1,6 @@
 /**
  * "Import from repo" (the app header and the getting-started tab): Core
- * scans the chosen folder's `.seaquel/projects/` (Decision 40); one project
+ * scans the chosen folder's `.seaquel/projects/`; one project
  * not linked here yet is imported at once, several open the import dialog,
  * none is said. A directory a local project already links is never
  * imported again silently.
@@ -21,7 +21,7 @@ export async function importSharedProjectsFrom(db: DatabaseContext, path: string
     errorToast(m.shared_error_repo_conflicted());
     return;
   }
-  // Probe fix 8: a folder the scan didn't offer (a symlink) is named.
+  // A folder the scan didn't offer (a symlink) is named.
   for (const s of preview.skippedDirs ?? []) {
     toast.info(m.shared_import_skipped_dirs({ dirs: s.dir, reason: skipReason(s.why) }));
   }

@@ -1,6 +1,6 @@
 /**
- * Where the demo keeps its metadata file between visits (phase 8, Q1 A,
- * Decision 6): IndexedDB database `seaquel-demo`, object store `files`, key
+ * Where the demo keeps its metadata file between visits (phase 8):
+ * IndexedDB database `seaquel-demo`, object store `files`, key
  * `meta.db` (the snapshot) and `meta.db.unreadable` (a snapshot that didn't
  * open, kept aside rather than lost).
  *

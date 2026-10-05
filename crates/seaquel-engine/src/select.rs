@@ -1,4 +1,4 @@
-//! The data tab's SELECT (phase 5c, Decision 9): a pure builder
+//! The data tab's SELECT (phase 5c): a pure builder
 //! parameterized like [`crate::crud`], by the quote functions, the
 //! placeholder and the text type filters compare as.
 //!

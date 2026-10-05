@@ -1,5 +1,5 @@
 /**
- * Model calls left the page (phase 6, Decisions 7 and 19): no provider URL
+ * Model calls left the page (phase 6): no provider URL
  * or provider header in the page's code under `src/`, and the desktop CSP lets the page
  * reach only itself, the IPC bridge, the dev server's HMR socket and the
  * DuckDB community extension list, which must still load.

@@ -1,5 +1,5 @@
 /**
- * Oversized replies (phase 6 probe F2).
+ * Oversized replies.
  *
  * - Core cuts a reply at the most a stored reply may hold (the message
  *   limit, or its own 1 MiB ceiling), ends the turn `tooLong` and stores

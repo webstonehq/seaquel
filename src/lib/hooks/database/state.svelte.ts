@@ -154,8 +154,8 @@ export class DatabaseState {
   /** Each repo's git status, as the sync button shows it (memory only). */
   syncStateByRepo = $state<Record<string, SyncState>>({});
   /**
-   * Projects the last sync skipped whole (past the scan's file count or
-   * size, probe fix 7), by project id: shown on the project's sync status.
+   * Projects the last sync skipped whole (past the scan's file count or size),
+   * by project id: shown on the project's sync status.
    */
   sharedSyncSkipped = $state<Record<string, SkipReason>>({});
   /** The conflict dialog: the repo whose conflicted files it resolves, while open. */
@@ -169,7 +169,7 @@ export class DatabaseState {
   /** The chat whose turn is streaming, if any: deleting it or sending elsewhere stops the turn. */
   aiStreamingChatId = $state<string | null>(null);
   /**
-   * Chats the web's budget has filled (`max_chat_bytes`, Q17): a refused
+   * Chats the web's budget has filled (`max_chat_bytes`): a refused
    * turn, or stored bytes at the budget when opened. Sending is off there.
    */
   aiChatFull = $state<Record<string, true>>({});

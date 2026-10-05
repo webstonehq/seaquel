@@ -226,7 +226,7 @@ async fn eviction_ends_a_run() {
     assert_eq!(env.state.core.running_stream_count(), 0);
 }
 
-/// Phase 7a Decision 6: a web user's workspace doesn't poll its `meta.db`
+/// A web user's workspace doesn't poll its `meta.db`
 /// for other connections' commits (nothing else writes it, and a poll per
 /// open user would cost the server for nothing).
 #[tokio::test]

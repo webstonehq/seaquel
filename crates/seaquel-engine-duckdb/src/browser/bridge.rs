@@ -1,4 +1,4 @@
-//! The page's DuckDB-WASM, as the browser driver sees it (Decision 12).
+//! The page's DuckDB-WASM, as the browser driver sees it.
 //!
 //! TypeScript imports DuckDB-WASM, starts its worker and passes Rust one
 //! object with these methods. Each takes a DuckDB-WASM connection id and

@@ -132,7 +132,7 @@ seaquel_engine::impl_sqlx_driver!(
                     introspect::apply_mariadb_json(&mut columns, &checks);
                 }
             }
-            // Task 18: UNIQUE from the indexes (the parse stays the TS's).
+            // UNIQUE from the indexes (the parse stays the TS's).
             seaquel_engine::introspect::apply_unique_indexes(&mut columns, &indexes);
             Ok((columns, indexes))
         }
@@ -212,7 +212,7 @@ seaquel_engine::impl_sqlx_driver!(
     }
 );
 
-/// A read-only session and transaction (AI safety plan, Decision 1) on a
+/// A read-only session and transaction on a
 /// pooled connection that is closed afterwards, never returned: the setting,
 /// `SET SESSION` changes and `GET_LOCK` locks would survive a rollback.
 ///

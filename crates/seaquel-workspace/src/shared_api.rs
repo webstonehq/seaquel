@@ -21,13 +21,13 @@ pub struct SyncReport {
     pub files_written: u32,
     /// After the once-per-session rule.
     pub notices: Vec<SyncNotice>,
-    /// A repo's sync goes on past a project that fails (review M5); each
+    /// A repo's sync goes on past a project that fails; each
     /// failure is named here.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "ts", ts(as = "Option<Vec<ProjectFailure>>", optional))]
     pub failures: Vec<ProjectFailure>,
-    /// Projects the scan skipped whole (past its file count or size,
-    /// probe fix 7): nothing in them was read or written. Named on every
+    /// Projects the scan skipped whole (past its file count or size):
+    /// nothing in them was read or written. Named on every
     /// sync, outside the once-per-session rule.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "ts", ts(as = "Option<Vec<SkippedProject>>", optional))]
@@ -69,7 +69,7 @@ impl fmt::Debug for ProjectFailure {
     }
 }
 
-/// `shared.importProjects`' answer (review M5): each directory is imported
+/// `shared.importProjects`' answer: each directory is imported
 /// whole or not at all.
 #[derive(Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -116,7 +116,7 @@ impl SyncReport {
     }
 }
 
-/// What `shared.unlinkPreview` answers (Task 7 re-review): the
+/// What `shared.unlinkPreview` answers: the
 /// connections an unlink with `removeImported` would remove, so the unlink
 /// dialog lists exactly those. Read only.
 #[derive(Clone, Default, PartialEq, Serialize)]
@@ -136,7 +136,7 @@ impl fmt::Debug for UnlinkPreview {
     }
 }
 
-/// What `shared.unlinkProject` removed and kept (Q31).
+/// What `shared.unlinkProject` removed and kept.
 #[derive(Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -196,7 +196,7 @@ pub struct PreviewProject {
     pub queries: u32,
     pub dashboards: u32,
     pub templates: Vec<PreviewTemplate>,
-    /// Files the scan didn't read (Decision 32).
+    /// Files the scan didn't read.
     pub skipped: u32,
     /// The local projects already linked to this directory.
     pub linked_project_ids: Vec<String>,
@@ -220,7 +220,7 @@ impl fmt::Debug for PreviewProject {
 pub struct RepoPreview {
     pub conflicted: bool,
     pub projects: Vec<PreviewProject>,
-    /// Project directories the scan didn't offer (a symlink, probe fix 8).
+    /// Project directories the scan didn't offer (a symlink).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "ts", ts(as = "Option<Vec<SkippedDir>>", optional))]
     pub skipped_dirs: Vec<SkippedDir>,
@@ -254,7 +254,7 @@ impl fmt::Debug for RepoPreview {
 }
 
 /// `shared.repoUpdate`'s patch: only the fields it names change, the rest
-/// of the stored JSON stays byte for byte (Decision 43). `lastSyncAt` is
+/// of the stored JSON stays byte for byte. `lastSyncAt` is
 /// Core's (a pull or push sets it), `syncStatus` is the GUI's view.
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

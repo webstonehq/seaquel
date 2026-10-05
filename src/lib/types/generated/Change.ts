@@ -2,7 +2,7 @@
 import type { Edit } from "./Edit";
 
 /**
- * A pending-changes queue entry as `db.applyChanges` takes it back
- * (Decision 2). `id` is the GUI's. `Debug` shows no SQL or values.
+ * A pending-changes queue entry as `db.applyChanges` takes it back.
+ * `id` is the GUI's. `Debug` shows no SQL or values.
  */
 export type Change = { "type": "edit", id: string, edit: Edit, } | { "type": "sql", id: string, sql: string, params: Array<unknown>, };

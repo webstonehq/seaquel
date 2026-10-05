@@ -1,5 +1,5 @@
 /**
- * The demo's start (phase 8, Decision 19), once the page's Core is open
+ * The demo's start (phase 8), once the page's Core is open
  * (`$lib/demo/core`, from `src/routes/+layout.ts`) and the page has loaded
  * its projects and saved connections:
  *
@@ -11,8 +11,7 @@
  * 3. the sample tables are created and filled through `db.execute`, one
  *    statement at a time;
  * 4. the page shows the row, loads the schema and makes it active;
- * 5. the sample dashboard is created if the project has none of its name
- *    (Decision 20).
+ * 5. the sample dashboard is created if the project has none of its name.
  *
  * It imports no part of the module or the transport: the page passes its
  * Core in, so this file costs nothing outside the demo build.

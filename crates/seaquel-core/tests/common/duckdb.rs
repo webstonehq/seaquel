@@ -1,6 +1,6 @@
 //! DuckDB for Core's tests: the `seaquel-duckdb` helper, installed into a
 //! folder of the test's own as a real install is laid out. Since the
-//! native driver went (Task 12 of the desktop DuckDB helper plan), DuckDB
+//! native driver went, DuckDB
 //! is reached only through the helper, as every interface reaches it.
 //!
 //! The helper is `SEAQUEL_TEST_DUCKDB_HELPER`, else the `seaquel-duckdb`

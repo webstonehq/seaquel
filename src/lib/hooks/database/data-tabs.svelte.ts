@@ -31,8 +31,8 @@ interface Refresh {
  * Data viewer tabs: one table's rows, filtered, sorted and paged, with
  * inline edits.
  *
- * A page is `db.tablePage` through the connection's `EditService` (phase
- * 5c, Decision 9): the tab sends its table, enabled filters, logic, sort,
+ * A page is `db.tablePage` through the connection's `EditService` (phase 5c):
+ * the tab sends its table, enabled filters, logic, sort,
  * page and page size, and Core quotes, binds, casts, pages and counts. A tab
  * has one refresh at a time: a new one cancels the one in flight (so pages
  * clicked quickly can't land out of order), and closing the tab or reloading

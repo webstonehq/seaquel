@@ -2,7 +2,7 @@
 
 /**
  * `shared.repoUpdate`'s patch: only the fields it names change, the rest
- * of the stored JSON stays byte for byte (Decision 43). `lastSyncAt` is
+ * of the stored JSON stays byte for byte. `lastSyncAt` is
  * Core's (a pull or push sets it), `syncStatus` is the GUI's view.
  */
 export type RepoPatch = { name?: string, remoteUrl?: string, branch?: string, };

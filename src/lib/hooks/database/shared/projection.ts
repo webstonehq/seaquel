@@ -1,13 +1,13 @@
 /**
- * What a library write did to its row's file in a shared project (Decision
- * 36), said to the user. Core publishes inside the library call and answers
+ * What a library write did to its row's file in a shared project,
+ * said to the user. Core publishes inside the library call and answers
  * `projection` on the `Seqd`; nothing is published for a row that isn't
  * shared or a project without a link, and the field is then absent.
  *
  * - `written`/`deleted`: the repo's status changed (the sync button's
  *   pending count), so it is read again.
  * - `failed` with `FILE_CHANGED`: a teammate changed the file since the last
- *   sync, so Core didn't overwrite it and synced the project instead (Q20).
+ *   sync, so Core didn't overwrite it and synced the project instead.
  *   On an edit the repo's version is shown and the user's is in the history;
  *   on a removal or unshare the repo's version is kept and comes back. Either
  *   way the sync changed rows this page shows, and its events carry this

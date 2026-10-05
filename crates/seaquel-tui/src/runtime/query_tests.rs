@@ -79,7 +79,7 @@ async fn whole_text_and_statement_at_the_cursor_run_with_history() {
     h.close().await;
 }
 
-// Review M6: the cursor mid-line after a 😀 (two UTF-16 units) and an
+// The cursor mid-line after a 😀 (two UTF-16 units) and an
 // `e` with a combining accent (one char each), right before and right
 // after a `;`: Core picks the statement the cursor is in.
 #[tokio::test]
@@ -446,7 +446,7 @@ async fn postgres_cancel_reaches_the_server_and_analyze_explains() {
     h.close().await;
 }
 
-// Decision 15: "stream all" keeps at most ROW_CAP rows and stops the
+// "Stream all" keeps at most ROW_CAP rows and stops the
 // stream there (Core's own cap would fail the statement one row later).
 #[tokio::test]
 async fn postgres_stream_all_stops_at_the_cap() {

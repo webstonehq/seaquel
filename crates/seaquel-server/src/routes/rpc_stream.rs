@@ -208,7 +208,7 @@ pub async fn stream(
         }
     };
     // While this socket is open its window counts as open; its last socket
-    // closing starts the window's grace period (phase 6 probe F4).
+    // closing starts the window's grace period.
     let window = origin
         .as_deref()
         .map(|o| state.workspaces.hold_window(&state.core, &user, o));
@@ -774,7 +774,7 @@ pub const MAX_STREAM_ID_LEN: usize = 128;
 
 /// Whether `id` is a `streamId` this socket takes: at most
 /// [`MAX_STREAM_ID_LEN`] of `[A-Za-z0-9_.:-]`. It reaches Core's logs and
-/// every event, so nothing else is let through (phase 5b review, I1).
+/// every event, so nothing else is let through.
 fn valid_stream_id(id: &str) -> bool {
     id.len() <= MAX_STREAM_ID_LEN
         && id

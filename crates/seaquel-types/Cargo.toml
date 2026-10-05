@@ -14,7 +14,7 @@ serde = { workspace = true }
 # raw_value: storage row types keep JSON columns as the text that came in.
 serde_json = { workspace = true, features = ["raw_value"] }
 base64 = { workspace = true }
-# `names::name_key` (phase 5d, Q3): NFC and full Unicode case folding. Both
+# `names::name_key` (phase 5d): NFC and full Unicode case folding. Both
 # are pure Rust with no dependencies of their own, and build for wasm32.
 unicode-normalization = "0.1.25"
 unicase = "2.9"

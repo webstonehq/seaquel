@@ -1,4 +1,4 @@
-//! The working tree of a shared project (phase 5e, Decision 32): scanning a
+//! The working tree of a shared project (phase 5e): scanning a
 //! project's `.seaquel` directory and applying the file operations Core's
 //! projection plans, never through a symlink.
 //!
@@ -14,7 +14,7 @@
 //! - [`scan`] reads one project directory: the `.sql`, `.json`, `.yaml` and
 //!   `.yml` files, at most [`ScanBounds::max_file_bytes`] each. A symlink,
 //!   an unreadable directory, a file that isn't UTF-8, one past the size cap
-//!   or with a name Decision 32 refuses is listed in `skipped`, so the
+//!   or with a name the path rules refuse is listed in `skipped`, so the
 //!   planner never reads it as missing. Past [`ScanBounds::max_files`] files
 //!   or [`ScanBounds::max_total_bytes`], nothing is read and the whole
 //!   project is skipped.
@@ -51,7 +51,7 @@ pub const FILE_ERROR: &str = "FILE_ERROR";
 /// I/O error would. Never set outside tests.
 pub type WriteHook = Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>;
 
-/// Decision 32's bounds on one scan.
+/// The bounds on one scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScanBounds {
     /// Files of the four extensions in one project directory.
@@ -60,7 +60,7 @@ pub struct ScanBounds {
     pub max_file_bytes: u64,
     /// All the files read together.
     pub max_total_bytes: u64,
-    /// Remove temp files of ours a crash left behind (review M4). Only a
+    /// Remove temp files of ours a crash left behind. Only a
     /// caller holding the repo's lock (a sync) sets it, so no write is in
     /// flight.
     pub clear_temp_files: bool,
@@ -106,7 +106,7 @@ pub enum OpOutcome {
     /// The file on disk isn't what the plan expected (`expect_hash`):
     /// nothing was written.
     Stale,
-    /// Decision 32 refused the path (a symlink on it, a bad component).
+    /// The path rules refused the path (a symlink on it, a bad component).
     Refused(String),
     /// The write or delete failed.
     Failed(String),
@@ -274,8 +274,8 @@ fn check_no_symlink(root: &Path, rel: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// A repo-relative path a conflict resolution may write or delete (review
-/// A2): relative, `/`-separated, no empty, `.` or `..` part, no backslash
+/// A repo-relative path a conflict resolution may write or delete:
+/// relative, `/`-separated, no empty, `.` or `..` part, no backslash
 /// or NUL, and no symlink at any component below `root`.
 pub(crate) fn check_resolvable(root: &Path, rel: &str) -> Result<(), String> {
     let bad = rel.is_empty()
@@ -365,7 +365,7 @@ impl Walk {
             }
             // Hidden entries (`.DS_Store`, `.git`) aren't part of the
             // projection. A temp file of ours that a crash left behind is
-            // removed when the caller holds the repo's lock (review M4), so
+            // removed when the caller holds the repo's lock, so
             // a commit never stages it.
             if name.starts_with('.') {
                 if self.bounds.clear_temp_files
@@ -490,7 +490,7 @@ fn scan_blocking(root: &Path, dir: &str, bounds: ScanBounds) -> Result<DirScan, 
 }
 
 /// One project directory (`dir`, repo-relative: `.seaquel/projects/<dir>`)
-/// of the repo at `root`, under Decision 32's rules (see the module docs).
+/// of the repo at `root`, under the path rules (see the module docs).
 /// `conflicted` is left false: [`conflicted`] reads it. An error only when
 /// `dir` isn't a valid path or the repo's folder isn't there; anything
 /// below that can't be read is skipped, never missing.
@@ -508,7 +508,7 @@ pub async fn is_dir(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// The key a repo's lock is kept under (review M1): its canonical path,
+/// The key a repo's lock is kept under: its canonical path,
 /// resolved on a blocking thread. `fs::canonicalize` resolves symlinks and,
 /// on macOS's case-insensitive volumes, returns each existing component's
 /// on-disk case, so every spelling of one repo folder gets one key. A path
@@ -521,8 +521,8 @@ pub async fn lock_key(path: &Path) -> PathBuf {
         .unwrap_or(fallback)
 }
 
-/// Whether the repo at `root` has conflicted files in its index (Decision
-/// 35). A folder that isn't a repo has none.
+/// Whether the repo at `root` has conflicted files in its index.
+/// A folder that isn't a repo has none.
 pub async fn conflicted(root: &Path) -> Result<bool, GitError> {
     let root = root.to_path_buf();
     blocking(move || {
@@ -557,7 +557,7 @@ pub async fn project_dirs(root: &Path) -> Result<Vec<ProjectDir>, GitError> {
 }
 
 /// [`project_dirs`], and the entries of `.seaquel/projects` it left out
-/// because they are symlinks (probe fix 8), `rel_path` being the entry's
+/// because they are symlinks, `rel_path` being the entry's
 /// name, so the scan's answer can name them.
 #[derive(Debug, Default)]
 pub struct ProjectDirs {
@@ -620,7 +620,7 @@ pub async fn project_dirs_listing(root: &Path) -> Result<ProjectDirs, GitError> 
     .await
 }
 
-/// The text of the file at `rel` (repo-relative, Decision 32), or `None`
+/// The text of the file at `rel` (repo-relative), or `None`
 /// when there's none. A symlink on the path, a file that isn't UTF-8 or
 /// one past 16 MiB is `FILE_ERROR`.
 pub async fn read_file(root: &Path, rel: &str) -> Result<Option<String>, GitError> {
@@ -780,7 +780,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
             Err(e) => return Err(e),
         }
     };
-    // Review M4: a rewrite keeps the file's mode (only a regular file's;
+    // A rewrite keeps the file's mode (only a regular file's;
     // the target was checked not to be a symlink).
     let mode = std::fs::symlink_metadata(target)
         .ok()
@@ -891,7 +891,7 @@ pub async fn apply(
     .await
 }
 
-/// Puts back the bytes a delete removed (Decision 37: a row write that
+/// Puts back the bytes a delete removed (a row write that
 /// failed after its file was deleted). Atomic, under the same path rules.
 pub async fn restore(root: &Path, rel: &str, bytes: Vec<u8>) -> Result<(), GitError> {
     let (root, rel) = (root.to_path_buf(), rel.to_string());

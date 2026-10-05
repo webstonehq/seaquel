@@ -2052,23 +2052,14 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query Plan",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query Plan", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
     },
     {
       "name": "EXPLAIN ANALYZE: constant select",
-      "input": {
-        "sql": "SELECT 1 AS one",
-        "analyze": true,
-        "columns": [],
-        "rows": []
-      },
+      "input": { "sql": "SELECT 1 AS one", "analyze": true, "columns": [], "rows": [] },
       "output": {
         "plan": {
           "id": "node-0",
@@ -2082,12 +2073,7 @@
     },
     {
       "name": "synthetic: no plan rows",
-      "input": {
-        "sql": "(synthetic)",
-        "analyze": false,
-        "columns": [],
-        "rows": []
-      },
+      "input": { "sql": "(synthetic)", "analyze": false, "columns": [], "rows": [] },
       "output": {
         "plan": {
           "id": "node-0",
@@ -2101,12 +2087,7 @@
     },
     {
       "name": "synthetic: no plan rows, analyzed",
-      "input": {
-        "sql": "(synthetic)",
-        "analyze": true,
-        "columns": [],
-        "rows": []
-      },
+      "input": { "sql": "(synthetic)", "analyze": true, "columns": [], "rows": [] },
       "output": {
         "plan": {
           "id": "node-0",
@@ -2131,11 +2112,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query Plan",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query Plan", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -2146,14 +2123,7 @@
         "sql": "(synthetic)",
         "analyze": true,
         "columns": ["one"],
-        "rows": [
-          {
-            "one": 1
-          },
-          {
-            "one": "<not a plan/>"
-          }
-        ]
+        "rows": [{ "one": 1 }, { "one": "<not a plan/>" }]
       },
       "output": {
         "plan": {

@@ -1,7 +1,7 @@
 /**
- * The reply's segments (phase 6 Task 7, Q7): text and one line per tool
+ * The reply's segments: text and one line per tool
  * call, built as a turn's events arrive and read back from a stored
- * reply's `parts` (Decision 23), so a reloaded chat shows the same lines.
+ * reply's `parts`, so a reloaded chat shows the same lines.
  */
 import { describe, expect, it } from "vitest";
 import {

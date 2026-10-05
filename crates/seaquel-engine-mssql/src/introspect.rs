@@ -43,7 +43,7 @@ pub const COLUMNS_SQL: &str = "SELECT\n  c.name AS column_name,\n  CASE\n    WHE
 pub const INDEXES_SQL: &str = "SELECT i.name AS index_name, c.name AS column_name, i.is_unique, i.type_desc AS index_type\nFROM sys.indexes i\nINNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id\nINNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id\nINNER JOIN sys.objects o ON i.object_id = o.object_id\nINNER JOIN sys.schemas s ON o.schema_id = s.schema_id\nWHERE o.name = @P1 AND s.name = @P2 AND i.name IS NOT NULL AND ic.is_included_column = 0\nORDER BY i.name, ic.key_ordinal";
 
 /// Unique indexes of a table that are filtered or have INCLUDE columns: not a
-/// column's UNIQUE (Task 18), so `apply_unique_indexes` leaves them out. Not
+/// column's UNIQUE, so `apply_unique_indexes` leaves them out. Not
 /// in the TypeScript. Binds `@P1` = table, `@P2` = schema.
 pub const FILTERED_UNIQUE_SQL: &str = "SELECT i.name AS index_name FROM sys.indexes i \
      INNER JOIN sys.objects o ON i.object_id = o.object_id INNER JOIN sys.schemas s ON o.schema_id = s.schema_id \

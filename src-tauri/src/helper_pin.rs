@@ -1,5 +1,5 @@
-// The DuckDB helper's pinned asset (the desktop DuckDB helper plan, Q1 B,
-// Decision 4). Shared by `build.rs` (through `include!`) and the app, so
+// The DuckDB helper's pinned asset.
+// Shared by `build.rs` (through `include!`) and the app, so
 // the values the build checks are the values the app reads.
 //
 // `release.yml` builds and gzips the helper before the app and exports the
@@ -12,7 +12,7 @@
 // in, never read from the environment at run time. Without the variables
 // (debug builds, a local `tauri build`) there is no pin and Core reads the
 // release metadata, as before, unless `SEAQUEL_DUCKDB_HELPER_REQUIRE_PIN=1`
-// (`release.yml`, Task 9), which makes a build without a pin fail.
+// (`release.yml`), which makes a build without a pin fail.
 
 /// The release step's inputs.
 #[allow(dead_code)]
@@ -101,7 +101,7 @@ pub(crate) fn pin_text(pin: &HelperPin) -> String {
 ///
 /// # Panics
 ///
-/// If the text doesn't read back as a pin (review 4): `build.rs` only ever
+/// If the text doesn't read back as a pin: `build.rs` only ever
 /// writes what [`pin_from_inputs`] accepted, so that is a broken build, not
 /// a build without a pin.
 #[allow(dead_code)]
@@ -202,7 +202,7 @@ mod tests {
         assert_eq!(compiled_pin(None), None);
     }
 
-    /// Review 4: compiled text that doesn't read back is a broken build,
+    /// Compiled text that doesn't read back is a broken build,
     /// not "no pin".
     #[test]
     fn compiled_text_that_doesn_t_read_back_panics() {

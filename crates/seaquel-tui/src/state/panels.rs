@@ -1,4 +1,4 @@
-//! What panels 1–3 show (Decision 10), as the model holds it: the saved
+//! What panels 1–3 show, as the model holds it: the saved
 //! connections and projects, the connected database's tables and views,
 //! the project's saved queries and the connection's history. The runtime
 //! builds these from Core's answers; `update` only reads and folds them.
@@ -61,7 +61,7 @@ pub struct ConnItem {
     /// An enabled tunnel only.
     pub tunnel: Option<Tunnel>,
     pub label_ids: Vec<String>,
-    /// What Ask AI may share and which model it calls (Task 7).
+    /// What Ask AI may share and which model it calls.
     pub ai: ConnAi,
 }
 
@@ -131,7 +131,7 @@ impl ConnItem {
 }
 
 /// A project's own (custom) label, for the history snapshot an apply
-/// records (Task 5).
+/// records.
 #[derive(Clone, PartialEq, Eq)]
 pub struct LabelItem {
     pub project_id: String,
@@ -153,7 +153,7 @@ pub struct Library {
     pub connections: Vec<ConnItem>,
     /// Every project's custom labels.
     pub labels: Vec<LabelItem>,
-    /// The app's AI settings turn the assistant off (Task 7).
+    /// The app's AI settings turn the assistant off.
     pub ai_off: bool,
 }
 

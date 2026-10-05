@@ -2,7 +2,7 @@
  * `getShared` and `getImports`: the page's `SharedService` and
  * `ImportsService`. Core's groups on desktop (`CoreShared`, `CoreImports`,
  * sharing the storage client's write queue); `NoShared`/`NoImports` on web
- * and in the demo (Decision 48).
+ * and in the demo.
  */
 import { getStorage } from "$lib/storage/db";
 import type { RustStorageClient } from "$lib/storage/rust-client";

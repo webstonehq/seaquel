@@ -1,4 +1,4 @@
-//! What each tool answers, from what Core read: MCP's JSON (Decision 30),
+//! What each tool answers, from what Core read: MCP's JSON,
 //! within the profile's budget. Cells and plans are [`super::format`]'s
 //! (MCP's `format.rs`, moved), re-exported here.
 //!
@@ -33,7 +33,7 @@ impl Profile {
     }
 
     /// The budget as its notes say it: MCP's in MB as before, the
-    /// assistant's in KB (Decision 30: never "0 MB").
+    /// assistant's in KB (never "0 MB").
     fn result_size(self) -> String {
         match self {
             Profile::Mcp => format!("{} MB", MCP_RESULT_BYTES / (1024 * 1024)),
@@ -452,9 +452,9 @@ pub fn find_saved_query<'a>(
     }
 }
 
-/// A client tool's result from the page's answer (Decision 6): the page's
+/// A client tool's result from the page's answer: the page's
 /// text, an error when it is an object with `error`. Without schema
-/// sharing, `get_dashboard`'s widgets lose their `query` (Decision 26),
+/// sharing, `get_dashboard`'s widgets lose their `query`,
 /// re-serialized with sorted keys; an answer that doesn't parse (or nests
 /// past serde_json's limit) can't be stripped, so it becomes an error and
 /// none of it is sent. Every result is cut at 256 KB on a character

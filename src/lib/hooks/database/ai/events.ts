@@ -1,8 +1,8 @@
 /**
- * A reply's segments (phase 6, Q7): its text and one line per tool call, in
+ * A reply's segments (phase 6): its text and one line per tool call, in
  * order. Built from a turn's events as they arrive (`appendText`,
  * `startTool`, `waitTool`, `finishTool`), and read back from a stored
- * reply's `parts` (Decision 23), so a chat reloaded later shows the same
+ * reply's `parts`, so a chat reloaded later shows the same
  * lines. Pure: the view model holds the result.
  */
 import type { AIMessage, AiSegment, AiToolLine } from "$lib/types";
@@ -154,7 +154,7 @@ export function mergeSegments(
  * A stored message as the page shows it, over what the page showed of it:
  * the stored row wins (text, time, dashboard id, `parts`), and the live
  * view keeps what isn't stored: each call's rows and the turn's worded
- * error or cut (Decision 31: an error travels with the turn).
+ * error or cut (an error travels with the turn).
  */
 export function withLiveView(stored: AIMessage, live: AIMessage | undefined): AIMessage {
   if (!live) return stored;

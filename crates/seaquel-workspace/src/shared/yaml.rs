@@ -1,5 +1,5 @@
 //! The line-based YAML the `.seaquel` files use (`yaml-utils.ts`), with
-//! Decision 45's fixes: values that need quotes go in single quotes when
+//! Values that need quotes go in single quotes when
 //! they hold `"` or `\` (older readers strip those exactly), in double
 //! quotes with `\"`, `\\` and `\n` escaped when single quotes can't hold
 //! them, and the reader undoes exactly that.
@@ -52,8 +52,8 @@ pub(crate) fn indented(line: &str, dash: bool) -> Option<(&str, &str)> {
     key_line(rest)
 }
 
-/// How a file's double-quoted values read (probe fix 2). `Core`: Core
-/// wrote the file (it carries Core's `id:` line, Q22), so `\"`, `\\` and
+/// How a file's double-quoted values read. `Core`: Core
+/// wrote the file (it carries Core's `id:` line), so `\"`, `\\` and
 /// `\n` inside double quotes are Core's escapes and are undone. `Legacy`:
 /// 2026.9.x or a person wrote it; their writer double-quotes a value
 /// holding `\` without escaping it, so the quotes are stripped and the rest
@@ -190,7 +190,7 @@ pub(crate) fn needs_quotes(v: &str, in_list: bool) -> bool {
         || v.starts_with('\'')
 }
 
-/// A value as Core writes it (Decision 45).
+/// A value as Core writes it.
 pub(crate) fn write_value(v: &str) -> String {
     quote(v, false)
 }

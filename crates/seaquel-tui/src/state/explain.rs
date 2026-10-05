@@ -1,4 +1,4 @@
-//! The Explain tab (Decision 14; design 1b): Core's plan as a tree with
+//! The Explain tab (design 1b): Core's plan as a tree with
 //! each node's rows, its own time and its share of the total. A node's own
 //! ("self") time is `actual_total_time × actual_loops` less its children's
 //! (Postgres reports times per loop); the share is that over the sum of

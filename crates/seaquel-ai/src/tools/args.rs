@@ -1,13 +1,13 @@
-//! Each tool's arguments, once per profile (Decision 3). The JSON schemas the
+//! Each tool's arguments, once per profile. The JSON schemas the
 //! model or the MCP host sees are generated from these types, so a field's
 //! doc comment is its description; `tests/fixtures/tool-schemas.json` holds
 //! them frozen.
 //!
-//! - [`mcp`] is the MCP server's surface, byte for byte (Decision 20): every
+//! - [`mcp`] is the MCP server's surface, byte for byte: every
 //!   tool takes `connection`, and unknown fields are ignored, as rmcp's
 //!   `Parameters` does.
 //! - [`assistant`] is bound to the chat's connection: no `connection`, and
-//!   every struct refuses unknown fields (Decision 24), the dashboard tools'
+//!   every struct refuses unknown fields, the dashboard tools'
 //!   included.
 
 /// The MCP server's arguments, the only copy: `seaquel-mcp`'s `#[tool]`

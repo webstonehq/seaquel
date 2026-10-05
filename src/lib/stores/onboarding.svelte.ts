@@ -14,7 +14,7 @@ interface PersistedOnboardingState {
 }
 
 /**
- * The onboarding state (desktop only). Phase 5d-2 (Decision 20): Core
+ * The onboarding state (desktop only). Phase 5d-2: Core
  * reads it as the six defaults with the stored fields over them, and each
  * setter sends only the fields it changed (`onboardingPatch`), merged into
  * the stored record, so another window's change isn't lost.

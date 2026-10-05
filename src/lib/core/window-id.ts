@@ -1,7 +1,7 @@
 /**
- * This page's window id (phase 5d-2, Decision 22): the id its view state
- * (open tabs, layout, active ids) is stored under, and its write origin
- * (Decision 18), so Core can check that a `ui` call names the caller's own
+ * This page's window id (phase 5d-2): the id its view state
+ * (open tabs, layout, active ids) is stored under, and its write origin,
+ * so Core can check that a `ui` call names the caller's own
  * window.
  *
  * - **Desktop:** the webview's label. The main window's is `main` after

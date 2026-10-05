@@ -10,7 +10,7 @@
 //!   snippets use that absolute path; this doesn't edit the user's `PATH`.
 //!
 //! Every platform then installs the CLI's DuckDB helper beside it
-//! (`cli_download::install_duckdb_helper`, the DuckDB helper plan's Q4 C),
+//! (`cli_download::install_duckdb_helper`),
 //! also when the CLI itself was already current, so an earlier install
 //! gains it. A helper that can't be installed doesn't fail the CLI's
 //! install: the dialog says why and how to retry.
@@ -30,7 +30,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 pub const MENU_ID: &str = "install_cli";
 pub const MENU_LABEL: &str = "Install Command Line Tool…";
-/// The command users type, on every platform (phase 4, open question 1).
+/// The command users type, on every platform (phase 4).
 pub const CLI_NAME: &str = "seaquel-cli";
 const DIALOG_TITLE: &str = "Install Command Line Tool";
 

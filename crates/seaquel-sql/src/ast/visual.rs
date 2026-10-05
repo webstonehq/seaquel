@@ -1,7 +1,7 @@
-//! The Visual tab's AST (Task 6). Port of `parseQueryForVisualization` and
+//! The Visual tab's AST. Port of `parseQueryForVisualization` and
 //! `getParseError` from `src/lib/db/sql-ast-parser.ts` (deleted in phase 2b),
 //! with fixes 1–8 and 15. The recorder's `visual-fixed.ts` is the spec for 1–4,
-//! 6 and 15 (`docs/plans/artifacts/2026-09-27-sql-recorder-visual-fixed.ts.txt`).
+//! 6 and 15 (in git history).
 //!
 //! Everything else prints as the TS does (decision 2), including its odd
 //! forms: `x BETWEEN (1, 5)`, `x IN ((subquery))`, `EXISTS((subquery))`, `!=`

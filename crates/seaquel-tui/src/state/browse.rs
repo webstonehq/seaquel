@@ -1,4 +1,4 @@
-//! Browse (Decision 11) in `update`: a table opened from panel 2, its page
+//! Browse in `update`: a table opened from panel 2, its page
 //! through Core's `table_page`, its metadata (`table_metadata`, and the
 //! approximate DDL Core builds from it), the cell cursor, the `/` filter
 //! over the loaded page, the `F` server-side filter, sort, paging, and the
@@ -14,7 +14,7 @@
 //! message is what the TUI says. Typed values go in as text (the cell wire
 //! format's `Text`); Core casts them per the metadata, as the GUI's edits.
 //!
-//! Edits are always staged (Decision 11): the GUI's pending-changes setting
+//! Edits are always staged: the GUI's pending-changes setting
 //! doesn't apply here.
 
 use std::fmt;
@@ -103,8 +103,7 @@ impl fmt::Debug for Opened {
 }
 
 /// A table's metadata as Core read it, and the approximate DDL Core built
-/// from it (the DDL tab; `create_table` over the columns, indexes and
-/// foreign keys, Decision 10).
+/// from it (the DDL tab; `create_table` over the columns, indexes and foreign keys).
 #[derive(Clone, PartialEq)]
 pub struct TableMeta {
     pub columns: Vec<SchemaColumn>,
@@ -643,7 +642,7 @@ pub fn load_page(model: &mut Model, page_no: u32) -> Vec<Effect> {
     })]
 }
 
-/// Reads the shown page again (after an apply, Task 5; `r`).
+/// Reads the shown page again (after an apply; `r`).
 pub fn reload(model: &mut Model) -> Vec<Effect> {
     let page = model.browse.page_no.max(1);
     load_page(model, page)

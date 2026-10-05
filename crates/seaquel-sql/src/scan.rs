@@ -10,7 +10,7 @@
 //! Block comments nest on Postgres, DuckDB and SQL Server.
 //!
 //! Where the port differs from `sqlTokens` (the rules are in the recorder's
-//! `scan-model.ts`, `docs/plans/artifacts/2026-09-27-sql-recorder-scan-model.ts.txt`):
+//! `scan-model.ts`, in git history):
 //!
 //! - Fix 18: a number token ends where the numeric literal ends (digits, an
 //!   optional `.` and digits, an optional exponent), so `1INTO` is `1` and

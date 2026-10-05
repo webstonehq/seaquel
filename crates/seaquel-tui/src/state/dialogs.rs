@@ -1,4 +1,4 @@
-//! The connect dialogs (Decision 16): the password prompt with its "Save
+//! The connect dialogs: the password prompt with its "Save
 //! password" box, the SSH host-key trust prompt, a failed connect (with a
 //! retry when a typed password could fix it) and a notice. Each carries the
 //! connect it belongs to ([`Pending`]): the connection, the secrets typed so
@@ -44,8 +44,8 @@ pub struct Pending {
     pub save: BTreeSet<SecretKind>,
     /// The host-key fingerprint the user trusted.
     pub trust: Option<String>,
-    /// DuckDB support was just installed for this connect (Task 7 of the
-    /// DuckDB helper plan): `ENGINE_NOT_INSTALLED` now is a problem to
+    /// DuckDB support was just installed for this connect:
+    /// `ENGINE_NOT_INSTALLED` now is a problem to
     /// show, not another download to offer.
     pub after_install: bool,
 }
@@ -58,7 +58,7 @@ pub struct PasswordPrompt {
     pub input: Secret,
     pub save: bool,
     /// Whether "Save password" can be ticked: not while the secret store
-    /// isn't available (probe F4).
+    /// isn't available.
     pub can_save: bool,
     /// Why it's asked again (a refused password), if it is.
     pub reason: Option<&'static str>,

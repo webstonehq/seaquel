@@ -10,7 +10,7 @@
 //!    [`StateLimits`] and [`LibraryLimits`] (`seaquel_workspace::state`),
 //!    before anything is read;
 //! 2. on the desktop an AI provider's API key is written to the keychain
-//!    first (Decision 8, Q19), outside any write transaction, after the
+//!    first, outside any write transaction, after the
 //!    same checks ran on a pool read, and taken back if the record write
 //!    then fails;
 //! 3. it reads, checks and writes in one [`WriteTx`], taking its change
@@ -117,7 +117,7 @@ async fn project_exists(r: impl Into<Reader<'_>>, project_id: &str) -> Result<()
     }
 }
 
-// ── Dashboards (Decision 21) ──
+// ── Dashboards ──
 
 impl Workspace {
     /// A project's dashboards. A NULL `starred` reads as false; a
@@ -138,7 +138,7 @@ impl Workspace {
     }
 
     /// The versions of a project's dashboards without their snapshots
-    /// (5d-2 Task 7: a project's could be hundreds of MiB), by dashboard,
+    /// (a project's could be hundreds of MiB), by dashboard,
     /// oldest first: what the version history shows.
     /// [`Workspace::get_dashboard_version`] answers one whole.
     pub async fn list_dashboard_versions(
@@ -214,7 +214,7 @@ impl Workspace {
         );
         let mut out = Seqd::new(stored, seq);
         if out.value.shared {
-            // Decision 36: a dashboard created shared in a linked project
+            // A dashboard created shared in a linked project
             // gets its file.
             out.projection = self
                 .publish_row(
@@ -236,7 +236,7 @@ impl Workspace {
         Ok(out)
     }
 
-    /// Change a dashboard (`dashboardUpdate`, Decision 21): only the
+    /// Change a dashboard (`dashboardUpdate`): only the
     /// patch's fields. With `captureVersion`, a version of the stored
     /// dashboard (before the change) is appended, numbered inside the
     /// transaction, then the versions are pruned to
@@ -255,7 +255,7 @@ impl Workspace {
         check_id(id, "dashboard id", &libl)?;
         st::check_dashboard_patch(&patch, &libl, &stl)?;
         let (_, now) = clock(core)?;
-        // Phase 5e, Decision 37: unsharing deletes the file first (keeping
+        // Unsharing deletes the file first (keeping
         // its bytes), then writes the row; a failed write puts it back.
         let unsharing = patch.shared == Some(false);
         let pending = if unsharing {
@@ -290,7 +290,7 @@ impl Workspace {
         out.projection = if unsharing {
             unpublished
         } else if out.value.dashboard.shared || out.value.dashboard.shared_path.is_some() {
-            // Q24: a viewport-only change plans no write.
+            // A viewport-only change plans no write.
             self.publish_row(
                 core,
                 origin,
@@ -319,7 +319,7 @@ impl Workspace {
     ) -> Result<Seqd<()>> {
         debug!(activity = "library.dashboardRemove", dashboard_id = log_id(id); "Remove a dashboard");
         check_id(id, "dashboard id", &core.library_limits())?;
-        // Decision 37: a shared dashboard's file goes first, its bytes kept
+        // A shared dashboard's file goes first, its bytes kept
         // until the row is gone.
         let pending = self
             .unpublish_begin(core, Kind::Dashboard, id, false)
@@ -381,7 +381,7 @@ pub(crate) async fn insert_dashboard_in(
         .ok_or_else(dashboard_not_found)
 }
 
-/// A dashboard patch inside `tx` (Decision 21): with `captureVersion`, a
+/// A dashboard patch inside `tx`: with `captureVersion`, a
 /// version of the stored dashboard first, then the prune. The answer and
 /// whether the name changed.
 pub(crate) async fn update_dashboard_in(
@@ -465,7 +465,7 @@ async fn dashboard_name_free(
 }
 
 /// `name`, or the first free `"<name> (n)"` among the project's
-/// dashboards (Decision 13's rule, as the library's imports), one indexed
+/// dashboards (the rule the library's imports use), one indexed
 /// lookup per candidate.
 async fn dashboard_free_name(tx: &mut WriteTx, project_id: &str, name: &str) -> Result<String> {
     if dashboards::with_name_key(&mut *tx, project_id, &name_key(name))
@@ -488,10 +488,10 @@ async fn dashboard_free_name(tx: &mut WriteTx, project_id: &str, name: &str) -> 
     unreachable!("a free name exists")
 }
 
-// ── Saved workflows (Decision 23) ──
+// ── Saved workflows ──
 
 impl Workspace {
-    /// A project's saved workflows without their bodies (5d-2 Task 7: a
+    /// A project's saved workflows without their bodies (a
     /// project's could be hundreds of MiB): id, project, name, times and
     /// size, in rowid order, without the rows that don't read (nothing
     /// here deletes them). [`Workspace::get_workflow`] answers one whole.
@@ -615,7 +615,7 @@ impl Workspace {
         })
     }
 
-    /// Rename a saved workflow (`workflowRename`, 5d-2 Task 7 review): only
+    /// Rename a saved workflow (`workflowRename`): only
     /// the stored JSON's `name` and `updatedAt` change, on the row read
     /// inside the write, so a save another window made just before stays
     /// (the GUI no longer reads the body and writes it back whole). A
@@ -699,7 +699,7 @@ impl Workspace {
     }
 }
 
-// ── A project's connection order (Decision 22) ──
+// ── A project's connection order ──
 
 impl Workspace {
     /// The project's connection order (`projectSidebarGet`), shared by its
@@ -755,7 +755,7 @@ impl Workspace {
     }
 }
 
-// ── AI chats (Decision 24) ──
+// ── AI chats ──
 
 impl Workspace {
     /// A connection's chats, most recently updated first.
@@ -906,7 +906,7 @@ impl Workspace {
     }
 
     /// Upsert messages into a chat by their (GUI-made) ids
-    /// (`chatMessagesPut`, Decision 24): a stored message keeps its place
+    /// (`chatMessagesPut`): a stored message keeps its place
     /// and gets the new fields, new ones are added in list order, and
     /// messages not listed stay. A message put without `parts` keeps the
     /// stored ones (phase 6; the answer shows the put as sent). An id of
@@ -1030,7 +1030,7 @@ impl Workspace {
     }
 }
 
-// ── Settings (Decision 20) ──
+// ── Settings ──
 
 impl Workspace {
     /// A setting's stored value (`settingGet`): `None` for no row or a NULL
@@ -1089,7 +1089,7 @@ impl Workspace {
     }
 }
 
-// ── AI settings and their API keys (Decision 20, Q19) ──
+// ── AI settings and their API keys ──
 
 impl Workspace {
     async fn read_ai_settings(&self, r: impl Into<Reader<'_>>) -> Result<AiSettings> {
@@ -1111,8 +1111,8 @@ impl Workspace {
     }
 
     /// Whether the secret store holds provider `id`'s API key
-    /// (`aiProviderHasKey`, phase 6 Task 7): one read, for that provider
-    /// only, since the page may not read the key (Decision 7) and the
+    /// (`aiProviderHasKey`): one read, for that provider
+    /// only, since the page may not read the key and the
     /// settings form asks only when it opens a provider. A provider that
     /// isn't in the record is `AI_PROVIDER_NOT_FOUND`; a workspace without a
     /// store (the web) is `NOT_SUPPORTED`: the page asks its vault.
@@ -1437,7 +1437,7 @@ impl Workspace {
     async fn delete_api_key(&self, _id: &str) {}
 }
 
-// ── Themes (Decision 20) ──
+// ── Themes ──
 
 /// A read inside the write transaction, or on the pool.
 enum Src<'a> {
@@ -1646,7 +1646,7 @@ fn check_theme_size(json: &str, limits: &st::StateLimits) -> Result<()> {
     }
 }
 
-// ── Onboarding, tutorial progress, import state (Decision 20) ──
+// ── Onboarding, tutorial progress, import state ──
 
 impl Workspace {
     /// The onboarding record (`onboardingGet`): the store's six defaults
@@ -1843,10 +1843,10 @@ impl Workspace {
     }
 }
 
-// ── Window view state (Decision 22) ──
+// ── Window view state ──
 
-/// A `ui` call names the calling window: its id must be the call's origin
-/// (Decision 18), so one tab can't read or overwrite another's view.
+/// A `ui` call names the calling window: its id must be the call's origin,
+/// so one tab can't read or overwrite another's view.
 fn check_window(origin: &WriteOrigin, window_id: &str) -> Result<()> {
     st::check_window_id(window_id)?;
     if origin.as_deref() == Some(window_id) {

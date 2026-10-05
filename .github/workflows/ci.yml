@@ -59,8 +59,8 @@ jobs:
 
       # `cargo test --workspace` builds target/debug/seaquel-duckdb (the
       # helper's own tests need the binary), so every DuckDB suite runs here
-      # through the helper on Linux (the native driver is gone: the desktop
-      # DuckDB helper plan, Task 12): the engine crate's suites and
+      # through the helper on Linux (the native driver is gone): the engine
+      # crate's suites and
       # tests/remote.rs, Core's DuckDB cases, MCP's tools. They read the path
       # when they run, after the build.
       - name: Tests
@@ -85,26 +85,26 @@ jobs:
           cargo clippy -p seaquel-server -- -D warnings
           cargo clippy -p seaquel-mcp -- -D warnings
           cargo clippy -p seaquel-terminal -- -D warnings
-          # The TUI's set (the DuckDB helper plan, Task 6): the helper's
+          # The TUI's set: the helper's
           # download and the debug `_DUCKDB_RELEASES` hook.
           cargo clippy -p seaquel-terminal --features duckdb-helper-install -- -D warnings
           cargo clippy -p seaquel-tui -- -D warnings
-          # The DuckDB helper (the DuckDB helper plan, Task 2), and its loop
+          # The DuckDB helper, and its loop
           # in the engine crate on the helper's features alone.
           cargo clippy -p seaquel-duckdb -- -D warnings
           cargo clippy -p seaquel-engine-duckdb --no-default-features --features helper -- -D warnings
-          # The remote driver (Task 3) alone, and Core with it, as every
+          # The remote driver alone, and Core with it, as every
           # native interface builds it.
           cargo clippy -p seaquel-engine-duckdb --no-default-features --features remote -- -D warnings
           cargo clippy -p seaquel-core --no-default-features --features engine-duckdb-remote -- -D warnings
-          # The helper's download and install (Task 4), on their features
+          # The helper's download and install, on their features
           # alone.
           cargo clippy -p seaquel-http --features release-asset -- -D warnings
           cargo clippy -p seaquel-core --no-default-features --features duckdb-helper-install -- -D warnings
 
       # No native binary (the TUI, the CLI or the desktop app) links DuckDB,
-      # and the TUI links only its own extras (phase 7a; the desktop DuckDB
-      # helper plan, Decision 20). The rules and their reasons are in the
+      # and the TUI links only its own extras (phase 7a).
+      # The rules and their reasons are in the
       # script, which runs locally as it runs here.
       - name: Native binaries' dependencies
         shell: bash
@@ -114,12 +114,12 @@ jobs:
         run: cargo clippy --target wasm32-unknown-unknown -p seaquel-types -p seaquel-runtime -p seaquel-engine -p seaquel-sql -p seaquel-wasm -- -D warnings
 
       # Phase 6: the AI domain crate builds for wasm32 (the demo's module
-      # links it in Task 8). No tokio, reqwest or clock; its `testing`
+      # links it). No tokio, reqwest or clock; its `testing`
       # feature (the mock provider) is native-only and stays off here.
       - name: seaquel-ai builds for wasm32
         run: cargo clippy --target wasm32-unknown-unknown -p seaquel-ai -- -D warnings
 
-      # Phase 8 Decision 14: the crates the demo's module links, built for
+      # The crates the demo's module links, built for
       # wasm32 as the module uses them. Core's `browser` admits `storage`
       # and `workspace` and still refuses every engine, secrets, SSH, git,
       # licensing and the imports;
@@ -137,7 +137,7 @@ jobs:
       - name: Storage builds for wasm32
         run: cargo clippy --target wasm32-unknown-unknown -p seaquel-storage --all-targets -- -D warnings
 
-      # Phase 8 Task 2: the browser storage's tests (the wrapper's unit tests
+      # The browser storage's tests (the wrapper's unit tests
       # and tests/wasm.rs) run in wasm32 under Node (set up above) through
       # wasm-bindgen-test-runner, which comes with wasm-bindgen-cli at
       # Cargo.lock's version, installed as the frontend job does.
@@ -155,14 +155,14 @@ jobs:
       - name: DuckDB's browser driver builds for wasm32
         run: cargo clippy --target wasm32-unknown-unknown -p seaquel-engine-duckdb --no-default-features --features seaquel-engine-duckdb/browser -- -D warnings
 
-      # The demo's module (phase 8, Task 5), as the demo ships it and with the
+      # The demo's module (phase 8), as the demo ships it and with the
       # test exports vitest uses.
       - name: The browser module builds for wasm32
         run: |
           cargo clippy --target wasm32-unknown-unknown -p seaquel-browser -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p seaquel-browser --features seaquel-browser/test-hooks -- -D warnings
 
-      # Decisions 11 and 11b: the web server (and so the Docker image) builds
+      # The web server (and so the Docker image) builds
       # without the SQLite and DuckDB engines, libgit2, russh, keyring or
       # OpenSSL. sqlx's own SQLite (libsqlite3-sys) stays: it's the storage
       # for meta.db and auth.db, not the engine. Normal dependencies only, as
@@ -175,7 +175,7 @@ jobs:
           # openssl-probe is allowed: pure Rust with no dependencies, it only
           # looks for the system CA bundle's path (rustls-native-certs on
           # Linux, through tiberius and reqwest) and links no OpenSSL.
-          # Phase 8 Decision 22: nor the browser module's SQLite, Arrow IPC
+          # Nor the browser module's SQLite, Arrow IPC
           # reader or wasm-bindgen.
           banned=$(echo "$deps" | grep -E '(duckdb|git2|russh|openssl|native-tls|keyring|dbus|libssh2|seaquel-engine-(sqlite|duckdb)|seaquel-(ssh|git|secrets)|sqlite-wasm-rs|arrow-ipc|wasm-bindgen)' | grep -vx 'openssl-probe' || true)
           if [ -n "$banned" ]; then
@@ -299,8 +299,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Seed the test databases
         run: node e2e/test-databases/seed.mjs postgresql mysql mariadb sqlserver duckdb
-      # The DuckDB suites run through the helper (the native driver is gone,
-      # the desktop DuckDB helper plan's Task 12) and find it beside their
+      # The DuckDB suites run through the helper (the native driver is gone)
+      # and find it beside their
       # test binaries in target/debug.
       - name: Build the DuckDB helper
         run: cargo build -p seaquel-duckdb
@@ -313,9 +313,8 @@ jobs:
       - name: SSH tunnels through Core
         run: cargo test -p seaquel-core --test ssh --test connect
 
-  # DuckDB through the `seaquel-duckdb` helper on macOS and Windows (the
-  # desktop DuckDB helper plan, Decision 20; the native driver is gone, so
-  # this is the only way any interface reaches DuckDB). Linux runs the same
+  # DuckDB through the `seaquel-duckdb` helper on macOS and Windows (the native driver is gone, so this is the only way any interface reaches DuckDB).
+  # Linux runs the same
   # in `rust`'s Tests step, on the workspace build it already has. The
   # suites install the helper SEAQUEL_TEST_DUCKDB_HELPER names
   # (crates/seaquel-engine-duckdb/tests/common/engine.rs) into a folder of
@@ -370,8 +369,8 @@ jobs:
       # only), and the helper's loop and session code in process (`helper`).
       - name: Every DuckDB suite through the helper
         run: cargo test -p seaquel-engine-duckdb --features remote,helper
-      # Core with the remote engine as the interfaces build it (Task 12's
-      # review I1): runs, pages, edits, a killed helper, a reload's
+      # Core with the remote engine as the interfaces build it:
+      # runs, pages, edits, a killed helper, a reload's
       # reconnect (`duckdb_remote`), closes side by side
       # (`close_concurrent`), the install's layout and permissions with the
       # real helper (`duckdb_helper_install`, against a loopback release
@@ -386,7 +385,7 @@ jobs:
       # cases (every test named `…postgres…`) run in `rust` only.
       - name: MCP's tools
         run: cargo test -p seaquel-mcp --test tools -- --skip postgres
-      # Windows ACLs (the desktop DuckDB helper plan, Task 7): the Win32
+      # Windows ACLs: the Win32
       # reads and writes of the DACL rule, and what an install sets. Every
       # start's check is in the engine crate's unit tests above
       # (`process::tests::windows_acl`). The `/setowner` cases need the
@@ -400,7 +399,7 @@ jobs:
           cargo test -p seaquel-http --features release-asset,testing --test windows_acl
 
   # The desktop app (src-tauri), which CI only compiled before the desktop
-  # DuckDB helper plan (Decision 20): its tests, with DuckDB through the
+  # Its tests, with DuckDB through the
   # helper required (its DuckDB cases fail instead of skipping), and its
   # clippy. DuckDB compiles once here, for the helper. Renamed from "Desktop
   # app compiles": a branch protection rule naming the old check needs the

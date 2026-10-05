@@ -58,12 +58,17 @@ fn kind_of(t: &LogicalTypeHandle) -> Kind {
     }
 }
 
+/// The fixtures' one-case-per-line layout, shared with `tests/cells_fixture.rs`.
+#[cfg(test)]
+#[path = "../tests/common/fixture_format.rs"]
+mod fixture_format;
+
 /// The column kinds snapshot (`schema_frames_carry_the_recorded_kinds`).
 #[cfg(test)]
 const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/kinds.json");
 
 /// The cases the kinds snapshot covers: every reference case, and the
-/// lossy-Arrow types side by side (Checkpoint H-1).
+/// lossy-Arrow types side by side.
 #[cfg(test)]
 pub(crate) fn snapshot_cases() -> Vec<Case> {
     let mut cases = test_reference::all();
@@ -88,12 +93,10 @@ pub(crate) fn snapshot_cases() -> Vec<Case> {
 /// `tests/fixtures/README.md`: it was recorded from the native driver).
 #[cfg(test)]
 pub(crate) fn check_snapshot(got: Vec<Json>) {
-    let text = serde_json::to_string_pretty(&serde_json::json!({
+    let text = fixture_format::one_case_per_line(&serde_json::json!({
         "about": "The column kinds the DuckDB helper sends for crates/seaquel-engine-duckdb's reference cases (src/kinds.rs). Recorded from the native driver's Decoder::of before it was deleted (Task 12 of the desktop DuckDB helper plan); frozen.",
         "cases": got,
-    }))
-    .unwrap()
-        + "\n";
+    }));
     if std::env::var_os("SEAQUEL_RECORD_KINDS").is_some() {
         std::fs::write(SNAPSHOT, &text).unwrap();
         return;

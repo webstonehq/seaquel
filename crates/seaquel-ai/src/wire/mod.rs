@@ -5,13 +5,13 @@
 //! before phase 6), field for field: `model`, `max_tokens` (Anthropic only:
 //! 4,096 for a round, 2,048 for the inline prompt), `system` (Anthropic) or
 //! a first `system` message (OpenAI-compatible), `messages`, `tools`
-//! (only when there are some) and `stream`. What differs on purpose
-//! (Decision 10): every tool call of a round is sent back with its result,
+//! (only when there are some) and `stream`. What differs on purpose:
+//! every tool call of a round is sent back with its result,
 //! a tool error is marked (`is_error` on Anthropic, `Error: ` on
 //! OpenAI-compatible), and the browser client adds Anthropic's
 //! direct-access header.
 //!
-//! Decoding (Decision 10): every tool call of a round comes out, in order;
+//! Decoding: every tool call of a round comes out, in order;
 //! an `error` event, a malformed event or a stream that ends before the
 //! model finished is a [`WireError`] (`PROVIDER_ERROR`); `max_tokens` is
 //! [`StopReason::MaxTokens`]; a 429 is `RATE_LIMITED`.
@@ -129,7 +129,7 @@ impl fmt::Debug for ToolCall {
 pub struct ToolResult {
     pub call_id: String,
     pub content: String,
-    /// A refusal or failure (Decision 4): `is_error: true` on Anthropic,
+    /// A refusal or failure: `is_error: true` on Anthropic,
     /// the content prefixed `Error: ` on OpenAI-compatible.
     pub is_error: bool,
 }

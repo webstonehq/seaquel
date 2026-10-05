@@ -1,5 +1,5 @@
 -- Frozen: v2026.4.5-beta.1.sql after v2026.4.5's upgrade path and then today's upgrade path (initializeSchema's upgradeSchema, then MigrationManager).
--- Made by docs/plans/artifacts/2026-09-29-freeze-storage-baseline.mjs.txt; migrated_at is fixed. See ../../README.md.
+-- Made by docs/plans/artifacts/2026-09-29-freeze-storage-baseline.mjs.txt (in git history at ae7f269); migrated_at is fixed. See ../../README.md.
 
 CREATE TABLE schema_version (
     version INTEGER NOT NULL,

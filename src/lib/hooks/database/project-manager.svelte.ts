@@ -145,7 +145,7 @@ export class ProjectManager {
 
   /**
    * Apply a `projectsList` taken at `seq` to the projects `ids` names (all
-   * when `null`), each only if `seq` is newer (Decision 17). A project the
+   * when `null`), each only if `seq` is newer. A project the
    * list lacks was removed: its connections go from the page, and if it
    * was the active one the page switches to another, with a toast.
    */
@@ -186,8 +186,8 @@ export class ProjectManager {
 
   /**
    * Refetch the projects another window changed (`ids`, or all) and apply
-   * them, and their connection order (`projectsList` rows don't hold it;
-   * Decision 22) for the ones this page has loaded.
+   * them, and their connection order (`projectsList` rows don't hold it)
+   * for the ones this page has loaded.
    */
   async refreshFromLibrary(ids: readonly string[] | null): Promise<void> {
     await this.state.librarySeqs.settled("project:");
@@ -201,7 +201,7 @@ export class ProjectManager {
   /**
    * Read this window's view state of `projectId` again: after a stale save
    * with nothing changed here (another page of this window saved later),
-   * and for Decision 22's own-id `projectState` event (`LibrarySync`; a
+   * and for an own-id `projectState` event (`LibrarySync`; a
    * no-op in practice, see there). The active project is read again;
    * another is read when it's next opened.
    */
@@ -269,7 +269,7 @@ export class ProjectManager {
    * Update an existing project: only the fields `updates` has are sent
    * (`undefined` clears a description). A refusal throws, worded for the
    * user, and changes nothing. A linked project's `project.yaml` follows a
-   * rename (Core publishes it; its directory stays, Q25), and a failed
+   * rename (Core publishes it; its directory stays), and a failed
    * write is said.
    */
   async update(id: string, updates: Partial<Pick<Project, "name" | "description">>): Promise<void> {
@@ -289,9 +289,9 @@ export class ProjectManager {
   }
 
   /**
-   * Link a project to the repo at `path` (Decision 40): Core registers the
+   * Link a project to the repo at `path`: Core registers the
    * repo, picks the project's directory, exports the connections `share`
-   * names as templates (the link dialog's ticked ones, Q30) and syncs. The
+   * names as templates (the link dialog's ticked ones) and syncs. The
    * page then reads the project and the repo list again and shows the
    * sync's outcome. A refusal throws, worded for the user.
    */
@@ -315,7 +315,7 @@ export class ProjectManager {
 
   /**
    * The connections of `projectId` an unlink would remove if the user
-   * confirms (Q31): Core answers the list (`shared.unlinkPreview`), so the
+   * confirms: Core answers the list (`shared.unlinkPreview`), so the
    * dialog and the unlink apply one rule (the project's repo and directory,
    * links not shared from here).
    */
@@ -331,7 +331,7 @@ export class ProjectManager {
   }
 
   /**
-   * Unlink a project (Decision 40 with Q31). The user's own connections
+   * Unlink a project. The user's own connections
    * stay, unlinked and local-only, with their passwords. The ones the repo
    * brought are listed through `ask` first: `"remove"` removes them,
    * `"keep"` keeps them like the others, and `null` (cancel) changes
@@ -358,7 +358,7 @@ export class ProjectManager {
   }
 
   /**
-   * Unlink a project (Decision 40 with Q31): Core keeps the user's own
+   * Unlink a project: Core keeps the user's own
    * connections (unlinked, local-only, their secrets kept), removes the
    * ones the repo brought when `removeImported` (else keeps them like the
    * others), clears the links and forgets the repo when no project uses
@@ -388,7 +388,7 @@ export class ProjectManager {
    * Delete a project and everything in it. Cannot delete the last project
    * (returns false). Core removes it in one transaction, with its
    * connections (and their secrets), saved queries, dashboards and saved
-   * workflows (Decision 9); a failure throws, worded for the user, and the
+   * workflows; a failure throws, worded for the user, and the
    * project stays. Its connections' shared files stay in the repo: removing
    * a project here doesn't remove it from the team.
    */
@@ -445,14 +445,14 @@ export class ProjectManager {
       await this.windowState.activate(id);
       await this.loadProjectState(id, { dataLoaded });
     }
-    // A linked project is synced with its files (Decision 35).
+    // A linked project is synced with its files.
     if (id) await this.sharedRepos?.syncProject(id);
   }
 
   /**
    * Add a custom label to a project. Core assigns its id and refuses a
    * taken name or a bad colour (thrown, worded for the user). The project's
-   * `updatedAt` stays (Decision 10).
+   * `updatedAt` stays.
    */
   async addCustomLabel(
     projectId: string,
@@ -477,7 +477,7 @@ export class ProjectManager {
 
   /**
    * Remove a custom label from a project. Core strips it from every
-   * connection that had it in the same transaction (Decision 10), and the
+   * connection that had it in the same transaction, and the
    * page does the same.
    */
   async removeCustomLabel(projectId: string, labelId: string): Promise<void> {
@@ -564,7 +564,7 @@ export class ProjectManager {
   }
 
   /**
-   * Import the repo's project directories `dirs` (Decision 40): Core makes
+   * Import the repo's project directories `dirs`: Core makes
    * one project each (a taken name becomes the first free "<name> (2)"),
    * linked to `path` with that directory, and syncs it, which imports that
    * directory's templates. Each directory is imported whole or not at all;
@@ -627,8 +627,8 @@ export class ProjectManager {
   }
 
   /**
-   * Read the project's saved workflows (Decision 23: no longer in the view
-   * state) as the sidebar lists them, without their bodies (5d-2 Task 7):
+   * Read the project's saved workflows (no longer in the view
+   * state) as the sidebar lists them, without their bodies:
    * opening one reads it (`WorkflowManager.loadWorkflow`), and one whose
    * body won't decode says so then. A failed read leaves the page's list.
    */
@@ -663,7 +663,7 @@ export class ProjectManager {
     // is populated when projectQueries recomputes after activeProjectId changes.
     if (!dataLoaded) await this.stateRestoration.loadProjectData(projectId);
 
-    // This window's view state (Decision 22), and what the project's windows
+    // This window's view state, and what the project's windows
     // share: the connection order and the saved workflows.
     const [loaded] = await Promise.all([
       this.windowState.load(projectId, { reload }),
@@ -827,7 +827,7 @@ export class ProjectManager {
       persistedState.activeStatisticsTabId ?? null;
     this.state.activeWorkflowTabIdByProject[projectId] =
       persistedState.activeWorkflowTabId ?? persistedState.activeCanvasTabId ?? null;
-    // The window's own active connection (Q14), if the connection exists
+    // The window's own active connection, if the connection exists
     // (even if not yet reconnected). Auto-reconnect runs after restore and
     // will establish providerConnectionId.
     const restoredConnectionExists = persistedState.activeConnectionId

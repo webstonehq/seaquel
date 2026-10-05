@@ -36,7 +36,7 @@ pub use turn::TOOL_LIMIT;
 pub use waiters::{NOT_FOUND, TURN_IN_PROGRESS};
 
 /// The native HTTP client (`seaquel-http`): reqwest with rustls, the OS
-/// and webpki roots, the egress guard (Decision 9) and Decision 8's
+/// and webpki roots, the egress guard and the connect, idle and round
 /// timeouts. Build it with the same egress as [`AiEgress`].
 #[cfg(feature = "ai-native")]
 pub mod native {
@@ -79,7 +79,7 @@ use seaquel_workspace::state::{read_ai_settings, AI_PROVIDER_NOT_FOUND};
 use crate::changes::WriteOrigin;
 use crate::{Core, CoreError, Workspace};
 
-/// Where model calls may go (Decision 9). There is no default: a Core
+/// Where model calls may go. There is no default: a Core
 /// built without [`crate::CoreBuilder::ai_egress`] answers
 /// `NOT_SUPPORTED` to every model call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,7 +94,7 @@ pub enum AiEgress {
     Any,
 }
 
-// ── Codes (Decision 15) ──
+// ── Codes ──
 
 pub const NO_PROVIDER: &str = "NO_PROVIDER";
 pub const NO_MODEL: &str = "NO_MODEL";
@@ -104,8 +104,8 @@ pub const AI_EGRESS_BLOCKED: &str = "AI_EGRESS_BLOCKED";
 pub const PROVIDER_ERROR: &str = "PROVIDER_ERROR";
 pub const RATE_LIMITED: &str = "RATE_LIMITED";
 pub const CONNECTION_MISMATCH: &str = "CONNECTION_MISMATCH";
-/// A supplied key is for another provider than the connection's now
-/// (Task 7 review I1): refused before any request.
+/// A supplied key is for another provider than the connection's now:
+/// refused before any request.
 pub const AI_PROVIDER_CHANGED: &str = "AI_PROVIDER_CHANGED";
 pub const TIMEOUT: &str = "TIMEOUT";
 /// A user's message (or the inline prompt's request or editor text) past
@@ -119,10 +119,10 @@ const NOT_SUPPORTED: &str = "NOT_SUPPORTED";
 
 /// Whether model calls leave from a web page (the demo's module): the
 /// wire then adds Anthropic's direct-access header, without which it
-/// refuses a browser's request (bug 1, Decision 10). Native clients don't.
+/// refuses a browser's request. Native clients don't.
 pub(crate) const FROM_BROWSER: bool = cfg!(feature = "browser");
 
-/// No byte from the provider for this long ends the call (Decision 8).
+/// No byte from the provider for this long ends the call.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 /// One round (or one non-streaming call) may take this long in all.
 pub const ROUND_TIMEOUT: Duration = Duration::from_secs(600);
@@ -134,7 +134,7 @@ pub(crate) struct WorkspaceAi {
 }
 
 /// A refusal or failure with its code and the message the page shows.
-/// Never a key, a URL's path or the provider's text beyond Decision 10's
+/// Never a key, a URL's path or the provider's text beyond its first
 /// 1 KiB.
 #[derive(Clone, Debug)]
 pub(crate) struct Fail {
@@ -219,7 +219,7 @@ fn egress_off() -> Fail {
     )
 }
 
-/// `http:` goes only under [`AiEgress::Any`] (Decision 9); the client
+/// `http:` goes only under [`AiEgress::Any`]; the client
 /// checks the rest of the rule.
 fn check_scheme(core: &Core, provider: &Provider) -> Result<(), Fail> {
     let plain = provider
@@ -326,7 +326,7 @@ pub(crate) async fn resolve(
     })
 }
 
-/// A supplied key goes only to the provider it was read for (review I1):
+/// A supplied key goes only to the provider it was read for:
 /// the page names it, and a key for another provider than the one Core
 /// resolved (the connection's changed meanwhile) is `AI_PROVIDER_CHANGED`.
 fn check_supplied_for(
@@ -358,7 +358,7 @@ fn no_api_key() -> Fail {
     Fail::new(NO_API_KEY, "No API key is set for this provider.")
 }
 
-/// A connection's sharing as stored now, and its name (Decision 22): read
+/// A connection's sharing as stored now, and its name: read
 /// before every tool call. A row that's gone shares nothing.
 pub(crate) async fn sharing_now(ws: &Workspace, saved_id: &str) -> (Sharing, String) {
     let row = connections::get(ws.storage(), saved_id)
@@ -387,7 +387,7 @@ pub(crate) async fn sharing_now(ws: &Workspace, saved_id: &str) -> (Sharing, Str
 // ── Sending, on the executor's clock ──
 
 /// What ends a call: its own token (a turn's stream id), and the
-/// workspace's `close_all` (review I1: so an eviction always reaches a
+/// workspace's `close_all` (so an eviction always reaches a
 /// turn, whatever happened to its stream entry).
 pub(crate) struct Stop<'a> {
     token: &'a CancellationToken,
@@ -604,7 +604,7 @@ impl Workspace {
         self.ai.waiters.respond(stream_id, call_id, decision)
     }
 
-    /// The inline prompt (`ai.generate`, Decision 18): the SQL the model
+    /// The inline prompt (`ai.generate`): the SQL the model
     /// writes for `request` on saved connection `connection_id`, its first
     /// fenced block. No tools; the schema context when the connection
     /// shares its schema and this workspace has it open.
@@ -614,7 +614,7 @@ impl Workspace {
         params: GenerateParams,
     ) -> Result<String, CoreError> {
         // The web's cap on a message applies to what the user typed and the
-        // editor's text alike (review M8).
+        // editor's text alike.
         if let Some(max) = core.ai_limits.max_message_bytes {
             if params.request.len() > max || params.existing_query.len() > max {
                 return Err(Fail::new(
@@ -644,7 +644,7 @@ impl Workspace {
         };
         let context = prompt::schema_context(&tables, limits::SCHEMA_CONTEXT_BYTES);
         let system = prompt::system(r.engine, Some(&context), r.sharing, false, false);
-        // `@mentions` resolve as in a turn (phase 7a Decision 24: the TUI
+        // `@mentions` resolve as in a turn (the TUI
         // completes them); without one, or without schema sharing, the
         // request goes as typed and nothing is read for it.
         let request = if resolves_mentions(&params.request, r.sharing.schema) {
@@ -675,7 +675,7 @@ impl Workspace {
         Ok(extract_sql(&content))
     }
 
-    /// The provider's model ids (`ai.models`, Decision 28).
+    /// The provider's model ids (`ai.models`).
     pub async fn ai_models(
         &self,
         core: &Core,
@@ -688,7 +688,7 @@ impl Workspace {
         wire::decode_models(&body).map_err(|e| wire_fail(&e).into())
     }
 
-    /// Whether the provider takes the key (`ai.test`, Decision 28): any
+    /// Whether the provider takes the key (`ai.test`): any
     /// 2xx to its model list passes, whatever the body.
     pub async fn ai_test(
         &self,
@@ -819,7 +819,7 @@ async fn call_once(
 mod tests {
     use super::{extract_sql, resolves_mentions};
 
-    // Review M3: nothing is read for mentions that can't be used.
+    // Nothing is read for mentions that can't be used.
     #[test]
     fn mentions_are_read_only_with_an_at_and_schema_sharing() {
         assert!(resolves_mentions("join @invoices", true));

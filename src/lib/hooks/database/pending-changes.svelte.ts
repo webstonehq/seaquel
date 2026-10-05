@@ -85,7 +85,7 @@ export function listDestructive(
 }
 
 /**
- * Whether the sheet's apply goes `confirmed` (Decision 7): only when the user
+ * Whether the sheet's apply goes `confirmed`: only when the user
  * saw destructive statements listed, the dialog's own (`listDestructive`) or
  * the ones Core asked about. With nothing listed it goes unconfirmed, so a
  * destructive statement the list missed makes Core ask instead of running.
@@ -133,8 +133,8 @@ export interface ApplyEffects {
 }
 
 /**
- * The pending-changes queue: UI state, per saved connection (phase 5c,
- * Q1). Entries hold what applying sends back (`change`: an edit intent or
+ * The pending-changes queue: UI state, per saved connection (phase 5c).
+ * Entries hold what applying sends back (`change`: an edit intent or
  * typed SQL) and what the sheet shows. `apply` sends the queue to the
  * connection's `EditService` (`db.applyChanges` on desktop and web), which
  * validates, classifies and runs it; this keeps the queue in step with the
@@ -326,8 +326,8 @@ export class PendingChangesManager {
   }
 
   /**
-   * Apply the connection's queue as it is now (`db.applyChanges`, Decision
-   * 5), with history. Keeps the queue in step with the outcome (see
+   * Apply the connection's queue as it is now (`db.applyChanges`),
+   * with history. Keeps the queue in step with the outcome (see
    * `ApplyResult`), puts the history rows Core appended in the cache, and
    * reloads the schema (after DDL) and the connection's data tabs (after
    * anything ran, or an apply that ended without an answer).
@@ -415,7 +415,7 @@ export class PendingChangesManager {
     );
 
     if (failed?.code === CONNECTION_CLOSED) {
-      // The connection went during the apply (DuckDB helper probe F1): what
+      // The connection went during the apply: what
       // ran before it is gone from the queue, but the change in flight (an
       // atomic batch's COMMIT included) may have landed. Keep the rest,
       // mark it and show the database as it is now.

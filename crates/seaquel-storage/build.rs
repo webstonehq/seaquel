@@ -2,7 +2,7 @@
 // or changing a migration file wouldn't rebuild the crate.
 //
 // It also writes `$OUT_DIR/migrations.rs`, the same files as a list for the
-// in-memory executor's migrator (wasm32, phase 8 Decision 4), read with
+// in-memory executor's migrator (wasm32), read with
 // sqlx's rules: `<version>_<description>.sql`, the description with `_` as
 // spaces, sorted by version. `src/migrations.rs` checks it against
 // `sqlx::migrate!` natively.

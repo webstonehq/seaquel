@@ -1,5 +1,5 @@
-//! Tauri's build step, and the DuckDB helper's pinned asset (the desktop
-//! DuckDB helper plan, Decision 4): `release.yml` exports the helper
+//! Tauri's build step, and the DuckDB helper's pinned asset:
+//! `release.yml` exports the helper
 //! `.gz`'s size and SHA-256 as `SEAQUEL_DUCKDB_HELPER_SIZE` and
 //! `SEAQUEL_DUCKDB_HELPER_SHA256`; they are checked here and compiled in as
 //! `SEAQUEL_DUCKDB_HELPER_PIN`. A value that doesn't parse, or one of the

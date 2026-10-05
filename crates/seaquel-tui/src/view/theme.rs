@@ -1,4 +1,4 @@
-//! Colour (Decision 19, Q12). The design's palette as roles, not colours,
+//! Colour. The design's palette as roles, not colours,
 //! so the light theme and `NO_COLOR` are other tables:
 //!
 //! - truecolor when `COLORTERM` is `truecolor` or `24bit`;
@@ -105,7 +105,7 @@ pub const DARK: Palette = Palette {
     name: (0xd2, 0xa8, 0xff),
     warning: (0xe3, 0xb3, 0x41),
     selection: (0x1f, 0x34, 0x50),
-    // GitHub's `#21262d` (probe F7: the design's `#161b22` barely shows on
+    // GitHub's `#21262d` (the design's `#161b22` barely shows on
     // `#0d1117`, 1.09:1).
     selection_unfocused: (0x21, 0x26, 0x2d),
 };
@@ -377,7 +377,7 @@ mod tests {
         (a.max(b) + 0.05) / (a.min(b) + 0.05)
     }
 
-    /// Probe F7: every role can be seen in both palettes, in truecolor and
+    /// Every role can be seen in both palettes, in truecolor and
     /// at 256 colours, on the terminal backgrounds each palette is for (the
     /// design's `#0d1117` and black; white), and on both selections; and
     /// each selection stands out from the background and from the other.

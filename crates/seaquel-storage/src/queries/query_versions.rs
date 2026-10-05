@@ -1,6 +1,6 @@
 //! `queryVersionsRepo`: `query_versions`, the saved queries' history.
 //!
-//! Pruning is split (phase 3 plan, "Task 2 findings"): the TypeScript
+//! Pruning is split: the TypeScript
 //! resolves the diff-match-patch deltas, which count UTF-16 code units, and
 //! decides what to delete and which survivor becomes a keyframe; [`prune`]
 //! runs that.

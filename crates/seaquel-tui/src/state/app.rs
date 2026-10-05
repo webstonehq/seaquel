@@ -1,4 +1,4 @@
-//! The model and `update` (Decision 9; spike S3's split). `update` is pure:
+//! The model and `update` (spike S3's split). `update` is pure:
 //! no Core, no I/O and no clock (time comes in [`Msg::Tick`]), so every key
 //! path is tested without a terminal. It returns [`Effect`]s, which the
 //! runtime carries out.
@@ -48,7 +48,7 @@ pub const KEYCHAIN_BOX_AFTER: Duration = Duration::from_millis(250);
 /// (`SecretWait`'s default limit: a dialog nobody answers).
 pub const KEYCHAIN_LIMIT: Duration = Duration::from_secs(300);
 
-/// How long after a change the state file is written (Q4 A).
+/// How long after a change the state file is written.
 pub const STATE_FILE_DELAY: Duration = Duration::from_millis(500);
 
 /// A focusable box.
@@ -83,7 +83,7 @@ impl Panel {
     }
 }
 
-/// Panel 2's tabs. Functions and Enums are deferred (Q9).
+/// Panel 2's tabs. Functions and Enums are deferred.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TablesTab {
     Tables,
@@ -150,7 +150,7 @@ pub enum Modal {
     /// A failed connect.
     Problem(Problem),
     Notice(Notice),
-    /// `c`: commit the staged changes (Task 5).
+    /// `c`: commit the staged changes.
     Commit(CommitDialog),
     /// `D` in panel 4: "Discard N staged changes?"
     ConfirmDiscard,
@@ -161,7 +161,7 @@ pub enum Modal {
     QueueSwitch(QueueSwitch),
     /// `e` in panel 4: a staged value being edited.
     EditValue(ValueEdit),
-    /// A run's `{{param}}` values (Task 6).
+    /// A run's `{{param}}` values.
     Params(ParamsForm),
     /// A destructive run or an EXPLAIN ANALYZE of a write: run it?
     RunConfirm(RunConfirm),
@@ -169,10 +169,9 @@ pub enum Modal {
     SaveAs(SaveAs),
     /// A result cell full size.
     Cell(CellView),
-    /// Ask AI over the query tab (Task 7).
+    /// Ask AI over the query tab.
     Ask(Ask),
-    /// DuckDB support isn't installed: its download (the DuckDB helper
-    /// plan, Task 7).
+    /// DuckDB support isn't installed: its download.
     InstallDuckdb(install::InstallDialog),
 }
 
@@ -258,12 +257,12 @@ pub struct Model {
     /// The project panel 3 shows.
     pub project: Option<String>,
     pub conn: Conn,
-    /// The secrets typed for the connected connection (Decision 16):
+    /// The secrets typed for the connected connection:
     /// dropped when it disconnects or closes.
     pub typed: Typed,
     /// Panel 2: the connected database's tables, views and materialized
     /// views, as Core listed them. Their columns are filled in as they're
-    /// read (`table_metadata`): `schema_tables` lists none (probe F1).
+    /// read (`table_metadata`): `schema_tables` lists none.
     pub schema: Vec<TableItem>,
     /// The column reads asked for, by `(schema, table)`, on the connected
     /// connection; cleared with `schema`.
@@ -284,8 +283,8 @@ pub struct Model {
     pub keychain_stale: bool,
     /// A password being saved for this connection.
     pub saving: Option<String>,
-    /// A connect found no secret store in this session (Core's
-    /// `SECRET_STORE_UNAVAILABLE`, probe F4): from then on the prompts ask
+    /// A connect found no secret store in this session (Core's `SECRET_STORE_UNAVAILABLE`):
+    /// from then on the prompts ask
     /// for what the store would hold, and "Save password" is off.
     pub store_unavailable: bool,
     /// The platform's secret store, which the keychain dialogs name
@@ -300,21 +299,20 @@ pub struct Model {
     /// later).
     pub remember_dirty: Option<Option<Instant>>,
     pub next_attempt: u64,
-    /// The DuckDB helper's lookups and downloads (Task 7 of the DuckDB
-    /// helper plan).
+    /// The DuckDB helper's lookups and downloads.
     pub next_install: u64,
-    /// The opened table: its page, metadata, cursor and filters (Task 4).
+    /// The opened table: its page, metadata, cursor and filters.
     pub browse: Browse,
-    /// The staged changes (Decision 12); `staged` counts them.
+    /// The staged changes; `staged` counts them.
     pub queue: Queue,
     /// Rows per page (`--page-size`, default 100).
     pub page_size: u32,
     /// The main view's tab over panel 4 (Diff, SQL).
     pub pending_tab: usize,
-    /// An apply in flight (Task 5): staging waits for it.
+    /// An apply in flight: staging waits for it.
     pub committing: Option<Committing>,
     pub next_apply: u64,
-    /// The query tabs (Task 6).
+    /// The query tabs.
     pub query: Query,
 }
 
@@ -727,7 +725,7 @@ pub enum Changed {
     Library,
     SavedQueries,
     History,
-    /// Another process wrote the file (Decision 6): no kind or ids.
+    /// Another process wrote the file: no kind or ids.
     External,
 }
 
@@ -790,7 +788,7 @@ pub enum Msg {
         result: Result<Page, CallError>,
         stamp: Stamp,
     },
-    /// A table's columns, read for completion (probe F1).
+    /// A table's columns, read for completion.
     Columns {
         core_id: String,
         target: TableTarget,
@@ -897,7 +895,7 @@ pub struct ConnectCall {
 }
 
 /// A "Save password" for the runtime: `connectionUpdate` with the save
-/// flags of `kinds` and their secrets (Decision 23).
+/// flags of `kinds` and their secrets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SaveCall {
     pub connection_id: String,
@@ -1019,13 +1017,13 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
     effects
 }
 
-/// Probe F2: Esc and the next key in one read. A legacy terminal sends
+/// Esc and the next key in one read. A legacy terminal sends
 /// Esc as a bare `ESC`, so `ESC :` (Esc typed quickly, then `:`; or merged
 /// by tmux within its `escape-time`, or by SSH) reads as Alt+`:`. When the
 /// context has no binding for that Alt character, it's Esc followed by the
 /// character, as vim reads it in a terminal; an Alt binding that exists
-/// (Alt+R, Alt+X) keeps its meaning. Only characters are split (review
-/// M1): Alt+Left, Alt+Backspace or Alt+Enter come as one sequence, not as
+/// (Alt+R, Alt+X) keeps its meaning. Only characters are split:
+/// Alt+Left, Alt+Backspace or Alt+Enter come as one sequence, not as
 /// Esc and a key. And with the kitty flags pushed Esc is `CSI 27 u`, never
 /// merged, so nothing is split. Ctrl+Alt (AltGr) is left alone.
 fn esc_then_key(model: &Model, event: &KeyEvent) -> Option<(KeyEvent, KeyEvent)> {
@@ -1144,7 +1142,7 @@ fn on_tick(model: &mut Model, now: Instant) -> Vec<Effect> {
 }
 
 fn on_key(model: &mut Model, key: Key) -> Vec<Effect> {
-    // A prompt's text takes every printable key (Decision 9).
+    // A prompt's text takes every printable key.
     if !model.keychain_box() {
         if let Some(Modal::Password(prompt)) = &mut model.modal {
             match key.code {
@@ -1203,7 +1201,7 @@ fn on_key(model: &mut Model, key: Key) -> Vec<Effect> {
             }
         }
         // The editor in Insert mode, or its `:` line: every printable key
-        // is text (Decision 9), `c` and `q` included.
+        // is text, `c` and `q` included.
         if query::typing(model) {
             if let KeyCode::Char(c) = key.code {
                 if key.ctrl == key.alt {
@@ -1584,8 +1582,8 @@ mod tests {
     #[test]
     fn q_asks_when_something_is_staged_or_running() {
         for (staged, running) in [(true, false), (false, true)] {
-            // `staged` counts the queue (Task 5) and `running` the query tabs
-            // (Task 6), so stage and run for real.
+            // `staged` counts the queue and `running` the query tabs,
+            // so stage and run for real.
             let mut m = if staged {
                 crate::testing::fixtures::staged(148, 42, false)
             } else {

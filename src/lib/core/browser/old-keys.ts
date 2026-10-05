@@ -1,5 +1,5 @@
 /**
- * The old demo file (phase 8, Q2 C, Decision 6). Before phase 8 the demo kept
+ * The old demo file (phase 8). Before phase 8 the demo kept
  * its metadata (a SQLite file) as base64 in `localStorage["seaquel_db"]` (and builds
  * may have left `seaquel_db.*` keys). The new demo never reads them: it
  * removes them on every start, so a stale tab of an older build that writes

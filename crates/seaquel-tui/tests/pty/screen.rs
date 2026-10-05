@@ -1,5 +1,5 @@
-//! A small terminal screen for the pty tests (review I3 of the DuckDB
-//! helper plan's Task 8): the TUI's output parsed into the grid a terminal
+//! A small terminal screen for the pty tests:
+//! the TUI's output parsed into the grid a terminal
 //! would show, so a wait matches what is on screen rather than raw bytes.
 //! ratatui redraws only the cells that changed, so a word that changed in
 //! part, or was drawn over two frames, is never in the byte stream whole.

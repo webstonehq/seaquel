@@ -39,7 +39,7 @@ function themeBody(theme: Theme | ThemeInput): Record<string, unknown> {
 /**
  * Theme store - manages theme preferences, user themes, and theme application.
  *
- * Phase 5d-2 (Decision 20, Q18): each change is one `settings` call (the
+ * Phase 5d-2: each change is one `settings` call (the
  * preference pair, or one user theme added, changed or removed), whose
  * answer holds the preferences and every user theme, applied by the `seq`
  * rule. Another window's change is read again and applied at once.

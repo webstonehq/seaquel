@@ -1,6 +1,6 @@
 /**
- * The bridge the browser module drives DuckDB-WASM through (phase 8,
- * Decision 12, as Task 4 built it). It is the one place that knows
+ * The bridge the browser module drives DuckDB-WASM through (phase 8, as Task 4 built it).
+ * It is the one place that knows
  * DuckDB-WASM's API; the module's browser driver
  * (`crates/seaquel-engine-duckdb/src/browser/`) calls these methods and
  * decodes the Arrow IPC bytes they return.
@@ -23,7 +23,7 @@
  *   and asks again, which on `undefined` was a loop that never yielded.
  *
  * `closeAll` closes every connection this bridge opened and hasn't closed:
- * after a trap, the dead instance's connections (Decision 16).
+ * after a trap, the dead instance's connections.
  */
 import type { AsyncDuckDB } from "@duckdb/duckdb-wasm";
 
@@ -55,7 +55,7 @@ export type BridgeDuckDb = Pick<
 > &
   Partial<Pick<AsyncDuckDB, "getVersion">>;
 
-/** What a request fails with once DuckDB stopped answering (Task 7 probe, item 5). */
+/** What a request fails with once DuckDB stopped answering. */
 export const DUCKDB_STOPPED =
   "DuckDB stopped responding: its worker may have crashed. Reload the page to start it again.";
 

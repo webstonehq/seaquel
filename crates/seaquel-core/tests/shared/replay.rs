@@ -1,4 +1,4 @@
-//! The projection replay through Core (phase 5e, Task 5).
+//! The projection replay through Core (phase 5e).
 //!
 //! Each case of `seaquel-workspace/tests/fixtures/shared/projection.json`
 //! runs on a real temp directory (its `/repos`, `/home` and `/outside`
@@ -700,7 +700,7 @@ impl Replay {
                 }
             }
             ("shared", "unlinkProject") => {
-                // Q31: a call recorded without `removeImported` is the
+                // A call recorded without `removeImported` is the
                 // recording's GUI, which removed the template connections:
                 // the user confirmed (fixtures README, Corrections).
                 let remove = params
@@ -1157,7 +1157,7 @@ impl Replay {
         out
     }
 
-    /// The replay's epilogue (review, replay gap): no recorded step leaves a
+    /// The replay's epilogue (replay gap): no recorded step leaves a
     /// local change for a sync to write, so after a case's last step each
     /// linked shared query with a readable file gets one, straight to the
     /// row (R ≠ B, F = B, as an older release's edit). A sync of its
@@ -1311,7 +1311,7 @@ fn plain_file(root: &Path, rel: &str) -> bool {
     true
 }
 
-/// Removes the id Core wrote (Q22) from a file it wrote, checking it is a
+/// Removes the id Core wrote from a file it wrote, checking it is a
 /// v4 uuid in the first line or key.
 fn strip_file_id(path: &str, text: &str) -> Result<String, String> {
     let lower = path.to_ascii_lowercase();

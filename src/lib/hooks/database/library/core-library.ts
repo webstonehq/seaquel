@@ -1,8 +1,8 @@
 /**
  * `LibraryService` over Seaquel Core (desktop and web): the `library` RPC
  * group, through the page's `RustStorageClient` so every write joins the
- * storage writes' queue and lands in the order this page issued it
- * (Decision 3). Core checks, assigns ids and times, writes one transaction
+ * storage writes' queue and lands in the order this page issued it.
+ * Core checks, assigns ids and times, writes one transaction
  * (secrets first, on the desktop) and emits `storageChanged`; this only
  * carries the calls. A refusal rejects with a `CoreCallError` whose `code`
  * is Core's and, for `NAME_TAKEN`, whose `takenBy` names the row.

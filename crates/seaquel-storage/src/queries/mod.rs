@@ -22,8 +22,8 @@ pub struct IdName {
     pub name: String,
 }
 
-/// Where a shared row's file is and what it last synced (migration
-/// `0004_shared_links.sql`, Decision 33 of the 5e plan). `None` is "not
+/// Where a shared row's file is and what it last synced (migration `0004_shared_links.sql`).
+/// `None` is "not
 /// known": the row's file is the slug path of its name, and there is no
 /// base. Storage stores and reads these as given; what they mean is Core's.
 ///
@@ -31,7 +31,7 @@ pub struct IdName {
 ///   is `shared_connection_id` (`<repoId>:<path>`), where older releases
 ///   keep a template's link.
 /// - `base`: the hash of the content both sides had at the last sync.
-/// - `file_id`: the `id` written into the file (Q22).
+/// - `file_id`: the `id` written into the file.
 ///
 /// Its `Debug` says only which parts are set: a path holds project and
 /// query names.

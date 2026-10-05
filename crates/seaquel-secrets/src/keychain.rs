@@ -143,8 +143,8 @@ const SECRET_SERVICE_UNAVAILABLE: &str = "No DBus session or Secret Service prov
 /// `errSecInteractionNotAllowed` (no GUI session to ask in, as over SSH).
 const MACOS_UNAVAILABLE: [i32; 3] = [-25291, -25294, -25308];
 
-/// Whether `err` says the store isn't there, rather than that it refused
-/// (probe F4). keyring hands the platform's error over boxed, so it's read
+/// Whether `err` says the store isn't there, rather than that it refused.
+/// keyring hands the platform's error over boxed, so it's read
 /// from how dbus and security-framework format theirs: the D-Bus error
 /// name, which dbus's `Debug` ends with, and security-framework's
 /// `Error { code: … }`. Neither holds a secret, and neither text is kept.
@@ -215,7 +215,7 @@ mod tests {
         )
     }
 
-    /// Probe F4: a store that isn't there (no D-Bus session or Secret
+    /// A store that isn't there (no D-Bus session or Secret
     /// Service provider on a headless Linux host; no login keychain, as
     /// over SSH on macOS) is told from one that refused. Both keep the
     /// wire code `SECRET_STORE_ERROR`.

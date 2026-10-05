@@ -1,5 +1,4 @@
-//! `seaquel-cli duckdb status` and `seaquel-cli duckdb install` (the DuckDB
-//! helper plan, Q4 and Decision 13).
+//! `seaquel-cli duckdb status` and `seaquel-cli duckdb install`.
 //!
 //! The CLI runs DuckDB in the `seaquel-duckdb` helper, a separate download
 //! matched to this version. `install` fetches it from this version's GitHub
@@ -35,8 +34,7 @@ const TEST_HOOKS_PREFIX: &str = "SEAQUEL_CLI_TEST";
 /// stalled disk) is swept by a later install once it is stale.
 const SHUTDOWN_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// One helper per version is kept, the two newest at a time (Task 4's
-/// pruning, review M4).
+/// One helper per version is kept, the two newest at a time (Task 4's pruning).
 const KEPT: &str = "One DuckDB helper is kept per Seaquel version, the two newest at a time, so \
                     an older seaquel-cli may need to install again after a newer one has.";
 
@@ -103,7 +101,7 @@ pub fn run(args: DuckdbArgs) -> ExitCode {
     };
     // A stopped `install --from` is still copying on the blocking pool
     // until its next read sees the cancel flag; give it a bounded moment so
-    // its partial file is deleted (review I2). Otherwise nothing is left
+    // its partial file is deleted. Otherwise nothing is left
     // running and this returns at once.
     runtime.shutdown_timeout(SHUTDOWN_WAIT);
     code
@@ -353,8 +351,7 @@ mod tests {
         );
     }
 
-    /// A folder the install won't touch: the line says what to do (the
-    /// desktop plan's Task 7 review, item 10).
+    /// A folder the install won't touch: the line says what to do.
     #[test]
     fn an_unsafe_folder_says_what_to_do() {
         let (_, hint) = failure("UNSAFE_FOLDER", false);

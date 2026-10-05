@@ -1,5 +1,5 @@
-//! A window's reconnect to a file one connection holds exclusively (the
-//! desktop DuckDB helper plan, Decision 21): the older connection is closed
+//! A window's reconnect to a file one connection holds exclusively:
+//! the older connection is closed
 //! only once nothing can refuse the new one before it opens (the engine,
 //! the connect policy, `Engine::preflight`), and it is announced
 //! `CONNECTION_REPLACED` before its close is awaited, so a reconnect

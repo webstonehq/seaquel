@@ -1,6 +1,6 @@
 /**
- * The DuckDB extensions tab sends typed actions (`db.duckdbExtension` on
- * desktop, phase 5c Q9) on the connection the tab was opened for, whatever
+ * The DuckDB extensions tab sends typed actions (`db.duckdbExtension` on desktop)
+ * on the connection the tab was opened for, whatever
  * is active later.
  */
 import { describe, expect, it, vi } from "vitest";

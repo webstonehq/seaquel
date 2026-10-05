@@ -6,8 +6,8 @@
 //! A result's chunks go to a [`ChunkSink`]: the DuckDB helper's sink writes
 //! them as Arrow IPC for its client (`helper.rs`), with the column kinds
 //! [`crate::kinds::of`] reads. (The in-process native driver, whose sinks
-//! decoded them into `Value`s, was deleted in Task 12 of the desktop DuckDB
-//! helper plan; this code is what it ran.)
+//! decoded them into `Value`s, was deleted once every interface used the
+//! helper; this code is what it ran.)
 //!
 //! Chunks are always read with `Statement::step()`, never duckdb-rs's Arrow
 //! iterator, which panics when a fetch fails (an interrupt included).
@@ -62,7 +62,7 @@ pub(crate) enum Execution {
     /// bytes by default; it counts bytes, not rows), then waiting. The first
     /// rows come early, DuckDB holds only what is in flight, a query can fail
     /// after its first chunks, and stopping early stops the query.
-    /// `query_stream` only (the DuckDB helper plan's Q3 A).
+    /// `query_stream` only.
     ///
     /// Stopping early or pausing (`tests/streaming.rs` pins the first): a write
     /// with `RETURNING` finishes before its first chunk (DuckDB's insert is a

@@ -14,7 +14,7 @@
 import type { PersistedQueryHistoryItem } from "$lib/types";
 
 /**
- * A retired connection override row (Q13, Decision 25): the demo's
+ * A retired connection override row: the demo's
  * repository keeps reading and writing it for the frozen repo fixtures.
  */
 export interface PersistedConnectionOverride {
@@ -95,7 +95,7 @@ export const HISTORY_KEEP = 500;
  * themes, onboarding, tutorial progress, import state, dashboards, saved
  * workflows and AI chats to the `settings` and `library` groups
  * (`SettingsService`, `LibraryService`) in 5d-2. Connection overrides were
- * retired (Q13).
+ * retired.
  */
 export interface StorageClient {
   queryHistory: {

@@ -79,8 +79,8 @@ export function libraryErrorMessage(error: unknown, nameOf: NameOf = () => undef
 }
 
 /**
- * The web limit a refusal names (`INVALID_ARGUMENT` whose message names a
- * `max_*` limit, Decision 27), or `null` for any other error.
+ * The web limit a refusal names (`INVALID_ARGUMENT` whose message names a `max_*` limit),
+ * or `null` for any other error.
  */
 export function limitOf(error: unknown): string | null {
   if (errorCode(error) !== INVALID_ARGUMENT) return null;
@@ -98,7 +98,7 @@ export function limitMessage(limit: string): string | null {
   return null;
 }
 
-/** Whether `error` is Core's refusal of a chat put past the web budget (Q17). */
+/** Whether `error` is Core's refusal of a chat put past the web budget. */
 export function isChatFull(error: unknown): boolean {
   return limitOf(error) === "max_chat_bytes";
 }

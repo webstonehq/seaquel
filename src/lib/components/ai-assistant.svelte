@@ -206,7 +206,7 @@
 
 	const chats = $derived(db.state.activeConnectionAIChats);
 	const activeChatId = $derived(db.state.activeAIChatId);
-	/** The web's per-chat budget filled this chat (Q17): sending is off until a new chat. */
+	/** The web's per-chat budget filled this chat: sending is off until a new chat. */
 	const chatFull = $derived(activeChatId ? !!db.state.aiChatFull[activeChatId] : false);
 	const activeChat = $derived(db.state.activeAIChat);
 	const userMessages = $derived(db.state.aiMessages.filter((msg) => msg.role === "user"));
@@ -222,7 +222,7 @@
 
 {#snippet textBlock(content: string, role: "user" | "assistant")}
 	{#if role === 'assistant' && isPlainReply(content)}
-		<!-- Past 64 KiB a reply is plain text: no Markdown, no SQL blocks (probe F2). -->
+		<!-- Past 64 KiB a reply is plain text: no Markdown, no SQL blocks. -->
 		<p class="whitespace-pre-wrap break-words select-text text-sm text-foreground">{content}</p>
 	{:else}
 	{#each parseMessageContent(content) as segment, si (si)}
@@ -258,7 +258,7 @@
 {/snippet}
 
 {#snippet toolLine(line: Extract<AiSegment, { type: "tool" }>)}
-	<!-- Q7: one line per tool call: the tool, its SQL, then its rows or its error. -->
+	<!-- One line per tool call: the tool, its SQL, then its rows or its error. -->
 	<div class="my-1 flex items-center gap-1.5 rounded border bg-muted/40 px-2 py-1 text-xs" data-tool-call={line.callId}>
 		<WrenchIcon class="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
 		<span class="font-mono shrink-0">{line.name}</span>

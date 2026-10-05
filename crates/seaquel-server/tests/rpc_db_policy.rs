@@ -252,7 +252,7 @@ async fn an_allowed_form_reaches_the_driver() {
 }
 
 /// Auto-reconnect of a saved row with `savePassword` on and no password in
-/// the vault (a trust-auth database, probe F5): the web workspace has no
+/// the vault (a trust-auth database): the web workspace has no
 /// secret store, so Core connects with no password, as a form would, and
 /// the driver answers. It used to be `NO_SECRET_STORE`, a 500.
 #[tokio::test]

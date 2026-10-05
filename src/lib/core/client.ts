@@ -20,7 +20,7 @@
  *   `WINDOW_CLOSED` and `CONNECTION_REPLACED` (web, a closed tab's or a
  *   tab's replaced connection), `CONNECTION_CLOSED`, …) and `storageChanged` (a stored write committed,
  *   from any of the user's windows or tabs, this one's included: its
- *   `origin` is `pageOrigin()` then; phase 5d, Decisions 16–18). Events
+ *   `origin` is `pageOrigin()` then). Events
  *   sent while the page wasn't subscribed are lost: `onResubscribed` says
  *   when to reload, and `onEventsUnavailable` when updates stopped.
  *

@@ -1,7 +1,7 @@
 /**
  * The tutorial's database in the browser (web and the demo): DuckDB-WASM in
  * the page, on an instance of its own (`tutorialDuckDb`), never the demo
- * connection's. Phase 8 trimmed it to what the tutorial uses (Q5 A): connect,
+ * connection's. Phase 8 trimmed it to what the tutorial uses: connect,
  * run its seed and its queries, disconnect. The demo's own connection runs
  * in Core.
  *

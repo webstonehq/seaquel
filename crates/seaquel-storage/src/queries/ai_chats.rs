@@ -1,6 +1,6 @@
 //! `aiChatsRepo`: `ai_chats` and `ai_messages`.
 //!
-//! From phase 5d-2 (Decision 24) Core writes chats one at a time and
+//! From phase 5d-2 Core writes chats one at a time and
 //! upserts messages by id ([`put_messages`]) instead of replacing a chat's
 //! list; [`replace_all_messages`] stays for its frozen fixtures. From phase
 //! 6 a message also carries its tool calls (`parts`, migration `0007`), and
@@ -345,7 +345,7 @@ pub const CONTENT_BYTES: &str = "SELECT COALESCE(SUM(octet_length(content) + \
      COALESCE(octet_length(parts), 0)), 0) FROM ai_messages WHERE chat_id = ?1";
 
 /// The UTF-8 bytes of a chat's stored message content and tool calls
-/// (`parts`, phase 6) (the web budget, `max_chat_bytes`, Decision 24).
+/// (`parts`, phase 6) (the web budget, `max_chat_bytes`).
 pub async fn content_bytes(r: impl Into<Reader<'_>>, chat_id: &str) -> Result<u64> {
     let mut conn = r.into().conn().await?;
     let n: i64 = db::query_scalar(CONTENT_BYTES)
@@ -381,7 +381,7 @@ pub async fn content_bytes_of(
     Ok(total)
 }
 
-/// Core's write of a turn's messages (phase 6, Decision 31): the user's
+/// Core's write of a turn's messages (phase 6): the user's
 /// message before the first round, the reply at the end. [`put_messages`]
 /// in the caller's transaction, and, with `touched_at`, the chat's
 /// `updated_at` set to it (the reply's write, as the page's

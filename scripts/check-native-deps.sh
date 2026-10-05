@@ -2,14 +2,14 @@
 # CI's "Native binaries' dependencies" step (ci.yml, `rust` job), here so it
 # can be run locally as written: `bash scripts/check-native-deps.sh`.
 #
-# Phase 7a, Decisions 2 and 22: each terminal binary links only its own
+# Each terminal binary links only its own
 # extras. The TUI has no MCP server (rmcp), git, imports (plist) or license
-# client. The CLI's reqwest ban went with `seaquel-cli duckdb install` (the
-# DuckDB helper plan, Q4 A, Task 8): it downloads the helper through
+# client. The CLI's reqwest ban went with `seaquel-cli duckdb install`:
+# it downloads the helper through
 # seaquel-http.
 #
-# No native binary links DuckDB (the DuckDB helper plan, Decision 11; the
-# desktop DuckDB helper plan, Decision 20): the TUI, the CLI and the desktop
+# No native binary links DuckDB:
+# the TUI, the CLI and the desktop
 # app (`seaquel`, src-tauri) all run DuckDB in the `seaquel-duckdb` helper,
 # so no crate named like `duckdb` but the engine crate (whose `remote`
 # driver is plain Rust) may be in their trees; that catches `duckdb` and

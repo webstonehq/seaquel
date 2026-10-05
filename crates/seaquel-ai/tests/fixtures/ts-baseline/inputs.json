@@ -28,18 +28,8 @@
         }
       ],
       "indexes": [
-        {
-          "name": "users_pkey",
-          "columns": ["id"],
-          "unique": true,
-          "type": "btree"
-        },
-        {
-          "name": "users_email_idx",
-          "columns": ["email"],
-          "unique": true,
-          "type": "btree"
-        }
+        { "name": "users_pkey", "columns": ["id"], "unique": true, "type": "btree" },
+        { "name": "users_email_idx", "columns": ["email"], "unique": true, "type": "btree" }
       ]
     },
     {
@@ -134,13 +124,7 @@
       ],
       "indexes": []
     },
-    {
-      "name": "empty",
-      "schema": "public",
-      "type": "table",
-      "columns": [],
-      "indexes": []
-    }
+    { "name": "empty", "schema": "public", "type": "table", "columns": [], "indexes": [] }
   ],
   "SAVED": [
     {
@@ -148,11 +132,7 @@
       "name": "Monthly revenue",
       "query": "SELECT date_trunc('month', created_at) AS m, sum(total) FROM orders GROUP BY 1"
     },
-    {
-      "id": "sq-2",
-      "name": "users",
-      "query": "SELECT * FROM users"
-    },
+    { "id": "sq-2", "name": "users", "query": "SELECT * FROM users" },
     {
       "id": "sq-3",
       "name": "Top customers",
@@ -170,23 +150,10 @@
           "widgetType": "kpi",
           "query": "SELECT sum(total) FROM orders"
         },
-        {
-          "id": "w-2",
-          "title": "Notes",
-          "widgetType": "text",
-          "query": ""
-        }
+        { "id": "w-2", "title": "Notes", "widgetType": "text", "query": "" }
       ]
     },
-    {
-      "id": "dash-2",
-      "name": "Empty board",
-      "widgets": []
-    }
+    { "id": "dash-2", "name": "Empty board", "widgets": [] }
   ],
-  "LARGE": {
-    "tables": 3000,
-    "schema": "big",
-    "columns": 6
-  }
+  "LARGE": { "tables": 3000, "schema": "big", "columns": 6 }
 }

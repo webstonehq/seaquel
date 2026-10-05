@@ -1,7 +1,7 @@
 //! `sharedReposRepo`: `shared_repos`, each repo stored as JSON, and the
 //! active repo in `app_state['activeRepoId']`.
 //!
-//! The targeted functions (phase 5e, Decision 43 of the 5e plan) read and
+//! The targeted functions (phase 5e) read and
 //! write one repo at a time inside Core's write transaction, and keep each
 //! row's JSON as stored: [`update_json`] changes only the fields it names,
 //! so older releases read every other field as they wrote it. They never
@@ -138,7 +138,7 @@ pub async fn insert(tx: &mut WriteTx, repo: &RawValue) -> Result<()> {
 }
 
 /// Sets `fields` in the stored JSON of repo `id` and keeps every other
-/// byte of it (Decision 43): a named field already there has its value
+/// byte of it: a named field already there has its value
 /// replaced in place (the last one, if a hand edit repeated the key, since
 /// that's the one `JSON.parse` reads); one that isn't is added before the
 /// closing brace, in the order given. A field named twice takes its last

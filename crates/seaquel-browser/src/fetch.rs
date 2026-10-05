@@ -1,4 +1,4 @@
-//! The demo's model calls (phase 6, Decision 8 and Q2): Core's
+//! The demo's model calls (phase 6): Core's
 //! `HttpClient` over a fetch bridge the page passes to `open`.
 //!
 //! The page owns `fetch` (and CORS); Rust owns the turn. The bridge object
@@ -14,7 +14,7 @@
 //! is a `Uint8Array`, empty for a `GET`. **Dropping a call aborts it**:
 //! `send` dropped before the head (a cancel, a timeout) and a body stream
 //! dropped before its end both call `abort`, so the provider stops
-//! generating (S2). A bridge that throws or answers the wrong shape fails
+//! generating. A bridge that throws or answers the wrong shape fails
 //! the call; nothing here panics on what the page does.
 //!
 //! Nothing is logged from here, and an error never carries the URL, a

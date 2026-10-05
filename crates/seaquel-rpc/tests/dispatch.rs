@@ -502,7 +502,7 @@ fn responses_serialize_with_kind_and_data() {
     assert_eq!(out, json!({ "kind": "sql", "data": "CREATE TABLE t ()" }));
 }
 
-/// Paging and the CRUD builders are Core's now (phase 5c, Decision 14):
+/// Paging and the CRUD builders are Core's now (phase 5c):
 /// `db.tablePage`, `db.planEdits` and `db.applyChanges` build with the
 /// dialect. The engine RPC doesn't know those methods any more.
 #[test]

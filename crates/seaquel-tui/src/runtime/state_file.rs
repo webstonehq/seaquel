@@ -1,6 +1,6 @@
-//! The TUI's own state file (Q4 A, Decision 4): `<data_dir>/tui/state.json`
+//! The TUI's own state file: `<data_dir>/tui/state.json`
 //! with the last project, the last connection per project, the panel tabs,
-//! the theme, and the open query tabs with their text (Task 6). Ids only,
+//! the theme, and the open query tabs with their text. Ids only,
 //! never a name (a saved query's tab keeps its id; its name is read from
 //! the library). Not `seaquel.db`: a TUI blob in
 //! `window_state` would be copied into new GUI windows.
@@ -35,7 +35,7 @@ struct File {
     query_active: usize,
 }
 
-/// A query tab (Task 6).
+/// A query tab.
 #[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 struct FileTab {
@@ -48,7 +48,7 @@ struct FileTab {
     omitted: bool,
 }
 
-/// The most the file may be when read (review M1): a bigger one is ignored.
+/// The most the file may be when read: a bigger one is ignored.
 pub const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
 
 /// The file's format version.
@@ -113,7 +113,7 @@ pub fn load(data_dir: &Path) -> Remembered {
 }
 
 /// A number for a save, taken when the save is asked for: the file ends up
-/// holding the save with the highest one (review I3).
+/// holding the save with the highest one.
 pub fn next_seq() -> u64 {
     SEQ.fetch_add(1, Ordering::SeqCst) + 1
 }
@@ -125,7 +125,7 @@ static WRITTEN: Mutex<BTreeMap<PathBuf, u64>> = Mutex::new(BTreeMap::new());
 
 /// Writes the file atomically unless a save with a higher `seq` already
 /// wrote it (then `Ok(false)`). Saves of one data dir take turns, so the
-/// exit save waits for a write in flight (review I3).
+/// exit save waits for a write in flight.
 pub fn save_latest(data_dir: &Path, remembered: &Remembered, seq: u64) -> io::Result<bool> {
     let mut written = WRITTEN.lock().unwrap_or_else(|e| e.into_inner());
     let key = data_dir.to_path_buf();
@@ -173,7 +173,7 @@ fn write(data_dir: &Path, remembered: &Remembered) -> io::Result<()> {
     let target = path(data_dir);
     let folder = target.parent().expect("state.json has a folder");
     make_private_dir(folder)?;
-    // A name of its own per write (review I3).
+    // A name of its own per write.
     static TEMP: AtomicU64 = AtomicU64::new(0);
     let temp = folder.join(format!(
         ".state.json.{}.{}.tmp",
@@ -322,7 +322,7 @@ mod tests {
         }
     }
 
-    /// Review I3: saves asked for in order but written by many threads at
+    /// Saves asked for in order but written by many threads at
     /// once leave a whole file holding the latest, and no temp file.
     #[test]
     fn concurrent_saves_leave_the_latest() {
@@ -356,7 +356,7 @@ mod tests {
         assert_eq!(read(dir.path()).unwrap(), latest);
     }
 
-    // Review M1: a file past 32 MiB isn't read; an unchanged saved tab
+    // A file past 32 MiB isn't read; an unchanged saved tab
     // keeps only a hash.
     #[test]
     fn a_huge_file_is_ignored_and_unchanged_tabs_keep_no_text() {

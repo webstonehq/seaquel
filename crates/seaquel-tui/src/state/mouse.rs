@@ -1,4 +1,4 @@
-//! The mouse (Q8 A, probe F3): a click focuses the box under it, selects
+//! The mouse: a click focuses the box under it, selects
 //! the row or cell under it (panels 2–4, the data grid, the results) and
 //! switches to the tab whose title it's on; the wheel moves the selection
 //! of the list or grid under the pointer, whichever box has the focus, and
@@ -235,7 +235,7 @@ mod tests {
         assert_eq!((m.focus, m.saved.selected), (Panel::Saved, 1));
     }
 
-    /// Review M3: while panel 2 shows "loading", "couldn't load" or "no
+    /// While panel 2 shows "loading", "couldn't load" or "no
     /// connection", its old rows aren't drawn, so a click selects none.
     #[test]
     fn a_click_selects_no_row_panel_two_doesn_t_draw() {

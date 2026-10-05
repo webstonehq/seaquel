@@ -10,9 +10,9 @@ path = "src/main.rs"
 
 [dependencies]
 # `duckdb-helper-install`: the TUI downloads the DuckDB helper on the first
-# DuckDB connect (the DuckDB helper plan, Decision 12).
+# DuckDB connect.
 seaquel-terminal = { path = "../seaquel-terminal", features = ["duckdb-helper-install"] }
-# Decision 2: `ai-native` for Ask AI (Task 7) on top of what
+# `ai-native` for Ask AI on top of what
 # seaquel-terminal brings (the engines, DuckDB through the helper,
 # `storage`, `secrets`, `ssh`, `workspace`). No `imports`, `git` or
 # `license-*`, and no seaquel-mcp or seaquel-rpc. No default features: Core's
@@ -20,7 +20,7 @@ seaquel-terminal = { path = "../seaquel-terminal", features = ["duckdb-helper-in
 seaquel-core = { path = "../seaquel-core", default-features = false, features = ["storage", "secrets", "ssh", "workspace", "ai-native"] }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
-# The SQL editor's buffer, cursor and undo (Q7 A); modes, completion and
+# The SQL editor's buffer, cursor and undo; modes, completion and
 # highlighting are the TUI's own layer over it.
 ratatui-textarea = { workspace = true }
 unicode-width = { workspace = true }
@@ -34,7 +34,7 @@ tracing-subscriber = { workspace = true }
 # `log`'s key-values reach the file (already in Cargo.lock).
 tracing = "0.1"
 # The state file (`<data_dir>/tui/state.json`) and a connection's stored
-# SSH tunnel JSON; `raw_value` for an apply's history labels (Task 5).
+# SSH tunnel JSON; `raw_value` for an apply's history labels.
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
 # Typed passwords are wiped on drop (already in Cargo.lock, 1.9).
@@ -48,20 +48,20 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
-# Ask AI's tests (Task 7): `MockProvider` on 127.0.0.1, `LoopbackOnly`
+# Ask AI's tests: `MockProvider` on 127.0.0.1, `LoopbackOnly`
 # around the model client in every test build, and the fake key. Never a
 # real provider or key.
 seaquel-ai = { path = "../seaquel-ai", features = ["testing"] }
 # `async_trait` for the tests' blocking and refusing secret stores.
 seaquel-runtime = { path = "../seaquel-runtime" }
-# The DuckDB helper's install dialog (the DuckDB helper plan, Task 7):
+# The DuckDB helper's install dialog:
 # `MockReleases` on 127.0.0.1 serves the release metadata and the asset.
 seaquel-http = { path = "../seaquel-http", features = ["release-asset", "testing"] }
 # The trust test checks the known_hosts line's key against the fingerprint
 # the dialog showed.
 base64 = { workspace = true }
 sha2 = "0.10"
-# The pty tests' screen (`tests/pty/screen.rs`, review I3 of the DuckDB
-# helper plan's Task 8): a VTE parser already in the lockfile (through
+# The pty tests' screen (`tests/pty/screen.rs`):
+# a VTE parser already in the lockfile (through
 # clap's anstream), so waits match the rendered screen, not raw bytes.
 anstyle-parse = "1"

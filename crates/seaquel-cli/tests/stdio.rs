@@ -273,8 +273,8 @@ async fn one_query_logged(cmd: Command, connection: &str, sql: &str) -> (String,
     (text(&result), result.is_error == Some(true), stderr)
 }
 
-/// The MCP server's words for a DuckDB connection without the helper
-/// (Decision 13), as the tool error's text and the startup line.
+/// The MCP server's words for a DuckDB connection without the helper,
+/// as the tool error's text and the startup line.
 fn not_installed_text() -> String {
     format!(
         "DuckDB support isn't installed for seaquel-cli {}. Run \"seaquel-cli duckdb install\", \
@@ -283,10 +283,10 @@ fn not_installed_text() -> String {
     )
 }
 
-/// The CLI links no DuckDB (the DuckDB helper plan, Task 6): with no
+/// The CLI links no DuckDB: with no
 /// helper under the data dir, a DuckDB query is `ENGINE_NOT_INSTALLED` (a
 /// native driver would have answered), and nothing is downloaded or made.
-/// The error says how to install it (Task 8, Decision 13), and so does
+/// The error says how to install it, and so does
 /// one stderr line at startup; the server starts anyway.
 #[tokio::test]
 async fn duckdb_without_the_helper_is_not_installed() {
@@ -374,7 +374,7 @@ async fn duckdb_runs_in_the_hook_s_helper() {
     assert!(installed.is_file(), "{installed:?}");
 }
 
-/// Review M4: the MCP server's DuckDB is restricted through the helper
+/// The MCP server's DuckDB is restricted through the helper
 /// too. A query reading a file in the sandbox through `read_csv` is a
 /// tool error, and the file's content never comes back. Needs
 /// `SEAQUEL_TEST_DUCKDB_HELPER`, as above.
@@ -647,7 +647,7 @@ async fn a_data_dir_the_app_must_upgrade_is_refused() {
     let file = sb.data().join("seaquel.db");
     // A file the app hasn't brought up to date: its schema version is gone.
     // The DELETE runs on one plain connection that checkpoints and closes
-    // before the file is read (review I4): through the storage pool, a
+    // before the file is read: through the storage pool, a
     // connection could still be closing, and checkpointing the WAL into the
     // file, after `before` was read.
     {

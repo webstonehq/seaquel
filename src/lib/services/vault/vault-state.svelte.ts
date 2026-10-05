@@ -50,7 +50,7 @@ export interface UnlockOptions {
   /**
    * Don't announce the unlock with a toast when this caller is the only
    * reason for it: an assistant send, whose Stop button sits where the
-   * toast would (phase 6 probe F1). The dialog closing says enough.
+   * toast would. The dialog closing says enough.
    */
   quiet?: boolean;
 }

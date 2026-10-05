@@ -1,15 +1,15 @@
 /**
- * `CoreAi`: the `AiService` over Core's `ai` group (phase 6, Task 7).
+ * `CoreAi`: the `AiService` over Core's `ai` group (phase 6).
  *
  * - `chat` is a stream (`ai.chat`, `CoreClient.stream`), `respond`,
  *   `generate`, `models` and `test` are unary calls.
- * - Keys (Decision 7, Q1): on web the page sends the provider's key from
+ * - Keys: on web the page sends the provider's key from
  *   the vault with each call, and the provider it read it for (Core
  *   refuses it for any other, `AI_PROVIDER_CHANGED`), read only when the vault holds one for that
  *   provider (a keyless provider never unlocks it). On the desktop there
  *   is no vault: the page sends none and never reads one, and Core reads
  *   the keychain. The demo's vault is the visitor's session keys
- *   (`$lib/services/session-keys`, Q2 B): in page memory, sent the same way.
+ *   (`$lib/services/session-keys`): in page memory, sent the same way.
  * - A call Core refuses rejects with its `CoreCallError` (`code`).
  */
 import { getCoreClient, type CoreClient, cancelledEvent } from "$lib/core";
@@ -39,8 +39,7 @@ export class CoreAi implements AiService {
 
   /**
    * The provider's key from the vault (web), or none. Throws when it can't
-   * be read. `quiet`: an unlock this starts isn't announced (a send: the
-   * toast would cover the Stop button, probe F1).
+   * be read. `quiet`: an unlock this starts isn't announced (a send: the toast would cover the Stop button).
    */
   private async keyFor(
     providerId: string | null | undefined,
@@ -88,7 +87,7 @@ export class CoreAi implements AiService {
         return;
       }
       // A key always names its provider: Core refuses it for any other
-      // (`AI_PROVIDER_CHANGED`, review I1).
+      // (`AI_PROVIDER_CHANGED`).
       const params: ChatParams = apiKey && providerId ? { ...turn, apiKey, providerId } : turn;
       yield* client().stream(
         { method: "ai", params: { method: "chat", params } },

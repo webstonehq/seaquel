@@ -1,5 +1,5 @@
-//! The DuckDB helper's install dialog in the built binary (the DuckDB
-//! helper plan, Task 7): `seaquel-tui` on a pty, with `SEAQUEL_DATA_DIR`
+//! The DuckDB helper's install dialog in the built binary:
+//! `seaquel-tui` on a pty, with `SEAQUEL_DATA_DIR`
 //! and `SEAQUEL_TUI_TEST_DUCKDB_RELEASES` pointing at a release server on
 //! 127.0.0.1 (`MockReleases`), connects to a DuckDB connection, asks,
 //! downloads into the data dir and connects. With
@@ -112,7 +112,7 @@ fn the_first_duckdb_connect_asks_downloads_and_connects() {
         .join("duckdb")
         .join(VERSION)
         .join("seaquel-duckdb");
-    // The waits read the rendered screen (review I3): ratatui redraws only
+    // The waits read the rendered screen: ratatui redraws only
     // changed cells, so `warehouse (duckdb)` needn't be in the bytes whole.
     pty.wait_for_screen("installed DuckDB support");
     if real {

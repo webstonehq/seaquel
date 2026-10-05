@@ -28,7 +28,7 @@ export interface PendingChangeTarget {
 /**
  * A single queued database mutation awaiting review and execution.
  *
- * `change` is what applying sends back (phase 5c, Decision 2): an edit
+ * `change` is what applying sends back (phase 5c): an edit
  * intent, which Core builds again from fresh metadata when it runs, or SQL
  * the editor deferred or the table editor generated. The other fields are
  * for display: `sql` and `bindValues` are what Core planned (or the typed
@@ -45,7 +45,7 @@ export interface PendingChange {
   sql: string;
   /** Type of query, for display */
   queryType: QueryType;
-  /** Counts as DML (phase 5c, Decision 5): a batch of only these applies in one transaction. */
+  /** Counts as DML (phase 5c): a batch of only these applies in one transaction. */
   dml: boolean;
   /** When it was queued */
   addedAt: Date;

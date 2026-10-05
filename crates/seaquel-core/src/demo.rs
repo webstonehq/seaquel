@@ -1,4 +1,4 @@
-//! The browser demo's own connection (phase 8 Decision 19).
+//! The browser demo's own connection.
 //!
 //! The demo has one saved connection with a fixed id, [`DEMO_CONNECTION_ID`]:
 //! the page's DuckDB-WASM database. Its history, AI chats and labels refer
@@ -336,7 +336,7 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_demo_connection_on_a_file_that_has_the_row() {
-        // Today's demo file (S6): `demo-connection` in `default-seaquel`
+        // Today's demo file: `demo-connection` in `default-seaquel`
         // with the `prod` label, stored by the TypeScript twin.
         let dir = tempfile::tempdir().unwrap();
         std::fs::copy(

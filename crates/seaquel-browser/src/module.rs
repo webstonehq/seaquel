@@ -20,7 +20,7 @@ use crate::fetch::{BridgeHttp, FetchBridge};
 
 /// The demo's window id (`src/lib/core/window-id.ts`): every write this
 /// module makes carries it, so the page skips its own `storageChanged`
-/// events (Decision 17).
+/// events.
 const ORIGIN: &str = "demo";
 
 /// Where the metadata file lives, as far as error messages go: it is in
@@ -76,7 +76,7 @@ fn encode<T: serde::Serialize>(value: &T) -> Result<String, JsValue> {
 /// Builds Core over `bridge` and opens its workspace on `image` (none: an
 /// empty file). Shared by `open` and the test hooks' second instance.
 ///
-/// With a `fetch` bridge Core runs the assistant (phase 6, Q2), calling
+/// With a `fetch` bridge Core runs the assistant (phase 6), calling
 /// models through the page's `fetch` wherever the visitor's provider is
 /// (`AiEgress::Any`: the browser's own rules, CORS, apply). Without one
 /// every `ai` call is `NOT_SUPPORTED`.
@@ -273,7 +273,7 @@ pub fn commits() -> Result<f64, JsValue> {
     Ok(current_open()?.ws.storage().commits() as f64)
 }
 
-/// The demo's own start (Decision 19): stores `demo-connection` the first
+/// The demo's own start: stores `demo-connection` the first
 /// time, afterwards only marks it connected. Resolves with the row as
 /// `Seqd` JSON.
 #[wasm_bindgen(js_name = ensureDemoConnection)]

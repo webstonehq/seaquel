@@ -296,7 +296,7 @@ seaquel_engine::impl_sqlx_driver!(
             let indexes = indexes?;
             let partial = introspect::partial_indexes(&indexes);
             let indexes = introspect::parse_indexes(&indexes);
-            // Task 18: UNIQUE from the indexes (the parse stays the TS's),
+            // UNIQUE from the indexes (the parse stays the TS's),
             // without partial unique indexes.
             let plain: Vec<SchemaIndex> = indexes
                 .iter()
@@ -406,7 +406,7 @@ seaquel_engine::impl_sqlx_driver!(
     }
 );
 
-/// The read-only path (plan: AI safety, Decision 1):
+/// The read-only path:
 ///
 /// 1. A connection of its own, never from the pool, opened from the pool's
 ///    options with `.read_only(true)` (`SQLITE_OPEN_READONLY`). For
@@ -545,7 +545,7 @@ mod tests {
         }
     }
 
-    /// Review item (Task 3): in sqlx's shared-cache in-memory database, a
+    /// In sqlx's shared-cache in-memory database, a
     /// pool connection holding a write lock on a table makes a reader's
     /// step return SQLITE_LOCKED, not SQLITE_BUSY. sqlx builds libsqlite3
     /// with `unlock_notify` and waits for the writer instead of returning

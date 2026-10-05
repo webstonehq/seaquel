@@ -1,5 +1,5 @@
 /**
- * The settings stores on the `settings` group (phase 5d-2, Decision 20),
+ * The settings stores on the `settings` group (phase 5d-2),
  * against Core's `settings` group in the browser module (phase 8, the
  * demo's Core).
  * Each tab is a fresh set of store modules on one database; another tab's
@@ -7,7 +7,7 @@
  * (what `LibrarySync` calls for the settings kinds).
  *
  * - Targeted writes: two tabs adding providers or themes keep both.
- * - Another tab's change applies at once, themes included (Q18).
+ * - Another tab's change applies at once, themes included.
  * - A setter called before the store's load waits for it, and the load
  *   doesn't overwrite what the setter set (re-survey bug 23).
  * - On the desktop an AI key goes with the Core call, never to the

@@ -1,6 +1,6 @@
 //! `seaquel_workspace::run::plan` against the run fixtures
 //! (`tests/fixtures/run`, recorded from today's TypeScript runner; see their
-//! README) and the rules of phase 5b's Decisions 3–8.
+//! README) and phase 5b's rules on top of them.
 //!
 //! This file checks the planning fields: which statements run, their
 //! substituted SQL and binds, query type, kind, table and column refs, the
@@ -335,7 +335,7 @@ fn replays_the_planning_fields_of_every_fixture() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     // The one listed change the planning fields show: a comment-only
-    // buffer at the cursor runs nothing (Decision 6). The others are
+    // buffer at the cursor runs nothing. The others are
     // execution and history changes, replayed by Core's tests/run.rs.
     assert_eq!(
         differ_from_recording,

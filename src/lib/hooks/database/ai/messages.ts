@@ -1,6 +1,6 @@
 /**
- * How the page words the assistant's errors and tool lines (phase 6,
- * Decision 15). Core sends a code and a message; the page words the code.
+ * How the page words the assistant's errors and tool lines (phase 6).
+ * Core sends a code and a message; the page words the code.
  * Only a provider's own message (cut at 1 KiB by Core) appears inside a
  * sentence: Core's other messages are for logs and tests, never shown raw.
  */
@@ -82,7 +82,7 @@ export function aiErrorText(code: string, message: string): string {
       return m.ai_error_message_too_long();
     default:
       // Core's message is for logs: it can name an internal limit
-      // (`max_message_bytes`, probe F2). The code is enough to report.
+      // (`max_message_bytes`). The code is enough to report.
       return m.ai_error_generic({ code });
   }
 }
@@ -113,7 +113,7 @@ export function inlineErrorOf(code: string, message: string): InlineError {
   }
 }
 
-/** A tool call's line after its name: its state, rows or error (Q7). */
+/** A tool call's line after its name: its state, rows or error. */
 export function toolLineText(
   line: Pick<AiToolLine, "name" | "state" | "rows" | "truncated" | "code">,
 ): string {

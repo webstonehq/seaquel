@@ -352,7 +352,7 @@ impl ReadOnlyOptions {
 }
 
 /// How long a pooled database connection may sit idle before the sqlx
-/// engines (Postgres, MySQL/MariaDB) close it (phase 6 probe F4): a
+/// engines (Postgres, MySQL/MariaDB) close it: a
 /// connection whose pool filled up for a schema load gives its backends
 /// back once it goes quiet. sqlx's own default, set explicitly.
 pub const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -612,8 +612,8 @@ pub trait Driver: MaybeSend + MaybeSync {
 
     async fn close(&self) -> Result<(), DbError>;
 
-    /// A future that ends when the connection does (the desktop DuckDB
-    /// helper plan, Decision 7): `Some(error)` when it was lost without
+    /// A future that ends when the connection does:
+    /// `Some(error)` when it was lost without
     /// being asked to close (the remote DuckDB driver's helper died: a
     /// signal, a protocol break), with the error every call now gets;
     /// `None` when it ended as asked ([`Driver::close`], or the driver was
@@ -709,8 +709,8 @@ pub trait Engine: MaybeSend + MaybeSync {
     /// exclusively, so a second connection to it can't open while the
     /// first is open (the remote DuckDB driver: one helper per file, and
     /// DuckDB's file lock). Core then closes the connections a window's
-    /// reconnect replaces before opening the new one, not after (the
-    /// desktop DuckDB helper plan, review I1). Default `false`.
+    /// reconnect replaces before opening the new one, not after.
+    /// Default `false`.
     fn exclusive_file(&self, _config: &ConnectConfig) -> bool {
         false
     }

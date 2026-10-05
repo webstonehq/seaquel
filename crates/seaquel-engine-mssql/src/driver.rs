@@ -1016,7 +1016,7 @@ impl Driver for MssqlDriver {
             .await?;
         let mut columns = introspect::parse_columns(&columns);
         let indexes = introspect::parse_indexes(&indexes);
-        // Task 18: UNIQUE from the indexes (the parse stays as recorded),
+        // UNIQUE from the indexes (the parse stays as recorded),
         // without filtered and INCLUDE unique indexes.
         let filtered: Vec<Value> = filtered
             .rows

@@ -1,5 +1,5 @@
 //! The Structure, Indexes and Constraints tabs (and a view's Columns), from
-//! Core's `table_metadata` (Decision 10): columns with their types,
+//! Core's `table_metadata`: columns with their types,
 //! nullability, defaults and keys; the indexes; the primary key, foreign
 //! keys and unique columns. CHECK constraints aren't in the metadata, so
 //! the Constraints tab says so.

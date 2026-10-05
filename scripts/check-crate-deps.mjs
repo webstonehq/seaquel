@@ -65,7 +65,7 @@ const BROWSER_MAY_ALSO_USE = new Set(["seaquel-engine-duckdb"]);
 const INTERFACE_GLUE = new Set(["seaquel-rpc"]);
 
 /**
- * Binaries that host one engine out of process (the DuckDB helper plan):
+ * Binaries that host one engine out of process:
  * `seaquel-duckdb` runs DuckDB for the terminal binaries, which talk to it
  * over pipes. Each may depend on its own engine crate and the pure crates
  * only, and nothing may depend on it.
@@ -120,7 +120,7 @@ const ENGINE_MAY_USE = new Set([
 const INTERFACE_LIBS = new Set(["seaquel-mcp", "seaquel-terminal"]);
 
 /**
- * Narrower rules for some interfaces (phase 7a, Decisions 2 and 22): the TUI
+ * Narrower rules for some interfaces (phase 7a): the TUI
  * doesn't link the MCP server (and so rmcp), and seaquel-terminal holds
  * policy over Core only, so neither binary picks up the other's extras
  * through it.

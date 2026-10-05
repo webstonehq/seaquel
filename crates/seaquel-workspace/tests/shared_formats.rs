@@ -307,8 +307,8 @@ fn replays_every_format_case() {
             "writeQuery" => {
                 let q = query_from_args(&args["query"]);
                 let text = write_query(&q);
-                // Core writes its files with their id (Q22), and reads its
-                // own escapes only in such a file (probe fix 2): the reparse
+                // Core writes its files with their id, and reads its
+                // own escapes only in such a file: the reparse
                 // reads the file as Core writes it.
                 let with_id = write_query(&QueryFile {
                     file_id: Some(CORE_ID.into()),
@@ -928,7 +928,7 @@ fn random_query(rng: &mut Rng) -> QueryFile {
             .collect(),
         query: "SELECT 1".into(),
         folder: String::new(),
-        // Core writes every file with its id (Q22, probe fix 2).
+        // Core writes every file with its id.
         file_id: Some("00000000-0000-4000-8000-000000000001".into()),
     }
 }
@@ -1028,7 +1028,7 @@ fn has_misread_backslash(v: &str) -> bool {
     })
 }
 
-/// Whether Core quotes `v` at all (Decision 45's triggers, as the writer
+/// Whether Core quotes `v` at all (the quoting triggers, as the writer
 /// documents them).
 fn needs_quotes_hint(v: &str, in_list: bool) -> bool {
     v.contains([':', '#', '"', '[', ']', '\n', '\r'])
@@ -1246,8 +1246,8 @@ fn a_backslash_is_escaped_only_where_the_reader_would_misread_it() {
         ("it's: a\\", "name: \"it's: a\\\\\""),
         ("it's \\\"q\\\\", "name: \"it's \\\\\\\"q\\\\\\\\\""),
     ] {
-        // Core writes the file with its id (Q22); its escapes are read
-        // only in such a file (probe fix 2).
+        // Core writes the file with its id; its escapes are read
+        // only in such a file.
         let q = QueryFile {
             name: value.into(),
             query: "SELECT 1".into(),

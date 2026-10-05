@@ -1,5 +1,5 @@
-//! The one-time move of secrets out of stored connection strings (phase 5d,
-//! Decision 12a), run when a writable workspace opens: the keychain first
+//! The one-time move of secrets out of stored connection strings (phase 5d),
+//! run when a writable workspace opens: the keychain first
 //! and outside any write transaction, then the stripped string and the save
 //! flags in one row update that reads the string again, and the notice.
 //!
@@ -437,7 +437,7 @@ async fn web_strips_every_listed_row_and_lists_it() {
     assert!(upgraded(&ws).await);
 }
 
-/// Every string form Decision 12a names, each with a canary.
+/// Every string form the string-secrets upgrade handles, each with a canary.
 fn canary_rows() -> Vec<Value> {
     vec![
         row(

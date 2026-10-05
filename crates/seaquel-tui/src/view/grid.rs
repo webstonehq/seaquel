@@ -1,4 +1,4 @@
-//! The Data tab (Decision 11; screen 1a): the `/` filter line with the
+//! The Data tab (screen 1a): the `/` filter line with the
 //! server filter and sort on its right, the column names and types, the
 //! rows (staged inserts first) with their `~`/`-`/`+` markers, and the
 //! footer with the cursor's `column · type`, a staged cell's `old → new`
@@ -158,8 +158,8 @@ pub(super) fn column_at(shown: &[(usize, usize)], dx: usize) -> Option<usize> {
 }
 
 /// The grid row (into `browse::rows`) and column drawn at `(x, y)` of a
-/// Data tab drawn into `inner`, as [`render`] draws it (the mouse, probe
-/// F3). The column is `None` on the marker or a gap.
+/// Data tab drawn into `inner`, as [`render`] draws it (the mouse).
+/// The column is `None` on the marker or a gap.
 pub fn cell_at(model: &Model, inner: Rect, x: u16, y: u16) -> Option<(usize, Option<usize>)> {
     let (width, height) = (usize::from(inner.width), usize::from(inner.height));
     if height < 4 || width < 10 || model.browse.page.is_none() {

@@ -248,7 +248,7 @@ export class UseDatabase {
     this.workflow = new WorkflowManager(
       this.state,
       this.workflowState,
-      // Read-only, on the node's own connection (phase 5c, Decision 10).
+      // Read-only, on the node's own connection (phase 5c).
       (connectionId, sql, signal, maxRows) =>
         this.queries.executeReadOnly(connectionId, sql, signal, undefined, maxRows),
     );
@@ -337,7 +337,7 @@ export class UseDatabase {
     });
 
     // Other windows' and tabs' library changes (phase 5d-1), and in the
-    // demo Core's own writes (phase 8, Decision 17).
+    // demo Core's own writes (phase 8).
     const feed = new ChangeFeed({
       client: getCoreClient,
       origin: pageOrigin,
@@ -445,7 +445,7 @@ export class UseDatabase {
 
       void log.info("App ready");
 
-      // Decision 12a: the connections Core took secrets out of, once. Only
+      // The connections Core took secrets out of, once. Only
       // once they were read: otherwise none could be named, and the notice
       // would be cleared unseen.
       if (this.connections.loaded) {
@@ -455,8 +455,8 @@ export class UseDatabase {
       }
 
       // DuckDB support for this version, fetched in the background when a
-      // saved connection is DuckDB (desktop DuckDB helper plan, Decision
-      // 11). It waits a while first, and never shows anything.
+      // saved connection is DuckDB.
+      // It waits a while first, and never shows anything.
       void prefetchDuckdbHelper({
         loaded: this.connections.loaded,
         standalone: isStandaloneWindow(),
@@ -474,7 +474,7 @@ export class UseDatabase {
   /**
    * Shared projects at startup (desktop only: web and the demo have none):
    * the repo list from Core, each repo's git status, and the active
-   * project synced with its files when it's linked (Decision 35).
+   * project synced with its files when it's linked.
    */
   private async initializeSharedRepos(): Promise<void> {
     if (!isTauri()) return;
@@ -531,7 +531,7 @@ export class UseDatabase {
    * with a pending save, the active one first). The desktop awaits it
    * before its window closes. A turn still streaming is Core's to store:
    * closing the window or the socket cancels it, and Core stores what
-   * streamed (phase 6, Q8).
+   * streamed (phase 6).
    */
   async flush(): Promise<void> {
     await this.windowState.flush();

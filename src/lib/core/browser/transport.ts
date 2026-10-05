@@ -1,18 +1,18 @@
 /**
- * `BrowserCore`: the page's one Core (phase 8, Decisions 2, 6, 15 and 16),
+ * `BrowserCore`: the page's one Core (phase 8),
  * over the browser module's exports (`crates/seaquel-browser`).
  *
  * - **Calls and streams.** `call` sends a request's bytes and resolves with
  *   the `CoreResponse` JSON; a refusal rejects with a `CoreCallError`.
  *   `stream` hands each `CoreEvent` to its handler and resolves with the
  *   count once the stream has ended and every event was delivered.
- * - **No re-entrancy** (Decision 15). The module calls `onEvent` while it is
+ * - **No re-entrancy**. The module calls `onEvent` while it is
  *   mid-call, and a call back into it from there would hit wasm-bindgen's
  *   borrow checks or a `RefCell` Core holds. So events, stream items and a
  *   stream's end go through one mailbox and reach TypeScript in a later
  *   microtask, in order; nothing here calls the module from a callback the
  *   module made.
- * - **The snapshot** (Decision 6). After a call or stream ends, if the
+ * - **The snapshot**. After a call or stream ends, if the
  *   commit counter moved past what's stored, one macrotask later (so writes
  *   in a burst share one) the file is serialized and saved. The counter is
  *   read right before the snapshot, synchronously, so the snapshot holds
@@ -22,7 +22,7 @@
  *   that call ends. `flushNow` (on `pagehide`, or the page going hidden)
  *   saves at once even while a save is in flight: the store applies saves
  *   in call order.
- * - **A trap** (Decision 16). A `WebAssembly.RuntimeError` from any export,
+ * - **A trap**. A `WebAssembly.RuntimeError` from any export,
  *   or the module's panic hook (a panic inside an async call leaves its
  *   promise pending forever), restarts it: every call in flight fails with
  *   `CORE_RESTARTED`, each stream ends with that error, the dead instance's
@@ -139,7 +139,7 @@ export interface BrowserCoreOptions {
    * every `open`: the first and each one a trap restart makes, so a
    * restarted module still has the assistant. Without one every `ai` call
    * is `NOT_SUPPORTED`. The module never keeps a key: the page sends the
-   * visitor's with each call (Q2 B), so after a restart it simply sends it
+   * visitor's with each call, so after a restart it simply sends it
    * again.
    */
   fetch?: FetchBridge;
@@ -452,7 +452,7 @@ export class BrowserCore {
     return this.run((m) => m.call(body));
   }
 
-  /** `ensureDemoConnection` (Decision 19): the row as `Seqd` JSON. */
+  /** `ensureDemoConnection`: the row as `Seqd` JSON. */
   async ensureDemoConnection(): Promise<unknown> {
     return JSON.parse(await this.run((m) => m.ensureDemoConnection()));
   }

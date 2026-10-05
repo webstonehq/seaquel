@@ -1,5 +1,5 @@
 /**
- * `withDuckdbHelper` (desktop DuckDB helper plan, Task 5, Decision 10):
+ * `withDuckdbHelper`:
  * `ENGINE_NOT_INSTALLED` from an interactive connect opens the install
  * dialog and, once it installed, makes the same attempt again; a
  * background one never asks; a decline rejects with

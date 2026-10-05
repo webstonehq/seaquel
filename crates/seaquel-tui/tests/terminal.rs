@@ -1,4 +1,4 @@
-//! The terminal is always restored (Decision 18): the built binary runs on
+//! The terminal is always restored: the built binary runs on
 //! a pty under `script`, is ended by SIGTERM, SIGHUP or a panic (on the
 //! main thread and in a spawned task), and afterwards the pty is back in
 //! cooked mode (`stty -a`, run by the same shell), the alternate screen was
@@ -318,7 +318,7 @@ fn a_panic_in_a_spawned_task_restores_the_terminal() {
 }
 
 /// A data dir the app never opened: refused before the screen is taken,
-/// worded on stderr, non-zero (Decision 3).
+/// worded on stderr, non-zero.
 #[test]
 fn a_refused_data_dir_is_said_without_taking_the_screen() {
     let data = tempfile::tempdir().unwrap();
@@ -443,7 +443,7 @@ fn a_dropped_session_leaves_no_tui_running() {
     wait_until(|| !alive(&tui));
 }
 
-/// Ctrl+O (Decision 14, spike S5): the editor gets a cooked terminal and
+/// Ctrl+O: the editor gets a cooked terminal and
 /// every key, the TUI takes the terminal back and draws again (no
 /// `clear()`), and an editor that can't start leaves the TUI drawn and
 /// saying why. The terminal is restored at the end.
@@ -536,7 +536,7 @@ fn an_editor_that_cannot_start_leaves_the_tui_drawn() {
     assert_eq!(exit_code(&out), 0);
 }
 
-/// Review I4: Ctrl+Z inside `$EDITOR` (here the editor stops itself with
+/// Ctrl+Z inside `$EDITOR` (here the editor stops itself with
 /// SIGTSTP, as vim does on Ctrl+Z). The editor runs in its own foreground
 /// process group: the TUI takes the terminal back and stops too, so the
 /// shell sees one stopped job; continued, it hands the terminal back to the

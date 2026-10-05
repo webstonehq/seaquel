@@ -1,9 +1,9 @@
 /**
- * The keyrings and AI keys (phase 6, Decision 7): on the desktop Core reads
+ * The keyrings and AI keys (phase 6): on the desktop Core reads
  * a provider's key from the keychain itself and the `secret` group refuses
  * `ai-api-key:*`, so the page has no way to read one (`aiKeyVault()` is
  * `null`, and the keyring has no AI key read). On web the vault holds it,
- * and the page sends it with each `ai` call (Task 7).
+ * and the page sends it with each `ai` call.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

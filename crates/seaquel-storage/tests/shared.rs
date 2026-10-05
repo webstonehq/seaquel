@@ -1,8 +1,6 @@
-//! Phase 5e storage: migration `0004_shared_links.sql` (where each shared
-//! row's file is and the content it last synced, Decision 33 of the 5e
-//! plan), the link reads and writes on saved queries, dashboards,
-//! connections and projects, and the targeted `shared_repos` queries
-//! (Decision 43).
+//! Phase 5e storage: migration `0004_shared_links.sql` (where each shared row's file is and the content it last synced),
+//! the link reads and writes on saved queries, dashboards,
+//! connections and projects, and the targeted `shared_repos` queries.
 
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -57,7 +55,7 @@ async fn columns_of(st: &Storage, table: &str) -> Vec<String> {
         .unwrap()
 }
 
-/// The new columns, by table (Decision 33).
+/// The new columns, by table.
 const NEW_COLUMNS: &[(&str, &str)] = &[
     ("projects", "shared_dir"),
     ("saved_queries", "shared_path"),
@@ -68,7 +66,7 @@ const NEW_COLUMNS: &[(&str, &str)] = &[
     ("dashboards", "shared_file_id"),
     ("connections", "shared_base"),
     ("connections", "shared_file_id"),
-    // Migration `0005` (Q31).
+    // Migration `0005`.
     ("connections", "shared_origin"),
 ];
 
@@ -1079,7 +1077,7 @@ async fn update_json_refuses_the_id() {
     st.close().await;
 }
 
-// ── Migration 0005: where a linked connection came from (Q31) ──
+// ── Migration 0005: where a linked connection came from ──
 
 /// `set_origin` records whether a linked connection was exported from
 /// this project or imported from the repo; the GUI's reads carry it as

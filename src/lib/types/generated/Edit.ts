@@ -3,7 +3,7 @@ import type { ObjectKind } from "./ObjectKind";
 import type { TableTarget } from "./TableTarget";
 
 /**
- * An edit intent (Decision 1). Keys are `[column, value]` pairs picked out
+ * An edit intent. Keys are `[column, value]` pairs picked out
  * of the row by the GUI's routing, in the order it has them; values are in
  * the cell wire format. `Debug` shows the table, the column and counts.
  */

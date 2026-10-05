@@ -77,19 +77,19 @@ function baseUrlOf(url: string | undefined): string | undefined {
 }
 
 /**
- * The AI settings (phase 5d-2, Decision 20): each change is one targeted
+ * The AI settings (phase 5d-2): each change is one targeted
  * `settings` call (a provider added, changed or removed, or the flags), so
  * Core rewrites the record from its stored copy and another window's
  * change isn't lost. Every answer holds the whole record, applied by the
  * `seq` rule; another window's change is read again at once.
  *
- * API keys (Decision 8, Q19): on the desktop the key goes with the Core
+ * API keys: on the desktop the key goes with the Core
  * call, which writes the keychain; on the web the vault keeps it in the
  * browser, written here after Core answers (Core deletes a removed
  * provider's vault rows). The demo keeps the visitor's key in this page's
- * memory for the session (`sessionKeys`, Q2 B), never in storage, and
+ * memory for the session (`sessionKeys`), never in storage, and
  * forgets it on reload; Core stores the provider without it. The page never reads a
- * key on the desktop (phase 6, Decision 7): whether one is saved is a
+ * key on the desktop (phase 6): whether one is saved is a
  * targeted `aiProviderHasKey` call. The model list and the provider test are
  * Core's (`ai.models`, `ai.test`).
  */
@@ -105,8 +105,8 @@ export class AISettingsStore {
   }
 
   /**
-   * Whether the assistant is offered: this build has it (`aiAssistant`;
-   * the demo has it too since phase 6, Q2 B) and the user hasn't turned it off. The header's
+   * Whether the assistant is offered: this build has it (`aiAssistant`; the demo has it too since phase 6)
+   * and the user hasn't turned it off. The header's
    * toggle, the command palette, the editor's inline prompt, the right
    * panel and Settings' AI group all read this.
    */
@@ -138,7 +138,7 @@ export class AISettingsStore {
 
   /**
    * Whether a key is saved for the provider, never the key: on the desktop
-   * one `aiProviderHasKey` (one keychain read, review I2), asked when the
+   * one `aiProviderHasKey` (one keychain read), asked when the
    * settings form opens a provider; on web whether the vault holds its row
    * (nothing decrypted). A read that fails says none.
    */

@@ -23,7 +23,7 @@ export interface KeyringService {
   getDbPassword(connectionId: string): Promise<string | null>;
   /**
    * Web (the vault) only: like `getDbPassword`, but a stored password that
-   * can't be decrypted throws instead of answering null (F4 re-review M-a).
+   * can't be decrypted throws instead of answering null.
    */
   getDbPasswordStrict?(connectionId: string): Promise<string | null>;
   deleteDbPassword(connectionId: string): Promise<void>;
@@ -44,9 +44,9 @@ export interface KeyringService {
 
   /**
    * Web only (the vault). On the desktop Core writes a provider's key in
-   * the `settings` call that saves the provider (Decision 8, Q19), and
+   * the `settings` call that saves the provider, and
    * these reject. Reading a key is the vault's alone (`aiKeyVault`): the
-   * desktop page never reads one (phase 6, Decision 7).
+   * desktop page never reads one (phase 6).
    */
   setAIApiKeyForProvider(id: string, key: string): Promise<void>;
   /** Web only, as `setAIApiKeyForProvider`. */
@@ -233,17 +233,17 @@ export function getKeyringService(): KeyringService {
 
 /**
  * Where the page finds a provider's API key to send with an `ai` call:
- * the web's vault (Q1: the server calls the provider with the key the page
- * sends), and the demo's session keys (Q2 B: in page memory, forgotten on
+ * the web's vault (the server calls the provider with the key the page
+ * sends), and the demo's session keys (in page memory, forgotten on
  * reload). `null` on the desktop, where Core reads the keychain and the
- * page never sees a key (Decision 7).
+ * page never sees a key.
  */
 export interface AiKeyVault {
   /** Whether the vault holds a key for the provider; never unlocks it. */
   hasAIApiKeyForProvider(id: string): Promise<boolean>;
   /**
    * The key, decrypted (unlocking the vault if needed). `quiet`: an unlock
-   * this starts isn't announced with a toast (an assistant send, probe F1).
+   * this starts isn't announced with a toast (an assistant send).
    */
   getAIApiKeyForProvider(id: string, options?: { quiet?: boolean }): Promise<string | null>;
 }

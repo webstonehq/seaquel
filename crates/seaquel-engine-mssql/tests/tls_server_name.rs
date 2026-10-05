@@ -1,4 +1,4 @@
-//! `ConnectConfig::tls_server_name` (phase 5a, Decision 6 row 6): the socket
+//! `ConnectConfig::tls_server_name` (phase 5a): the socket
 //! goes to `host` and `port`, and TLS checks the certificate against
 //! `tls_server_name`. Through an SSH tunnel `host` is `127.0.0.1` and the
 //! name is the server's own.

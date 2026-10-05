@@ -231,7 +231,7 @@ pub const SET_SHARED_DIR: &str = "UPDATE projects SET shared_dir = ?1 WHERE id =
 
 /// Stores the project's directory under `.seaquel/projects/` in its repo
 /// (migration `0004`; `None` clears it), and nothing else, so a rename
-/// never moves it (Q25). `false` when there's no project with that id.
+/// never moves it. `false` when there's no project with that id.
 pub async fn set_shared_dir(tx: &mut WriteTx, id: &str, dir: Option<&str>) -> Result<bool> {
     let done = db::query(SET_SHARED_DIR)
         .bind(dir)

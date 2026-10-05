@@ -5,8 +5,8 @@ import type { PersistedDashboardVersionMeta } from "./PersistedDashboardVersionM
 /**
  * What `dashboardUpdate` stored: the row, the version it appended (only
  * with `captureVersion`), and the versions the prune removed. The new
- * version comes without its snapshot, like `dashboardVersionsList`'s
- * (5d-2 Task 7): the snapshot is the dashboard before the change, which
+ * version comes without its snapshot, like `dashboardVersionsList`'s:
+ * the snapshot is the dashboard before the change, which
  * the page just showed, and the history fetches it only when it's
  * compared or restored (`dashboardVersionGet`).
  */

@@ -1,4 +1,4 @@
-//! Query (Decision 14; design 1b) in `update`: tabs of SQL text over the
+//! Query (design 1b) in `update`: tabs of SQL text over the
 //! main view, each with its editor, its run and its results. `Q` shows the
 //! editor (opening a tab when there's none), `+` opens a new one, and a
 //! saved query or history row opens in a tab from panel 3 (`o`, or Enter
@@ -10,12 +10,12 @@
 //! statement with the same `seaquel_core::sql` function the TUI uses to
 //! know which `{{param}}`s and destructive statements the run holds. The
 //! parameters open a form first; the editor's own destructive check asks
-//! next (`prod` typed on a production connection, Q11 A) and sends
+//! next (`prod` typed on a production connection) and sends
 //! `confirmed`; Core's `CONFIRM_REQUIRED` reopens the question with Core's
 //! list. One run per tab: a new one cancels the old, and closing the tab
 //! cancels it. Results page with `db.page` from the source the statement
 //! started with; "stream all" (`:all`) keeps at most [`ROW_CAP`] rows and
-//! cancels the stream there (Decision 15).
+//! cancels the stream there.
 //!
 //! **Explain** (Ctrl+X; Alt+X or `:analyze` for ANALYZE) is Core's
 //! `explain` on the statement at the cursor, as typed. ANALYZE runs the
@@ -53,7 +53,7 @@ use super::picker::{text_hash, RememberedTab, MAX_REMEMBERED_TEXT};
 use super::text;
 use crate::view::layout;
 
-/// The most rows "stream all" keeps in the model (Decision 15), Core's own
+/// The most rows "stream all" keeps in the model, Core's own
 /// cap for a stream (`max_query_rows`, 100,000 unless
 /// `SEAQUEL_MAX_QUERY_ROWS` lowers it).
 pub const ROW_CAP: usize = 100_000;
@@ -239,7 +239,7 @@ pub struct QueryTab {
     pub statements: Vec<StatementResult>,
     /// A run-level failure (`CONNECTION_NOT_FOUND`, …).
     pub run_error: Option<CallError>,
-    /// The saved connection the results came from (review I2).
+    /// The saved connection the results came from.
     pub results_connection: Option<String>,
     /// The run's `done`: statements planned, and whether they all ran.
     pub finished: Option<(u32, bool)>,
@@ -259,7 +259,7 @@ pub struct QueryTab {
     pub awaiting_library: Option<Awaiting>,
     /// The stored text's hash the state file had (kept while waiting).
     restored_hash: Option<String>,
-    /// Why the tab's text is empty (review M1: too long to keep).
+    /// Why the tab's text is empty (too long to keep).
     pub notice: Option<String>,
 }
 
@@ -372,7 +372,7 @@ pub struct SaveAs {
     pub name: String,
     /// Why the last try was refused (`NAME_TAKEN`, worded).
     pub error: Option<String>,
-    /// Ask AI's SQL to save instead of the tab's text (Task 7).
+    /// Ask AI's SQL to save instead of the tab's text.
     pub text: Option<SqlText>,
     /// The Ask AI popup to go back to.
     pub back: Option<Box<super::ask::Ask>>,
@@ -950,7 +950,7 @@ pub fn editor_engine(model: &Model) -> SqlEngine {
 
 /// Opens (or refreshes, or closes) the popup for the cursor; whether it's
 /// open, and a read of an `alias.`'s columns when they aren't known yet
-/// (probe F1: `schema_tables` lists none), which reopens it on arrival.
+/// (`schema_tables` lists none), which reopens it on arrival.
 fn refresh_completion(model: &mut Model, explicit: bool) -> (bool, Vec<Effect>) {
     let engine = editor_engine(model);
     let schema = (model.schema_load == Load::Loaded).then_some(model.schema.as_slice());
@@ -1046,7 +1046,7 @@ pub fn remember_columns(model: &mut Model, target: &TableTarget, columns: Vec<(S
         .insert((target.schema.clone(), target.table.clone()), Load::Loaded);
 }
 
-/// An `alias.`'s columns arrived (probe F1): kept, and the popup opens if
+/// An `alias.`'s columns arrived: kept, and the popup opens if
 /// the cursor is still after that alias. Another connection's, a late
 /// answer after a reconnect, is dropped; a failure isn't asked again for
 /// this connection (`r` in panel 2 reads the list, not the columns).
@@ -1465,7 +1465,7 @@ pub fn on_run(model: &mut Model, tab: u64, op: u64, event: RunMsg) -> Vec<Effect
             }
             page.rows.extend(rows);
             // A streamed statement (`:all`, or one with its own LIMIT) keeps
-            // at most ROW_CAP rows, then stops the stream (review M7).
+            // at most ROW_CAP rows, then stops the stream.
             // Core's own cap (`max_query_rows`) is the same number and fails
             // the statement one row past it, so the stream stops on reaching
             // the cap (a result of exactly that many rows says it stopped).
@@ -1474,7 +1474,7 @@ pub fn on_run(model: &mut Model, tab: u64, op: u64, event: RunMsg) -> Vec<Effect
                 page.rows.truncate(ROW_CAP);
                 page.total_rows = ROW_CAP as u64;
                 s.capped = true;
-                // The time up to the stop (probe F4), to the tick.
+                // The time up to the stop, to the tick.
                 let elapsed_ms = match (s.started, model_now) {
                     (Some(start), Some(now)) => {
                         now.saturating_duration_since(start).as_micros() as f64 / 1000.0
@@ -1749,7 +1749,7 @@ pub fn results_edge(model: &mut Model, last: bool) {
 /// `n`/`p`: `db.page` for the shown statement.
 pub fn page(model: &mut Model, forward: bool) -> Vec<Effect> {
     // Only on the saved connection the results came from, through its Core
-    // id as it is now (a reconnect is followed; review I2).
+    // id as it is now (a reconnect is followed).
     let from = model
         .query
         .active()
@@ -1942,7 +1942,7 @@ pub fn explain(model: &mut Model, analyze: bool) -> Vec<Effect> {
     start_explain(model, call)
 }
 
-/// Whether EXPLAIN ANALYZE may run `sql` without asking (review M4): a
+/// Whether EXPLAIN ANALYZE may run `sql` without asking: a
 /// SELECT by `query_type`, no destructive reason, and none of `INTO`,
 /// `FOR UPDATE`/`FOR SHARE` (`FOR NO KEY UPDATE`, `FOR KEY SHARE`),
 /// `nextval`, `setval`, or a data-changing verb (a CTE's `DELETE`) among
@@ -2163,7 +2163,7 @@ pub fn on_edited(model: &mut Model, tab: u64, result: Result<SqlText, String>) -
     }
 }
 
-// ── The state file (Q4 A) ──
+// ── The state file ──
 
 /// The open tabs into [`Model::remembered`], for the state file.
 pub fn remember(model: &mut Model) {
@@ -2171,7 +2171,7 @@ pub fn remember(model: &mut Model) {
     model.remembered.query_active = model.query.active;
 }
 
-/// One tab as the state file keeps it (review M1).
+/// One tab as the state file keeps it.
 fn remembered(t: &QueryTab) -> RememberedTab {
     let saved_id = t.saved.as_ref().map(|s| s.id.clone());
     // Still waiting for the library: as it was read.
@@ -2300,7 +2300,7 @@ pub fn sync(model: &mut Model) {
         }
     }
     // The state file is written again when a tab opens, closes, changes or
-    // becomes active (Q4 A).
+    // becomes active.
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     {
         use std::hash::{Hash, Hasher};

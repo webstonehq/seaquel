@@ -511,7 +511,7 @@ async fn insert_and_update_store_no_secret() {
     st.close().await;
 }
 
-/// The rows the Core upgrade (Decision 12a) takes secrets out of: ids and
+/// The rows the Core upgrade takes secrets out of: ids and
 /// engines of strings that still hold one, and no others.
 #[tokio::test]
 async fn with_secret_in_string_lists_only_rows_holding_a_secret() {
@@ -832,7 +832,7 @@ async fn labels_list_insert_update_and_delete_within_their_project() {
     st.close().await;
 }
 
-/// Decision 10: the label's id goes from every connection that has it,
+/// The label's id goes from every connection that has it,
 /// whatever its project, and only that label's rows go.
 #[tokio::test]
 async fn strip_from_connections_removes_the_label_from_every_connection() {
@@ -1513,7 +1513,7 @@ async fn a_read_only_open_refuses_a_file_with_the_step_pending() {
     .await;
 }
 
-// ── Name keys (phase 5d-1 probe fix) ──
+// ── Name keys ──
 
 use seaquel_types::names::name_key;
 

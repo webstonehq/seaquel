@@ -44,7 +44,7 @@
 	let isSavingProvider = $state(false);
 	let providerTestStatus = $state<Record<string, "idle" | "success" | "failed">>({});
 	let isTestingProvider = $state<Record<string, boolean>>({});
-	// The demo keeps the key in page memory for the session (phase 6, Q2 B)
+	// The demo keeps the key in page memory for the session (phase 6)
 	// and calls the provider from the browser, so CORS applies.
 	const demo = isDemo();
 	const demoOrigin = demo && typeof window !== "undefined" ? window.location.origin : "";
@@ -67,7 +67,7 @@
 		providerFormBaseUrl = config.baseUrl ?? "";
 		providerFormApiKey = "";
 		// Whether a key is saved, never the key: Core's `hasKey` on the
-		// desktop, the vault's row on web (phase 6, Decision 7).
+		// desktop, the vault's row on web (phase 6).
 		providerFormHasExistingKey = await aiSettingsStore.hasKey(config.id);
 		providerFormClearKey = false;
 		editingProviderId = config.id;

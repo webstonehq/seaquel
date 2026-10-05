@@ -1,4 +1,4 @@
-//! Ask AI (Q10 A, Decision 20; design 1d) in `update`: a popup over the
+//! Ask AI (design 1d) in `update`: a popup over the
 //! query tab. Ctrl+K (or `:ask`) opens it; the title says what the
 //! connection shares (Core's sharing rule, read with the library); `@`
 //! completes table, saved-query and dashboard names; Enter sends Core's
@@ -10,14 +10,14 @@
 //! (`db.run` with the cursor inside it), and only when it is one statement
 //! that Core's read-only token check (`seaquel_core::sql::read_only`)
 //! passes and the cursor isn't inside a statement of the user's; otherwise
-//! it is inserted, not run, and the popup says why (Q10 A). The gate is
+//! it is inserted, not run, and the popup says why. The gate is
 //! that token check: the run itself is an ordinary editor run, not a
-//! read-only transaction (Decision 25; a `db.run` read-only flag is a
-//! Follow-up). Tab refines (the
+//! read-only transaction (a `db.run` read-only flag is a Follow-up).
+//! Tab refines (the
 //! shown SQL becomes the existing query), Ctrl+S saves it as a new saved
 //! query, Esc closes (or, while waiting, drops the request).
 //!
-//! **Selection:** the editor has no visual selection in 7a (Q7 A's Normal
+//! **Selection:** the editor has no visual selection in 7a (its Normal
 //! mode has none), so "replacing the selection" has nothing to replace and
 //! the answer goes in at the cursor (`Editor::insert_str`, which would
 //! replace a selection if the textarea held one).
@@ -559,14 +559,14 @@ fn bare(sql: &str) -> &str {
     sql.trim_matches(|c: char| c.is_whitespace() || c == ';')
 }
 
-/// Ctrl+R on the answer (Q10 A): a statement of its own at the cursor (a
+/// Ctrl+R on the answer: a statement of its own at the cursor (a
 /// blank line around it, its own `;`), the cursor inside it, and `db.run`
 /// of the statement at the cursor, so Core runs exactly it. Only when it is
 /// one statement Core's read-only token check passes, the cursor isn't
 /// inside a statement of the user's, and it reads back as that statement;
 /// otherwise it goes in as it came, isn't run, and the popup says why. The
 /// gate is the token check: the run is an ordinary editor run (`db.run`),
-/// not a read-only transaction (Decision 25).
+/// not a read-only transaction.
 pub fn insert_and_run(model: &mut Model) -> Vec<Effect> {
     let Some(a) = ask_ref(model) else {
         return Vec::new();

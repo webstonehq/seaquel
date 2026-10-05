@@ -7,7 +7,7 @@ import type { GitCredentials } from "./GitCredentials";
  */
 export type GitRequest = { "method": "clone", "params": { url: string, path: string, credentials?: GitCredentials, } } | { "method": "init", "params": { path: string, } } | { "method": "pull", "params": { path: string, credentials?: GitCredentials, } } | { "method": "push", "params": { path: string, credentials?: GitCredentials, } } | { "method": "status", "params": { path: string, } } | { "method": "commit", "params": { path: string, message: string, } } | { "method": "resolveConflict", "params": { path: string, filePath: string, resolution: string, 
 /**
- * Keep the side that deleted the file (phase 5e probe fix 5):
+ * Keep the side that deleted the file:
  * the file is deleted and the deletion staged; `resolution` is
  * ignored.
  */

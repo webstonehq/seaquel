@@ -1,7 +1,7 @@
 //! `themeRepo`: `theme_preferences` (one row) and `user_themes`, each
 //! theme stored as JSON.
 //!
-//! From phase 5d-2 (Decision 20) Core writes one user theme at a time;
+//! From phase 5d-2 Core writes one user theme at a time;
 //! [`save_user_themes`], which replaces them all, stays for its frozen
 //! fixtures.
 

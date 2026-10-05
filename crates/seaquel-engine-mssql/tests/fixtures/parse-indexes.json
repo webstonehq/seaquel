@@ -70,12 +70,7 @@
           "unique": false,
           "type": "nonclustered"
         },
-        {
-          "name": "fx_customers_pk",
-          "columns": ["id"],
-          "unique": false,
-          "type": "clustered"
-        }
+        { "name": "fx_customers_pk", "columns": ["id"], "unique": false, "type": "clustered" }
       ]
     },
     {
@@ -112,12 +107,7 @@
           "unique": false,
           "type": "nonclustered"
         },
-        {
-          "name": "fx_orders_pk",
-          "columns": ["id"],
-          "unique": false,
-          "type": "clustered"
-        }
+        { "name": "fx_orders_pk", "columns": ["id"], "unique": false, "type": "clustered" }
       ]
     },
     {
@@ -166,12 +156,7 @@
         ]
       },
       "output": [
-        {
-          "name": "fx_ledger_pk",
-          "columns": ["id"],
-          "unique": false,
-          "type": "clustered"
-        }
+        { "name": "fx_ledger_pk", "columns": ["id"], "unique": false, "type": "clustered" }
       ]
     },
     {
@@ -202,12 +187,7 @@
           "unique": false,
           "type": "nonclustered"
         },
-        {
-          "name": "fx_invoices_pk",
-          "columns": ["id"],
-          "unique": false,
-          "type": "clustered"
-        }
+        { "name": "fx_invoices_pk", "columns": ["id"], "unique": false, "type": "clustered" }
       ]
     },
     {
@@ -238,12 +218,7 @@
           "unique": false,
           "type": "clustered"
         },
-        {
-          "name": "fx_events_pk",
-          "columns": ["id"],
-          "unique": false,
-          "type": "nonclustered"
-        }
+        { "name": "fx_events_pk", "columns": ["id"], "unique": false, "type": "nonclustered" }
       ]
     },
     {
@@ -262,12 +237,7 @@
         ]
       },
       "output": [
-        {
-          "name": "fx_heap_v_idx",
-          "columns": ["v"],
-          "unique": false,
-          "type": "nonclustered"
-        }
+        { "name": "fx_heap_v_idx", "columns": ["v"], "unique": false, "type": "nonclustered" }
       ]
     },
     {
@@ -286,12 +256,7 @@
         ]
       },
       "output": [
-        {
-          "name": "fx_café_名前_idx",
-          "columns": ["名前"],
-          "unique": false,
-          "type": "nonclustered"
-        }
+        { "name": "fx_café_名前_idx", "columns": ["名前"], "unique": false, "type": "nonclustered" }
       ]
     }
   ]

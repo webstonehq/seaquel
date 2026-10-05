@@ -1,5 +1,5 @@
-//! The one-time move of secrets out of stored connection strings (phase 5d,
-//! Decision 12a), run when a writable workspace opens.
+//! The one-time move of secrets out of stored connection strings (phase 5d),
+//! run when a writable workspace opens.
 //!
 //! Before phase 5a the TypeScript stripped only a URL's user-info password,
 //! so a row saved then and not touched since can still hold a secret in

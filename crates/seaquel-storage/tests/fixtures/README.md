@@ -1,5 +1,9 @@
 # seaquel-storage fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`. The same day, the `-- Made by` header comment of each `schemas/**/*.sql` gained "(in git history at ae7f269)"; the tests run those files as SQL and compare schema shapes, so a comment changes nothing.
+
 These files record what the TypeScript metadata storage did before `seaquel-storage` replaced it: the schema every release created, what today's upgrade path does to each of them, and what each of the 19 repositories stores and loads. The TypeScript was the spec. The Rust crate has to match it.
 
 **The fixtures are frozen.** The script that made them needs the TS storage code, which phase 3 deletes, so they can't be re-recorded. Change a fixture only when the Rust behaviour is meant to differ from the TS, and say why in the change (and in the section below). Never regenerate one to make a failing test pass.
@@ -27,7 +31,7 @@ The schema of a fresh file after its first launch on `v2026.4.5-beta.1`, `v2026.
 - Each file loads as-is with `sqlite3_exec`.
 - `v2026.9.1`, `v2026.9.2` and `current` are identical apart from the header.
 
-**Version rows.** beta.1's `db.ts` inserted `SCHEMA_VERSION` (1), and its `MigrationManager` then ran v2 and v3 and inserted 3. So a beta.1 file has the rows 1 and 3, not a single 3. Every later release inserted 4 on a fresh file. beta.1's first launch also created the default project (`default-seaquel`, "Seaquel"). That row is data, so it isn't in the dump; `upgrade-differences.json`'s `firstLaunchRows` has it.
+**Version rows.** beta.1's `db.ts` inserted `SCHEMA_VERSION` (1), and its `MigrationManager` then ran v2 and v3 and inserted 3. So a beta.1 file has the rows 1 and 3, not a single 3. Every later release inserted 4 on a fresh file. beta.1's first launch also created the default project (`default-seaquel`, "Seaquel"). That row is data, so it isn't in the dump.
 
 ### `schemas/upgraded/<release>.sql`
 
@@ -37,9 +41,9 @@ Each release's file after today's existing-file path: `initializeSchema` (which 
 
 Running the upgrade a second time changed nothing in any case.
 
-### `schemas/upgrade-differences.json`
+### `schemas/upgrade-differences.json` (deleted)
 
-Every structural difference between an upgraded file and a fresh `current` file. For each table it compares the column list and order, `PRAGMA table_xinfo` (type, not null, default, pk), `foreign_key_list`, `index_list`/`index_xinfo`, and the `CREATE` text with whitespace collapsed. It also compares the index set.
+It listed every structural difference between an upgraded file and a fresh `current` file. No test read it (`tests/baseline.rs` checks the known differences itself), so it was deleted on 2026-10-04; git history keeps it.
 
 ### `upgrades/v2026.4.5-beta.1-data.json`
 
@@ -101,13 +105,9 @@ Some cases also have:
 - `rows` are compared exactly, `types` included.
 - For an error, only its presence is part of the contract. The `message` and `code` come from the JS runtime (`JSON.parse`) or from better-sqlite3, and a failed batch must leave `rows` as recorded (a rollback).
 
-### `row-shapes.json`
+### `row-shapes.json` (deleted)
 
-- `repos`: each repository method's declared parameters and result, read by the TypeScript checker from `src/lib/storage/repository.ts`, with the `db` argument dropped.
-- `types`: every named `Persisted*` type they use, field by field. Each field has its TS type, `optional`, the JSON kinds it can take (`Date` means a JS Date that crosses as an ISO string; `absent` means the key may be missing) and `enum` for string-literal unions. `SavedWorkflow` is opaque: it's stored as JSON text, and Rust passes it through.
-- `observed`: for each load method, the keys it actually returned across the cases, with `always: true` when every sample had one.
-
-Task 4's ts-rs types must regenerate to the same shapes. Where `observed` and the declared type disagree, `observed` is the behaviour. For example, `PersistedSavedQuery.starred` is declared optional but is always present, and `PersistedConnection.isLocalOnly` is only ever `true` or absent.
+It held each repository method's declared parameters and result and every `Persisted*` type, read by the TypeScript checker, as the shapes Task 4's ts-rs types had to match. No test read it, so it was deleted on 2026-10-04; git history keeps it.
 
 ### `sqljs/` (phase 8 Task 2)
 

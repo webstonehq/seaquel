@@ -1,5 +1,5 @@
 /**
- * Oversized replies (phase 6 probe F2). Core cuts a reply at the most a
+ * Oversized replies. Core cuts a reply at the most a
  * stored reply may hold and ends it with its note (`REPLY_CUT_NOTE`); the
  * page shows its own wording instead of the note, live and after a
  * reload. A reply over 64 KiB is shown as plain text, and so is one

@@ -2,7 +2,7 @@
 //! only calls [`run`].
 //!
 //! The binary is named `seaquel-cli`, not `seaquel`: the desktop app already
-//! owns `seaquel` on every platform (phase 4 plan, finding 1). It doesn't
+//! owns `seaquel` on every platform. It doesn't
 //! check for a license; `--version` and `--help` point to the terms instead
 //! (decision 14 of the design doc).
 //!

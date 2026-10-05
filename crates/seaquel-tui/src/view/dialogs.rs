@@ -1,4 +1,4 @@
-//! The connect dialogs (Decision 16) and the keychain wait box. Their keys
+//! The connect dialogs and the keychain wait box. Their keys
 //! are on the key bar, generated from the keymap, so no box carries a
 //! hand-written footer. A typed password is drawn as `•`s only.
 
@@ -206,7 +206,7 @@ pub fn notice(model: &Model, n: &Notice, frame: &mut Frame) {
     );
 }
 
-/// The DuckDB helper's install dialog (the DuckDB helper plan, Task 7).
+/// The DuckDB helper's install dialog.
 pub fn install(model: &Model, d: &InstallDialog, frame: &mut Frame) {
     const WIDTH: u16 = 64;
     let theme = &model.theme;

@@ -1,4 +1,4 @@
-//! Importing connections from TablePlus and DBeaver (phase 5e, Decision 47):
+//! Importing connections from TablePlus and DBeaver (phase 5e):
 //! the other tool's entries to import candidates, and the duplicate check.
 //!
 //! A port of `services/tableplus-import.ts`, `services/dbeaver-import.ts` and

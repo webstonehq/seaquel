@@ -1,7 +1,6 @@
-//! sqlparser-rs, used only where an AST is needed (Task 6): the query builder
+//! sqlparser-rs, used only where an AST is needed: the query builder
 //! and tutorial `ParsedQuery`, the Visual tab's AST and column sources. Moved
-//! from the phase 2b spike's `sql-spike` crate (deleted; the report is
-//! `docs/plans/2026-09-27-phase-2b-spike.md`).
+//! from the phase 2b spike's `sql-spike` crate (deleted).
 //!
 //! Every entry point parses through `util::parse`, which refuses input whose
 //! operator chains could nest deeper than sqlparser's own recursion limit

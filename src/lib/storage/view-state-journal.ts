@@ -1,5 +1,5 @@
 /**
- * The demo's view-state journal (phase 8, Task 7 probe, item 1).
+ * The demo's view-state journal (phase 8).
  *
  * In the demo the page's Core keeps its file in IndexedDB, saved on
  * `pagehide` (`$lib/core/browser`). A view-state save made while the page is
@@ -13,7 +13,7 @@
  * stored, as for any save.
  *
  * Demo only, and only this key: the old demo file's `seaquel_db*` keys stay
- * deleted unread (Q2 C).
+ * deleted unread.
  */
 import type { CoreRequest } from "$lib/types/generated/CoreRequest";
 import { wellFormedJson } from "$lib/core/well-formed";

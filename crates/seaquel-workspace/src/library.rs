@@ -32,10 +32,10 @@ pub use crate::run::INVALID_ARGUMENT;
 
 // ── Codes ──
 
-/// A name another row of the same kind already has (Q3). The error's
+/// A name another row of the same kind already has. The error's
 /// [`LibraryError::taken_by`] names that row.
 pub const NAME_TAKEN: &str = "NAME_TAKEN";
-/// `projectRemove` on the only project left (Decision 9).
+/// `projectRemove` on the only project left.
 pub const LAST_PROJECT: &str = "LAST_PROJECT";
 pub const PROJECT_NOT_FOUND: &str = "PROJECT_NOT_FOUND";
 pub const SAVED_QUERY_NOT_FOUND: &str = "SAVED_QUERY_NOT_FOUND";
@@ -46,21 +46,21 @@ pub const ENGINE_NOT_AVAILABLE: &str = "ENGINE_NOT_AVAILABLE";
 
 // ── Fixed values ──
 
-/// The connection types a saved connection may have (Decision 7).
+/// The connection types a saved connection may have.
 pub const ENGINE_TYPES: [&str; 6] = ["postgres", "mysql", "mariadb", "sqlite", "mssql", "duckdb"];
 
 /// The predefined labels' ids. They aren't stored in `project_labels`; their
-/// names and colours stay in the TypeScript (Decision 10).
+/// names and colours stay in the TypeScript.
 pub const PREDEFINED_LABEL_IDS: [&str; 3] = ["local", "staging", "prod"];
 
-/// A saved query parameter's types (Decision 11).
+/// A saved query parameter's types.
 pub const PARAMETER_TYPES: [&str; 5] = ["number", "boolean", "text", "date", "datetime"];
 
 /// The project `projectEnsureDefault` makes on a file with none.
 pub const DEFAULT_PROJECT_ID: &str = "default-seaquel";
 pub const DEFAULT_PROJECT_NAME: &str = "Seaquel";
 
-/// The id prefixes Core keeps (Decision 1), each followed by a v4 uuid.
+/// The id prefixes Core keeps, each followed by a v4 uuid.
 pub const CONNECTION_ID_PREFIX: &str = "conn-";
 pub const PROJECT_ID_PREFIX: &str = "project-";
 pub const LABEL_ID_PREFIX: &str = "label-";
@@ -72,13 +72,13 @@ pub const QUERY_VERSION_LIMIT_KEY: &str = "query_version_limit";
 pub const DEFAULT_VERSION_LIMIT: u32 = 100;
 
 /// The most ids one change event names; past it, the event names none and
-/// the GUI reloads the kind (Decision 16).
+/// the GUI reloads the kind.
 pub const MAX_EVENT_IDS: usize = 100;
 
 /// The longest id (or scope) one change event carries, in bytes; past it,
 /// the event names no ids (a longer scope: no scope either) and the GUI
 /// reloads the kind. Core's own ids are about 40 bytes; the storage group's
-/// keys are the caller's (phase 5d-1 probe fix).
+/// keys are the caller's.
 pub const MAX_EVENT_ID_BYTES: usize = 1024;
 
 /// The most bytes of ids one change event carries; past it, `ids: None`.
@@ -131,7 +131,7 @@ pub(crate) type Checked<T = ()> = Result<T, LibraryError>;
 // ── Limits ──
 
 /// What one library call may carry, set per interface with Core's
-/// `CoreBuilder::library_limits` (Decision 15). The default is no limit (the
+/// `CoreBuilder::library_limits`. The default is no limit (the
 /// desktop, the CLI, MCP); the web server sets every one. A size past its
 /// limit is refused with `INVALID_ARGUMENT` naming it, before anything is
 /// read; the per-user counts are checked inside the write transaction.
@@ -154,7 +154,7 @@ pub struct LibraryLimits {
     pub max_saved_queries: Option<usize>,
     /// The stored bytes of one saved query's versions together: past it,
     /// the oldest are pruned as if the version limit were lower, keeping
-    /// at least the newest ([`version_prune`]; phase 5d-1 probe fix).
+    /// at least the newest ([`version_prune`]).
     pub max_version_bytes: Option<u64>,
 }
 
@@ -188,7 +188,7 @@ pub(crate) fn present<T>(field: &Option<T>) -> bool {
     field.is_some()
 }
 
-// ── The change sequence (Decision 17) ──
+// ── The change sequence ──
 
 /// A workspace's change sequence: its `epoch` (the workspace's random id;
 /// a new one means the workspace was reopened) and `n`, which follows the
@@ -207,7 +207,7 @@ pub struct ChangeSeq {
 pub struct Seqd<T> {
     pub value: T,
     pub seq: ChangeSeq,
-    /// Phase 5e, Decision 36: what a library write did to its row's file
+    /// What a library write did to its row's file
     /// in a shared project (desktop only). Absent when nothing was
     /// published: no link, a row that isn't shared, nothing that changes
     /// the file, or a Core without `LocalFiles`. A `failed` write leaves
@@ -234,7 +234,7 @@ impl<T> Seqd<T> {
     }
 }
 
-/// What a `StorageChanged` event is about (Decision 16).
+/// What a `StorageChanged` event is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -247,7 +247,7 @@ pub enum StoredKind {
     History,
     /// A write through the storage group.
     Storage,
-    // Phase 5d-2 (Decision 16).
+    // Phase 5d-2.
     /// One window's view state of a project (scope: the project; ids: the
     /// window).
     ProjectState,
@@ -268,11 +268,11 @@ pub enum StoredKind {
     Onboarding,
     Tutorial,
     ImportState,
-    /// Phase 5e (Decision 44): the shared repo list, and the files a sync
+    /// Phase 5e: the shared repo list, and the files a sync
     /// or a publish wrote (ids: the repo id), so each window refreshes that
     /// repo's git status.
     SharedRepo,
-    /// Phase 7a (Decision 6): another connection to the file (another
+    /// Phase 7a: another connection to the file (another
     /// process, such as the TUI beside the app) committed something; which
     /// rows isn't known (no scope, no ids). Reload every list and setting.
     External,
@@ -308,7 +308,7 @@ impl StoredKind {
 
 // `name_key` and the JavaScript trim live in `seaquel_types::names`, so
 // storage's data step and its writes compute the stored `name_key` column
-// with the very same function (phase 5d-1 probe fix).
+// with the very same function.
 use seaquel_types::names::is_js_space;
 pub use seaquel_types::names::{js_trim, name_key};
 
@@ -327,7 +327,7 @@ pub fn find_taken<'a>(
         .map(|(id, _)| id.to_string())
 }
 
-/// The first free name for an import (Decision 13): `name`, else
+/// The first free name for an import: `name`, else
 /// `"<name> (2)"`, `"<name> (3)"`, …, compared by [`name_key`] against
 /// `taken` (keys). Linear in the number of taken names.
 pub fn free_name(name: &str, taken: &HashSet<String>) -> String {
@@ -396,7 +396,7 @@ pub(crate) fn list_len(len: usize, what: &str, limits: &LibraryLimits) -> Checke
     }
 }
 
-/// A port: a whole number from 0 to 65535 (Decision 7).
+/// A port: a whole number from 0 to 65535.
 pub fn check_port(port: f64, what: &str) -> Checked {
     if port.is_finite() && port.fract() == 0.0 && (0.0..=65535.0).contains(&port) {
         Ok(())
@@ -442,7 +442,7 @@ fn check_label_ids(ids: &[String], limits: &LibraryLimits) -> Checked {
 }
 
 /// Every one of `ids` is predefined or one of `custom` (the project's own):
-/// otherwise [`LABEL_NOT_FOUND`] (Decision 7).
+/// otherwise [`LABEL_NOT_FOUND`].
 pub fn check_labels(ids: &[String], custom: &[ConnectionLabel]) -> Checked {
     let known: HashSet<&str> = custom.iter().map(|l| l.id.as_str()).collect();
     match ids
@@ -546,7 +546,7 @@ pub struct ConnectionDraft {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub connected: bool,
-    /// An import's draft (Decision 13): a taken name becomes the first free
+    /// An import's draft: a taken name becomes the first free
     /// `"<name> (n)"` instead of `NAME_TAKEN`.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
@@ -571,8 +571,8 @@ impl fmt::Debug for ConnectionDraft {
 }
 
 /// A change to a saved connection (`connectionUpdate`): only the fields it
-/// carries change (Decision 2). There is no project: a connection never
-/// moves (Decision 7). `Debug` shows which fields are present.
+/// carries change. There is no project: a connection never
+/// moves. `Debug` shows which fields are present.
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -708,8 +708,8 @@ impl fmt::Debug for ConnectionPatch {
     }
 }
 
-/// The keychain entries a connection call writes (Decision 8; desktop
-/// only): absent keeps the entry, `null` deletes it, a string sets it.
+/// The keychain entries a connection call writes (desktop only):
+/// absent keeps the entry, `null` deletes it, a string sets it.
 /// `Debug` shows only which.
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -815,7 +815,7 @@ pub fn check_secret_values(secrets: &SecretChanges) -> Checked {
 }
 
 /// No secret set whose save flag is off in `row`, the row as it will be
-/// stored (Decision 8).
+/// stored.
 pub fn check_secret_flags(secrets: &SecretChanges, row: &PersistedConnection) -> Checked {
     if secrets
         .sets()
@@ -969,7 +969,7 @@ fn dedup(ids: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// Applies `patch` to `row` (Decision 2): a field left out is kept, `null`
+/// Applies `patch` to `row`: a field left out is kept, `null`
 /// clears a clearable one, and `connected` sets `lastConnected` to `now`.
 pub fn apply_connection_patch(row: &mut PersistedConnection, patch: &ConnectionPatch, now: &str) {
     fn set<T: Clone>(target: &mut T, value: &Option<T>) {
@@ -1027,7 +1027,7 @@ pub struct ProjectDraft {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub description: Option<String>,
-    /// A shared-project import (Decision 13): a taken name becomes the
+    /// A shared-project import: a taken name becomes the
     /// first free `"<name> (n)"`.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
@@ -1192,7 +1192,7 @@ impl fmt::Debug for LabelPatch {
 }
 
 /// What `labelRemove` changed besides the label: the connections that had
-/// it, in any project (Decision 10).
+/// it, in any project.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -1495,13 +1495,13 @@ pub fn saved_query_from_draft(id: String, d: &SavedQueryDraft, now: &str) -> Per
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SavedQueryChange {
     /// The text before the patch, when the patch changed it: the keyframe
-    /// Core appends (Q10).
+    /// Core appends.
     pub previous_text: Option<String>,
     /// The name or folder changed: the name is checked again.
     pub renamed: bool,
 }
 
-/// Applies `patch` (Decision 11). `updated_at` becomes `now` when anything
+/// Applies `patch`. `updated_at` becomes `now` when anything
 /// but `starred` is in the patch, as today.
 pub fn apply_saved_query_patch(
     row: &mut PersistedSavedQuery,
@@ -1559,7 +1559,7 @@ pub fn folder_key(folder: Option<&str>) -> &str {
     folder.unwrap_or("")
 }
 
-// ── Versions (Q10) ──
+// ── Versions ──
 
 /// A version without its text, for [`version_prune`].
 #[derive(Debug, Clone, PartialEq)]

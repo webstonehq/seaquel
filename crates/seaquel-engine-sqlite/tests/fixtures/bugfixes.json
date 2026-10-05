@@ -1,5 +1,5 @@
 {
-  "about": "Hand-written expectations for the intended changes from the TypeScript SQLite adapter (src/lib/db/sqlite.ts); see 'Task 8' in docs/plans/2026-09-26-rust-core-phase-2-plan.md. The recorder never writes this file; its 'scratch' block is what record mode (in a fresh temp-file database) and tests/smoke.rs build. Fix 1: table names are bound (pragma_table_info(?), pragma_index_list(?), pragma_foreign_key_list(?)) or quoted with \" doubled (row counts) instead of passed through validateIdentifier, which rejected any name with a space, '-' or a quote, so such tables showed no columns, indexes or row count ('columns'/'indexes' cases, checked live). Fix 2: the DDL quote doubles \". Fix 3: an added index is CREATE INDEX \"schema\".\"name\" ON \"table\" (SQLite rejects a schema-qualified table there). Fix 4: SQLite has no ALTER TABLE ... ADD FOREIGN KEY, so a foreign key on an existing column is a comment line saying the table must be recreated; one on a column added in the same edit (without a default, as SQLite requires) goes inline: ADD COLUMN c ... REFERENCES \"t\" (\"id\"). Fix 5: index columns come from pragma_index_info (the TS listed none); an expression key is '<expression>'. Fix 6: with no ALTER COLUMN in SQLite, a type, nullability or default edit was dropped silently (the TS returned '-- No changes detected'); it is now a comment line naming the column and what changed. No table-rebuild recipe (follow-up). Comment lines follow every statement, so a client that splits on ';\\n' and skips '--' lines still runs every statement; line breaks in names become spaces so nothing escapes the comment. Fix 7: the autoindexes behind UNIQUE and PRIMARY KEY constraints (sqlite_autoindex_*) are listed, marked unique, and counted in the statistics; since the table editor copies them into its definition, removing one there is a comment line (SQLite can't drop them) instead of DROP INDEX. Fix 8: EXPLAIN QUERY PLAN details the TS regexes missed: names that aren't one ASCII word, numbered subqueries (SCALAR/LIST SUBQUERY n), SCAN CONSTANT ROW, BLOOM FILTER, LEFT-JOIN/RIGHT-JOIN, virtual tables, LAST n TERMS OF ORDER BY, count(DISTINCT), a bare SEARCH (rowid seek). Fix 9 (found while recording): a foreign key declared without parent columns (REFERENCES customers) has a NULL 'to'; the TS showed referencedColumn null, the fixed query resolves it to the parent's primary key column at the same position. Its 'replaces' case only records the parser side: the TS query's NULL 'to' reads as \"\" because the reference column is a String on the wire. Fix 10 (found while recording): NOT LIKE 'sqlite_%' treats '_' as a wildcard, so the TS hid user tables such as 'sqlitex' from the schema and statistics; only the reserved 'sqlite_' prefix is hidden now. A case with 'replaces' supersedes the recorded case of that name (the parity tests assert the recorded TypeScript output differs); its 'input' is null: the recorded case's input applies. Fix 11 (Task 10): SQLite has no DEFAULT in UPDATE, so Set to default was a syntax error; given the column's default expression from its metadata (defaultValue, the text of pragma_table_info's dflt_value, or NULL for a column without one), the dialect assigns it in parentheses: SET \"c\" = (CURRENT_TIMESTAMP). A bare-word or quoted-name default (DEFAULT active, DEFAULT \"dq\", `bt`, [br]) is stored as a string by SQLite but would read a column as an expression, so it becomes a string literal; numbers (+1, -0x10), blob literals, keywords and (expr) defaults stay as they are. 'crud-set-default' cases are checked by tests/dialect_parity.rs and executed by tests/smoke.rs; without a columnDefault the TypeScript statement is kept.",
+  "about": "Hand-written expectations for the intended changes from the TypeScript SQLite adapter (src/lib/db/sqlite.ts); see 'Task 8' in docs/plans/2026-09-26-rust-core-phase-2-plan.md, now in git history at ae7f269. The recorder never writes this file; its 'scratch' block is what record mode (in a fresh temp-file database) and tests/smoke.rs build. Fix 1: table names are bound (pragma_table_info(?), pragma_index_list(?), pragma_foreign_key_list(?)) or quoted with \" doubled (row counts) instead of passed through validateIdentifier, which rejected any name with a space, '-' or a quote, so such tables showed no columns, indexes or row count ('columns'/'indexes' cases, checked live). Fix 2: the DDL quote doubles \". Fix 3: an added index is CREATE INDEX \"schema\".\"name\" ON \"table\" (SQLite rejects a schema-qualified table there). Fix 4: SQLite has no ALTER TABLE ... ADD FOREIGN KEY, so a foreign key on an existing column is a comment line saying the table must be recreated; one on a column added in the same edit (without a default, as SQLite requires) goes inline: ADD COLUMN c ... REFERENCES \"t\" (\"id\"). Fix 5: index columns come from pragma_index_info (the TS listed none); an expression key is '<expression>'. Fix 6: with no ALTER COLUMN in SQLite, a type, nullability or default edit was dropped silently (the TS returned '-- No changes detected'); it is now a comment line naming the column and what changed. No table-rebuild recipe (follow-up). Comment lines follow every statement, so a client that splits on ';\\n' and skips '--' lines still runs every statement; line breaks in names become spaces so nothing escapes the comment. Fix 7: the autoindexes behind UNIQUE and PRIMARY KEY constraints (sqlite_autoindex_*) are listed, marked unique, and counted in the statistics; since the table editor copies them into its definition, removing one there is a comment line (SQLite can't drop them) instead of DROP INDEX. Fix 8: EXPLAIN QUERY PLAN details the TS regexes missed: names that aren't one ASCII word, numbered subqueries (SCALAR/LIST SUBQUERY n), SCAN CONSTANT ROW, BLOOM FILTER, LEFT-JOIN/RIGHT-JOIN, virtual tables, LAST n TERMS OF ORDER BY, count(DISTINCT), a bare SEARCH (rowid seek). Fix 9 (found while recording): a foreign key declared without parent columns (REFERENCES customers) has a NULL 'to'; the TS showed referencedColumn null, the fixed query resolves it to the parent's primary key column at the same position. Its 'replaces' case only records the parser side: the TS query's NULL 'to' reads as \"\" because the reference column is a String on the wire. Fix 10 (found while recording): NOT LIKE 'sqlite_%' treats '_' as a wildcard, so the TS hid user tables such as 'sqlitex' from the schema and statistics; only the reserved 'sqlite_' prefix is hidden now. A case with 'replaces' supersedes the recorded case of that name (the parity tests assert the recorded TypeScript output differs); its 'input' is null: the recorded case's input applies. Fix 11 (Task 10): SQLite has no DEFAULT in UPDATE, so Set to default was a syntax error; given the column's default expression from its metadata (defaultValue, the text of pragma_table_info's dflt_value, or NULL for a column without one), the dialect assigns it in parentheses: SET \"c\" = (CURRENT_TIMESTAMP). A bare-word or quoted-name default (DEFAULT active, DEFAULT \"dq\", `bt`, [br]) is stored as a string by SQLite but would read a column as an expression, so it becomes a string literal; numbers (+1, -0x10), blob literals, keywords and (expr) defaults stay as they are. 'crud-set-default' cases are checked by tests/dialect_parity.rs and executed by tests/smoke.rs; without a columnDefault the TypeScript statement is kept.",
   "scratch": {
     "schema": "main",
     "setup": [
@@ -155,12 +155,7 @@
         "isAnalyze": false,
         "plan": {
           "children": [
-            {
-              "children": [],
-              "id": "node-0",
-              "nodeType": "Seq Scan",
-              "relationName": "c"
-            },
+            { "children": [], "id": "node-0", "nodeType": "Seq Scan", "relationName": "c" },
             {
               "children": [
                 {
@@ -230,20 +225,10 @@
         "isAnalyze": false,
         "plan": {
           "children": [
-            {
-              "children": [],
-              "id": "node-0",
-              "nodeType": "Seq Scan",
-              "relationName": "c"
-            },
+            { "children": [], "id": "node-0", "nodeType": "Seq Scan", "relationName": "c" },
             {
               "children": [
-                {
-                  "children": [],
-                  "id": "node-2",
-                  "nodeType": "Seq Scan",
-                  "relationName": "o"
-                }
+                { "children": [], "id": "node-2", "nodeType": "Seq Scan", "relationName": "o" }
               ],
               "id": "node-1",
               "nodeType": "Correlated Subquery"
@@ -304,11 +289,7 @@
         "isAnalyze": false,
         "plan": {
           "children": [
-            {
-              "children": [],
-              "id": "node-0",
-              "nodeType": "Distinct"
-            },
+            { "children": [], "id": "node-0", "nodeType": "Distinct" },
             {
               "children": [],
               "id": "node-1",
@@ -366,12 +347,7 @@
         "isAnalyze": false,
         "plan": {
           "children": [
-            {
-              "children": [],
-              "id": "node-0",
-              "nodeType": "Seq Scan",
-              "relationName": "a"
-            },
+            { "children": [], "id": "node-0", "nodeType": "Seq Scan", "relationName": "a" },
             {
               "children": [],
               "id": "node-1",
@@ -381,12 +357,7 @@
             },
             {
               "children": [
-                {
-                  "children": [],
-                  "id": "node-3",
-                  "nodeType": "Seq Scan",
-                  "relationName": "b"
-                }
+                { "children": [], "id": "node-3", "nodeType": "Seq Scan", "relationName": "b" }
               ],
               "id": "node-2",
               "nodeType": "Right Join",
@@ -428,12 +399,7 @@
         "isAnalyze": false,
         "plan": {
           "children": [
-            {
-              "children": [],
-              "id": "node-0",
-              "nodeType": "Seq Scan",
-              "relationName": "o"
-            },
+            { "children": [], "id": "node-0", "nodeType": "Seq Scan", "relationName": "o" },
             {
               "children": [],
               "filter": "score=?",
@@ -466,12 +432,7 @@
         "isAnalyze": false,
         "plan": {
           "children": [
-            {
-              "children": [],
-              "id": "node-0",
-              "nodeType": "Seq Scan",
-              "relationName": "c"
-            },
+            { "children": [], "id": "node-0", "nodeType": "Seq Scan", "relationName": "c" },
             {
               "children": [],
               "filter": "total=?",
@@ -507,23 +468,13 @@
           "children": [
             {
               "children": [
-                {
-                  "children": [],
-                  "id": "node-1",
-                  "nodeType": "Seq Scan",
-                  "relationName": "orders"
-                }
+                { "children": [], "id": "node-1", "nodeType": "Seq Scan", "relationName": "orders" }
               ],
               "id": "node-0",
               "nodeType": "Materialize",
               "relationName": "x"
             },
-            {
-              "children": [],
-              "id": "node-2",
-              "nodeType": "Seq Scan",
-              "relationName": "a"
-            },
+            { "children": [], "id": "node-2", "nodeType": "Seq Scan", "relationName": "a" },
             {
               "children": [],
               "filter": "id=?",
@@ -572,11 +523,7 @@
       "input": null,
       "output": {
         "isAnalyze": false,
-        "plan": {
-          "children": [],
-          "id": "node-0",
-          "nodeType": "Result"
-        },
+        "plan": { "children": [], "id": "node-0", "nodeType": "Result" },
         "planningTime": 0.0
       }
     },
@@ -617,11 +564,7 @@
               "nodeType": "Index Scan",
               "relationName": "orders"
             },
-            {
-              "children": [],
-              "id": "node-1",
-              "nodeType": "Sort"
-            }
+            { "children": [], "id": "node-1", "nodeType": "Sort" }
           ],
           "id": "node-2",
           "nodeType": "Query Plan"
@@ -647,11 +590,7 @@
               "nodeType": "Index Scan",
               "relationName": "orders"
             },
-            {
-              "children": [],
-              "id": "node-1",
-              "nodeType": "Sort"
-            }
+            { "children": [], "id": "node-1", "nodeType": "Sort" }
           ],
           "id": "node-2",
           "nodeType": "Query Plan"
@@ -672,24 +611,13 @@
             {
               "children": [
                 {
-                  "children": [
-                    {
-                      "children": [],
-                      "id": "node-2",
-                      "nodeType": "Result"
-                    }
-                  ],
+                  "children": [{ "children": [], "id": "node-2", "nodeType": "Result" }],
                   "id": "node-1",
                   "nodeType": "SETUP"
                 },
                 {
                   "children": [
-                    {
-                      "children": [],
-                      "id": "node-4",
-                      "nodeType": "Seq Scan",
-                      "relationName": "r"
-                    }
+                    { "children": [], "id": "node-4", "nodeType": "Seq Scan", "relationName": "r" }
                   ],
                   "id": "node-3",
                   "nodeType": "RECURSIVE"
@@ -699,12 +627,7 @@
               "nodeType": "Subquery",
               "relationName": "r"
             },
-            {
-              "children": [],
-              "id": "node-5",
-              "nodeType": "Seq Scan",
-              "relationName": "r"
-            }
+            { "children": [], "id": "node-5", "nodeType": "Seq Scan", "relationName": "r" }
           ],
           "id": "node-6",
           "nodeType": "Query Plan"
@@ -722,26 +645,11 @@
         "isAnalyze": false,
         "plan": {
           "children": [
-            {
-              "children": [],
-              "id": "node-0",
-              "nodeType": "Seq Scan",
-              "relationName": "a"
-            },
-            {
-              "children": [],
-              "id": "node-1",
-              "nodeType": "Seq Scan",
-              "relationName": "b"
-            },
+            { "children": [], "id": "node-0", "nodeType": "Seq Scan", "relationName": "a" },
+            { "children": [], "id": "node-1", "nodeType": "Seq Scan", "relationName": "b" },
             {
               "children": [
-                {
-                  "children": [],
-                  "id": "node-3",
-                  "nodeType": "Seq Scan",
-                  "relationName": "b"
-                }
+                { "children": [], "id": "node-3", "nodeType": "Seq Scan", "relationName": "b" }
               ],
               "id": "node-2",
               "nodeType": "Right Join",
@@ -764,20 +672,10 @@
         "isAnalyze": false,
         "plan": {
           "children": [
-            {
-              "children": [],
-              "id": "node-0",
-              "nodeType": "Seq Scan",
-              "relationName": "customers"
-            },
+            { "children": [], "id": "node-0", "nodeType": "Seq Scan", "relationName": "customers" },
             {
               "children": [
-                {
-                  "children": [],
-                  "id": "node-2",
-                  "nodeType": "Seq Scan",
-                  "relationName": "orders"
-                }
+                { "children": [], "id": "node-2", "nodeType": "Seq Scan", "relationName": "orders" }
               ],
               "id": "node-1",
               "nodeType": "Subquery"
@@ -852,17 +750,8 @@
           "children": [
             {
               "children": [
-                {
-                  "children": [],
-                  "id": "node-1",
-                  "nodeType": "Seq Scan",
-                  "relationName": "a"
-                },
-                {
-                  "children": [],
-                  "id": "node-2",
-                  "nodeType": "Sort"
-                }
+                { "children": [], "id": "node-1", "nodeType": "Seq Scan", "relationName": "a" },
+                { "children": [], "id": "node-2", "nodeType": "Sort" }
               ],
               "id": "node-0",
               "nodeType": "Subquery",
@@ -891,42 +780,13 @@
         "isAnalyze": false,
         "plan": {
           "children": [
-            {
-              "children": [],
-              "id": "node-0",
-              "nodeType": "Seq Scan",
-              "relationName": "t"
-            },
-            {
-              "children": [],
-              "id": "node-1",
-              "nodeType": "Sort"
-            },
-            {
-              "children": [],
-              "id": "node-2",
-              "nodeType": "Group"
-            },
-            {
-              "children": [],
-              "id": "node-3",
-              "nodeType": "Distinct"
-            },
-            {
-              "children": [],
-              "id": "node-4",
-              "nodeType": "Sort"
-            },
-            {
-              "children": [],
-              "id": "node-5",
-              "nodeType": "Sort"
-            },
-            {
-              "children": [],
-              "id": "node-6",
-              "nodeType": "Sort"
-            }
+            { "children": [], "id": "node-0", "nodeType": "Seq Scan", "relationName": "t" },
+            { "children": [], "id": "node-1", "nodeType": "Sort" },
+            { "children": [], "id": "node-2", "nodeType": "Group" },
+            { "children": [], "id": "node-3", "nodeType": "Distinct" },
+            { "children": [], "id": "node-4", "nodeType": "Sort" },
+            { "children": [], "id": "node-5", "nodeType": "Sort" },
+            { "children": [], "id": "node-6", "nodeType": "Sort" }
           ],
           "id": "node-7",
           "nodeType": "Query Plan"
@@ -941,12 +801,7 @@
       "replaces": "parse-indexes.json: main.accounts",
       "input": null,
       "output": [
-        {
-          "columns": [],
-          "name": "sqlite_autoindex_accounts_1",
-          "type": "btree",
-          "unique": true
-        }
+        { "columns": [], "name": "sqlite_autoindex_accounts_1", "type": "btree", "unique": true }
       ]
     },
     {
@@ -956,36 +811,11 @@
       "replaces": "parse-indexes.json: main.customers",
       "input": null,
       "output": [
-        {
-          "columns": [],
-          "name": "customers_vip_idx",
-          "type": "btree",
-          "unique": false
-        },
-        {
-          "columns": [],
-          "name": "customers_lower_email_idx",
-          "type": "btree",
-          "unique": false
-        },
-        {
-          "columns": [],
-          "name": "customers_status_email_idx",
-          "type": "btree",
-          "unique": true
-        },
-        {
-          "columns": [],
-          "name": "customers_name_idx",
-          "type": "btree",
-          "unique": false
-        },
-        {
-          "columns": [],
-          "name": "sqlite_autoindex_customers_1",
-          "type": "btree",
-          "unique": true
-        }
+        { "columns": [], "name": "customers_vip_idx", "type": "btree", "unique": false },
+        { "columns": [], "name": "customers_lower_email_idx", "type": "btree", "unique": false },
+        { "columns": [], "name": "customers_status_email_idx", "type": "btree", "unique": true },
+        { "columns": [], "name": "customers_name_idx", "type": "btree", "unique": false },
+        { "columns": [], "name": "sqlite_autoindex_customers_1", "type": "btree", "unique": true }
       ]
     },
     {
@@ -995,12 +825,7 @@
       "replaces": "parse-indexes.json: main.kv",
       "input": null,
       "output": [
-        {
-          "columns": [],
-          "name": "sqlite_autoindex_kv_1",
-          "type": "btree",
-          "unique": true
-        }
+        { "columns": [], "name": "sqlite_autoindex_kv_1", "type": "btree", "unique": true }
       ]
     },
     {
@@ -1040,13 +865,7 @@
             }
           ],
           "indexes": [
-            {
-              "id": "i1",
-              "name": "i\"x",
-              "columns": ["c\"d"],
-              "unique": false,
-              "type": "btree"
-            }
+            { "id": "i1", "name": "i\"x", "columns": ["c\"d"], "unique": false, "type": "btree" }
           ],
           "foreignKeys": []
         }
@@ -1167,13 +986,7 @@
             }
           ],
           "indexes": [
-            {
-              "id": "i1",
-              "name": "t_a_b",
-              "columns": ["a", "b"],
-              "unique": true,
-              "type": "btree"
-            }
+            { "id": "i1", "name": "t_a_b", "columns": ["a", "b"], "unique": true, "type": "btree" }
           ],
           "foreignKeys": []
         }
@@ -1370,13 +1183,7 @@
               "unique": true,
               "type": "btree"
             },
-            {
-              "id": "i2",
-              "name": "t_a_idx",
-              "columns": ["a"],
-              "unique": false,
-              "type": "btree"
-            }
+            { "id": "i2", "name": "t_a_idx", "columns": ["a"], "unique": false, "type": "btree" }
           ],
           "foreignKeys": []
         },
@@ -1561,12 +1368,7 @@
         ]
       },
       "output": [
-        {
-          "columns": ["note"],
-          "name": "customers_vip_idx",
-          "type": "btree",
-          "unique": false
-        },
+        { "columns": ["note"], "name": "customers_vip_idx", "type": "btree", "unique": false },
         {
           "columns": ["<expression>", "id"],
           "name": "customers_lower_email_idx",
@@ -1579,12 +1381,7 @@
           "type": "btree",
           "unique": true
         },
-        {
-          "columns": ["name"],
-          "name": "customers_name_idx",
-          "type": "btree",
-          "unique": false
-        },
+        { "columns": ["name"], "name": "customers_name_idx", "type": "btree", "unique": false },
         {
           "columns": ["email"],
           "name": "sqlite_autoindex_customers_1",
@@ -1618,14 +1415,7 @@
             "pk": 0,
             "type": "TEXT"
           },
-          {
-            "cid": 2,
-            "dflt_value": null,
-            "name": "amount",
-            "notnull": 0,
-            "pk": 0,
-            "type": "REAL"
-          }
+          { "cid": 2, "dflt_value": null, "name": "amount", "notnull": 0, "pk": 0, "type": "REAL" }
         ],
         "foreignKeyColumns": [
           "id",
@@ -1718,10 +1508,7 @@
       "name": "fix 1: columns of a table with a hyphen in its name",
       "fix": 1,
       "kind": "columns",
-      "input": {
-        "schema": "main",
-        "table": "my-table"
-      },
+      "input": { "schema": "main", "table": "my-table" },
       "output": [
         {
           "isForeignKey": false,
@@ -1744,10 +1531,7 @@
       "name": "fix 1: columns of a table with spaces in its name and its columns",
       "fix": 1,
       "kind": "columns",
-      "input": {
-        "schema": "main",
-        "table": "order items"
-      },
+      "input": { "schema": "main", "table": "order items" },
       "output": [
         {
           "isForeignKey": false,
@@ -1789,10 +1573,7 @@
       "name": "fix 1: columns of a table with a quote in its name",
       "fix": 1,
       "kind": "columns",
-      "input": {
-        "schema": "main",
-        "table": "it's"
-      },
+      "input": { "schema": "main", "table": "it's" },
       "output": [
         {
           "isForeignKey": false,
@@ -1814,10 +1595,7 @@
       "name": "fix 9: columns of a foreign key declared without parent columns references the parent's primary key",
       "fix": 9,
       "kind": "columns",
-      "input": {
-        "schema": "main",
-        "table": "accounts"
-      },
+      "input": { "schema": "main", "table": "accounts" },
       "output": [
         {
           "foreignKeyRef": {
@@ -1851,10 +1629,7 @@
       "name": "fix 9: columns of a composite foreign key with and without parent columns",
       "fix": 9,
       "kind": "columns",
-      "input": {
-        "schema": "main",
-        "table": "ledger"
-      },
+      "input": { "schema": "main", "table": "ledger" },
       "output": [
         {
           "foreignKeyRef": {
@@ -1893,17 +1668,9 @@
       "name": "fix 5: indexes of customers list their key columns (an expression key, a partial index, the UNIQUE constraint's autoindex)",
       "fix": 5,
       "kind": "indexes",
-      "input": {
-        "schema": "main",
-        "table": "customers"
-      },
+      "input": { "schema": "main", "table": "customers" },
       "output": [
-        {
-          "columns": ["note"],
-          "name": "customers_vip_idx",
-          "type": "btree",
-          "unique": false
-        },
+        { "columns": ["note"], "name": "customers_vip_idx", "type": "btree", "unique": false },
         {
           "columns": ["<expression>", "id"],
           "name": "customers_lower_email_idx",
@@ -1916,12 +1683,7 @@
           "type": "btree",
           "unique": true
         },
-        {
-          "columns": ["name"],
-          "name": "customers_name_idx",
-          "type": "btree",
-          "unique": false
-        },
+        { "columns": ["name"], "name": "customers_name_idx", "type": "btree", "unique": false },
         {
           "columns": ["email"],
           "name": "sqlite_autoindex_customers_1",
@@ -1934,17 +1696,9 @@
       "name": "fix 1: indexes of a table with spaces in its name, with columns and its UNIQUE constraint",
       "fix": 1,
       "kind": "indexes",
-      "input": {
-        "schema": "main",
-        "table": "order items"
-      },
+      "input": { "schema": "main", "table": "order items" },
       "output": [
-        {
-          "columns": ["sku"],
-          "name": "order items sku idx",
-          "type": "btree",
-          "unique": false
-        },
+        { "columns": ["sku"], "name": "order items sku idx", "type": "btree", "unique": false },
         {
           "columns": ["order id", "sku"],
           "name": "sqlite_autoindex_order items_1",
@@ -1957,10 +1711,7 @@
       "name": "fix 7: indexes of a composite primary key's autoindex",
       "fix": 7,
       "kind": "indexes",
-      "input": {
-        "schema": "main",
-        "table": "accounts"
-      },
+      "input": { "schema": "main", "table": "accounts" },
       "output": [
         {
           "columns": ["customer_id", "region"],
@@ -1974,96 +1725,39 @@
       "name": "fix 7: indexes of a WITHOUT ROWID table's primary key",
       "fix": 7,
       "kind": "indexes",
-      "input": {
-        "schema": "main",
-        "table": "kv"
-      },
+      "input": { "schema": "main", "table": "kv" },
       "output": [
-        {
-          "columns": ["k"],
-          "name": "sqlite_autoindex_kv_1",
-          "type": "btree",
-          "unique": true
-        }
+        { "columns": ["k"], "name": "sqlite_autoindex_kv_1", "type": "btree", "unique": true }
       ]
     },
     {
       "name": "fix 5: indexes of non-ASCII index and column names",
       "fix": 5,
       "kind": "indexes",
-      "input": {
-        "schema": "main",
-        "table": "café"
-      },
+      "input": { "schema": "main", "table": "café" },
       "output": [
-        {
-          "columns": ["naïve"],
-          "name": "café_naïve_idx",
-          "type": "btree",
-          "unique": false
-        }
+        { "columns": ["naïve"], "name": "café_naïve_idx", "type": "btree", "unique": false }
       ]
     },
     {
       "name": "fix 10: tables named like sqlite_ but without the reserved prefix are listed",
       "fix": 10,
       "kind": "schema",
-      "input": {
-        "schema": "main"
-      },
+      "input": { "schema": "main" },
       "output": [
-        {
-          "name": "a",
-          "type": "table"
-        },
-        {
-          "name": "accounts",
-          "type": "table"
-        },
-        {
-          "name": "b",
-          "type": "table"
-        },
-        {
-          "name": "café",
-          "type": "table"
-        },
-        {
-          "name": "customer_names",
-          "type": "view"
-        },
-        {
-          "name": "customers",
-          "type": "table"
-        },
-        {
-          "name": "it's",
-          "type": "table"
-        },
-        {
-          "name": "kv",
-          "type": "table"
-        },
-        {
-          "name": "ledger",
-          "type": "table"
-        },
-        {
-          "name": "my-table",
-          "type": "table"
-        },
-        {
-          "name": "order items",
-          "type": "table"
-        },
-        {
-          "name": "orders",
-          "type": "table"
-        },
-        {
-          "name": "sqlitex",
-          "type": "table"
-        }
+        { "name": "a", "type": "table" },
+        { "name": "accounts", "type": "table" },
+        { "name": "b", "type": "table" },
+        { "name": "café", "type": "table" },
+        { "name": "customer_names", "type": "view" },
+        { "name": "customers", "type": "table" },
+        { "name": "it's", "type": "table" },
+        { "name": "kv", "type": "table" },
+        { "name": "ledger", "type": "table" },
+        { "name": "my-table", "type": "table" },
+        { "name": "order items", "type": "table" },
+        { "name": "orders", "type": "table" },
+        { "name": "sqlitex", "type": "table" }
       ]
     },
     {
@@ -2076,9 +1770,7 @@
         "column": "status",
         "columnDefault": "'active'",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"customers\" SET \"status\" = ('active') WHERE \"id\" = $1",
@@ -2095,9 +1787,7 @@
         "column": "created_at",
         "columnDefault": "CURRENT_TIMESTAMP",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"customers\" SET \"created_at\" = (CURRENT_TIMESTAMP) WHERE \"id\" = $1",
@@ -2114,9 +1804,7 @@
         "column": "score",
         "columnDefault": "0",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"customers\" SET \"score\" = (0) WHERE \"id\" = $1",
@@ -2133,9 +1821,7 @@
         "column": "note",
         "columnDefault": "NULL",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"customers\" SET \"note\" = (NULL) WHERE \"id\" = $1",
@@ -2152,9 +1838,7 @@
         "column": "note",
         "columnDefault": " ",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"customers\" SET \"note\" = (NULL) WHERE \"id\" = $1",
@@ -2170,9 +1854,7 @@
         "table": "customers",
         "column": "status",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"customers\" SET \"status\" = DEFAULT WHERE \"id\" = $1",
@@ -2189,10 +1871,7 @@
         "column": "slug",
         "columnDefault": "lower('A') || 'b'",
         "primaryKeys": ["k", "n"],
-        "row": {
-          "n": 2,
-          "k": "x"
-        }
+        "row": { "n": 2, "k": "x" }
       },
       "output": {
         "sql": "UPDATE \"main\".\"set defaults\" SET \"slug\" = (lower('A') || 'b') WHERE \"k\" = $1 AND \"n\" = $2",
@@ -2209,9 +1888,7 @@
         "column": "s",
         "columnDefault": "active",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"bare defaults\" SET \"s\" = ('active') WHERE \"id\" = $1",
@@ -2228,9 +1905,7 @@
         "column": "d",
         "columnDefault": "\"dq\"",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"bare defaults\" SET \"d\" = ('dq') WHERE \"id\" = $1",
@@ -2247,9 +1922,7 @@
         "column": "q",
         "columnDefault": "\"it's \"\"x\"\"\"",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"bare defaults\" SET \"q\" = ('it''s \"x\"') WHERE \"id\" = $1",
@@ -2266,9 +1939,7 @@
         "column": "b",
         "columnDefault": "`bt`",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"bare defaults\" SET \"b\" = ('bt') WHERE \"id\" = $1",
@@ -2285,9 +1956,7 @@
         "column": "k",
         "columnDefault": "[br]",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"bare defaults\" SET \"k\" = ('br') WHERE \"id\" = $1",
@@ -2304,9 +1973,7 @@
         "column": "t",
         "columnDefault": "TRUE",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"bare defaults\" SET \"t\" = (TRUE) WHERE \"id\" = $1",
@@ -2323,9 +1990,7 @@
         "column": "n",
         "columnDefault": "+1",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"bare defaults\" SET \"n\" = (+1) WHERE \"id\" = $1",
@@ -2342,9 +2007,7 @@
         "column": "h",
         "columnDefault": "-0x10",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"bare defaults\" SET \"h\" = (-0x10) WHERE \"id\" = $1",
@@ -2361,9 +2024,7 @@
         "column": "x",
         "columnDefault": "x'00ff'",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"bare defaults\" SET \"x\" = (x'00ff') WHERE \"id\" = $1",
@@ -2380,9 +2041,7 @@
         "column": "e",
         "columnDefault": "1+2",
         "primaryKeys": ["id"],
-        "row": {
-          "id": 1
-        }
+        "row": { "id": 1 }
       },
       "output": {
         "sql": "UPDATE \"main\".\"bare defaults\" SET \"e\" = (1+2) WHERE \"id\" = $1",

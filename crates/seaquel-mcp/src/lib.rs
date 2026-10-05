@@ -3,8 +3,9 @@
 //! It lets an MCP host (Claude Desktop, Claude Code, …) list the connections
 //! the user exposed on the command line, read their schemas and run read-only
 //! queries and saved queries on them, through the same Core, storage,
-//! keychain and SSH code as the app. See Decisions 5 and 7 in
-//! `docs/plans/2026-09-30-rust-core-phase-4-plan.md`.
+//! keychain and SSH code as the app. Only the connections named on the
+//! command line are exposed, and nothing it does writes a database or
+//! Seaquel's own files.
 //!
 //! stdout belongs to the MCP protocol: nothing here may print to it, and logs
 //! go to stderr.
@@ -43,7 +44,7 @@
 //! - **Errors** are tool results with `isError: true` and the text
 //!   `CODE: message`, with Core's code and message. One exception: a DuckDB
 //!   connection whose `seaquel-duckdb` helper isn't installed says how to
-//!   install it ([`duckdb_helper`], the DuckDB helper plan's Decision 13).
+//!   install it ([`duckdb_helper`]).
 
 pub mod duckdb_helper;
 pub mod error;
@@ -55,7 +56,7 @@ pub mod transport;
 pub use error::ToolError;
 pub use exposed::{Exposed, Selection, Sharing};
 /// The keychain wait the call timeout leaves out; it lives in
-/// `seaquel-secrets` since phase 7a (Decision 7), where the TUI uses it too.
+/// `seaquel-secrets` since phase 7a, where the TUI uses it too.
 pub use seaquel_core::secrets::SecretWait;
 pub use server::{McpServer, ServerOptions, DEFAULT_CALL_TIMEOUT, INSTRUCTIONS};
 pub use tools::NO_CONNECTIONS_HINT;

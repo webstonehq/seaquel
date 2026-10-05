@@ -172,11 +172,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query Block",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query Block", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -197,13 +193,7 @@
         "plan": {
           "id": "node-0",
           "nodeType": "Nested Loop",
-          "children": [
-            {
-              "id": "node-1",
-              "nodeType": "Query Block",
-              "children": []
-            }
-          ]
+          "children": [{ "id": "node-1", "nodeType": "Query Block", "children": [] }]
         },
         "planningTime": 0,
         "isAnalyze": false
@@ -222,11 +212,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query Block",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query Block", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -356,11 +342,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query Block",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query Block", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -408,11 +390,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Table Scan",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Table Scan", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -813,11 +791,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query Block",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query Block", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -839,13 +813,7 @@
         "plan": {
           "id": "node-0",
           "nodeType": "Nested Loop",
-          "children": [
-            {
-              "id": "node-1",
-              "nodeType": "Query Block",
-              "children": []
-            }
-          ]
+          "children": [{ "id": "node-1", "nodeType": "Query Block", "children": [] }]
         },
         "planningTime": 0,
         "isAnalyze": false
@@ -865,11 +833,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query Block",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query Block", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -1003,11 +967,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query Block",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query Block", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -1057,11 +1017,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Table Scan",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Table Scan", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -1338,11 +1294,7 @@
               "planRows": 3,
               "children": []
             },
-            {
-              "id": "node-4",
-              "nodeType": "Operator",
-              "children": []
-            }
+            { "id": "node-4", "nodeType": "Operator", "children": [] }
           ]
         },
         "planningTime": 0,
@@ -1375,12 +1327,7 @@
               "totalCost": 1.5,
               "children": []
             },
-            {
-              "id": "node-1",
-              "nodeType": "Query Block",
-              "totalCost": 1.25,
-              "children": []
-            }
+            { "id": "node-1", "nodeType": "Query Block", "totalCost": 1.25, "children": [] }
           ]
         },
         "planningTime": 0,
@@ -1412,11 +1359,7 @@
               "totalCost": 1.5,
               "children": []
             },
-            {
-              "id": "node-2",
-              "nodeType": "Query Block",
-              "children": []
-            }
+            { "id": "node-2", "nodeType": "Query Block", "children": [] }
           ]
         },
         "planningTime": 0,
@@ -1429,18 +1372,10 @@
         "sql": "(synthetic)",
         "analyze": false,
         "columns": ["EXPLAIN"],
-        "rows": [
-          {
-            "EXPLAIN": "{\"query_block\":{\"union_result\":{}}}"
-          }
-        ]
+        "rows": [{ "EXPLAIN": "{\"query_block\":{\"union_result\":{}}}" }]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Union",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Union", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -1579,18 +1514,10 @@
         "sql": "(synthetic)",
         "analyze": false,
         "columns": ["EXPLAIN"],
-        "rows": [
-          {
-            "EXPLAIN": "{\"something\":1}"
-          }
-        ]
+        "rows": [{ "EXPLAIN": "{\"something\":1}" }]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -1601,18 +1528,10 @@
         "sql": "(synthetic)",
         "analyze": false,
         "columns": ["EXPLAIN"],
-        "rows": [
-          {
-            "EXPLAIN": "{\"query_block\":{\"select_id\":1}}"
-          }
-        ]
+        "rows": [{ "EXPLAIN": "{\"query_block\":{\"select_id\":1}}" }]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query Block",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query Block", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -1701,11 +1620,7 @@
               "relationName": "b",
               "indexName": "ix"
             },
-            {
-              "id": "node-5",
-              "nodeType": "Back up",
-              "children": []
-            }
+            { "id": "node-5", "nodeType": "Back up", "children": [] }
           ],
           "totalCost": 2,
           "planRows": 4

@@ -3,7 +3,7 @@
 //! The drivers share the dialect, the introspection SQL and parsers, and the
 //! Arrow decoder:
 //!
-//! - **`remote`** (the default) and **`helper`** (the DuckDB helper plan): a
+//! - **`remote`** (the default) and **`helper`**: a
 //!   driver over a `seaquel-duckdb` child process ([`remote_engine`]) and the
 //!   loop that process runs ([`helper::serve`]), talking in `wire.rs`'s
 //!   frames, the rows as Arrow IPC with the column kinds beside them
@@ -15,8 +15,8 @@
 //!   cross as Arrow IPC bytes, read by `ipc.rs` and decoded by the same
 //!   `decode.rs`.
 //!
-//! There is no in-process native driver: it was deleted in Task 12 of the
-//! desktop DuckDB helper plan, once every interface ran DuckDB in the helper.
+//! There is no in-process native driver: it was deleted once every
+//! interface ran DuckDB in the helper.
 
 #[cfg(not(any(feature = "remote", feature = "helper", feature = "browser")))]
 compile_error!("seaquel-engine-duckdb needs the `remote`, `helper` or `browser` feature");

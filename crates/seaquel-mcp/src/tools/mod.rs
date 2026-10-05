@@ -1,5 +1,5 @@
-//! The tools (Decision 5 of the phase 4 plan), on Core's registry since
-//! phase 6 (Decision 20). `server.rs` routes calls here.
+//! The tools, on Core's registry since
+//! phase 6. `server.rs` routes calls here.
 //!
 //! The registry (`seaquel_core::ai::tools`) has the arguments, their
 //! schemas, the renderers and the runner (`tools::call` with

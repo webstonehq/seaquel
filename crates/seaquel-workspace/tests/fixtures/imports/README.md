@@ -1,12 +1,16 @@
 # imports fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`.
+
 These files record what today's TypeScript makes of TablePlus's and DBeaver's connection files: the candidates the import dialogs list, before anything is saved. Phase 5e moves the readers out of `src-tauri` and the mapping out of TypeScript into Core (`seaquel_workspace::imports`, Core's `imports.rs` and the `imports` RPC group; Decision 47). The create side, saving the chosen ones, is pinned by `../library/imports.json` (5d-1, frozen) and stays as it is apart from what `changes.json` there and Decision 47 say. See `docs/plans/2026-10-05-rust-core-phase-5e-plan.md`, "Imports", bug 22, Decisions 47 and 48, and Task 4a.
 
 **The fixtures are frozen.** Change a case only when Core is meant to behave differently, say why in `changes.json`, and never re-record to make a failing test pass.
 
 ## How they were made
 
-The recorder is `docs/plans/artifacts/2026-10-05-record-shared-fixtures.test.ts.txt`, the same file that records `../shared` (see that README for how to run it). It ran on `cfc7294` plus the phase 5e working tree after Tasks 1 and 3. Two runs gave byte-identical files. After the Task 2 review the set was recorded again: the first recording's cases came out byte-identical and in place, and the review's cases follow them.
+The recorder was `docs/plans/artifacts/2026-10-05-record-shared-fixtures.test.ts.txt`, the same file that records `../shared` (see that README for how to run it). It ran on `cfc7294` plus the phase 5e working tree after Tasks 1 and 3. Two runs gave byte-identical files. After the Task 2 review the set was recorded again: the first recording's cases came out byte-identical and in place, and the review's cases follow them.
 
 For each case it mocks `$lib/api/tauri`'s `readTablePlusConfig` or `readDbeaverConfig` to answer the case's input, then calls the real `discoverTablePlusConnections(existing)` or `discoverDbeaverConnections(existing)`. So the real `parseTablePlusConnections`, `toTablePlusConnection`, `mapToImportable` (both), `parseDbeaverConnections`, `tablePlusTlsModeToSslMode` and `isAlreadySaved` run unmodified.
 

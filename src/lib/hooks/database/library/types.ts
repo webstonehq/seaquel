@@ -1,7 +1,7 @@
 /**
  * The seam between the library's view models (`ConnectionManager`,
  * `ProjectManager`, `LabelManager`, `SavedQueryManager`) and whatever
- * stores the library (phase 5d-1, Decision 6), like 5c's `EditService`.
+ * stores the library (phase 5d-1), like 5c's `EditService`.
  *
  * `CoreLibrary` (every build; the demo's Core runs in the page since phase
  * 8): the `library` RPC group. Core checks the input, assigns ids and
@@ -11,7 +11,7 @@
  *
  * It takes and return the generated wire types: rows are the
  * `seaquel_types::storage` rows (`lastConnected` is text), and every result
- * carries the change `seq` it is at least as new as (Decision 17). A
+ * carries the change `seq` it is at least as new as. A
  * refusal rejects with a `LibraryCallError` (`code`, and `takenBy` for
  * `NAME_TAKEN`). The GUI builds no ids, versions or names: an import's
  * draft sends `renameIfTaken` and Core picks the free name.
@@ -159,14 +159,14 @@ export interface LibraryService {
   removeSavedQuery(id: string): Promise<Seqd<null>>;
 
   // -------- Phase 5d-2 --------
-  /** A project's connection order (shared by the project's windows, Decision 22). */
+  /** A project's connection order (shared by the project's windows). */
   getProjectSidebar(projectId: string): Promise<Seqd<string[]>>;
   /** Replace a project's connection order; answers the order stored. */
   setProjectSidebar(projectId: string, connectionOrder: string[]): Promise<Seqd<string[]>>;
   /**
-   * A project's saved workflows without their bodies (id, name, times and
-   * size; 5d-2 Task 7): what the sidebar lists. Read here since the view
-   * state no longer carries them (Decision 23).
+   * A project's saved workflows without their bodies (id, name, times and size):
+   * what the sidebar lists. Read here since the view
+   * state no longer carries them.
    */
   listWorkflows(projectId: string): Promise<Seqd<PersistedWorkflowMeta[]>>;
   /**
@@ -175,7 +175,7 @@ export interface LibraryService {
    */
   getWorkflow(id: string): Promise<Seqd<unknown>>;
   /**
-   * Save a new workflow (Decision 23): `workflow` is today's stored
+   * Save a new workflow: `workflow` is today's stored
    * (`toStorable`) `SavedWorkflow` JSON without `id`, `projectId`,
    * `createdAt` and `updatedAt`, which Core sets. Answers the stored JSON.
    */
@@ -186,15 +186,15 @@ export interface LibraryService {
   /**
    * Rename a saved workflow: Core changes only its stored name (and
    * `updatedAt`), so another window's save isn't undone. Answers it
-   * without its body (5d-2 Task 7 review).
+   * without its body.
    */
   renameWorkflow(id: string, name: string): Promise<Seqd<PersistedWorkflowMeta>>;
 
-  // -------- Dashboards (Decision 21) --------
+  // -------- Dashboards --------
   listDashboards(projectId: string): Promise<Seqd<PersistedDashboard[]>>;
   /**
    * Every version of the project's dashboards without their snapshots,
-   * oldest first per dashboard (5d-2 Task 7).
+   * oldest first per dashboard.
    */
   listDashboardVersions(projectId: string): Promise<Seqd<PersistedDashboardVersionMeta[]>>;
   /**
@@ -213,7 +213,7 @@ export interface LibraryService {
   updateDashboard(id: string, patch: DashboardPatch): Promise<Seqd<DashboardUpdated>>;
   removeDashboard(id: string): Promise<Seqd<null>>;
 
-  // -------- AI chats (Decision 24) --------
+  // -------- AI chats --------
   /** A connection's chats, most recently updated first. */
   listChats(connectionId: string): Promise<Seqd<PersistedAIChat[]>>;
   /** A chat's messages in `timestamp, rowid` order, and its stored bytes. */
@@ -227,7 +227,7 @@ export interface LibraryService {
 }
 
 /**
- * The `settings` group (phase 5d-2, Decision 20): the app-state settings
+ * The `settings` group (phase 5d-2): the app-state settings
  * (a closed set of keys), the AI settings record and its providers (with
  * their API keys on the desktop), themes, onboarding, tutorial progress
  * and import state. Every write answers the record it wrote with its
@@ -293,9 +293,9 @@ export interface SettingsService {
 }
 
 /**
- * One window's view of a project (Decision 22): its open tabs with their
+ * One window's view of a project: its open tabs with their
  * text, pane layout and active ids. Today's `PersistedProjectState` minus
- * what isn't the window's: the saved workflows (Decision 23), the
+ * what isn't the window's: the saved workflows, the
  * connection order (shared, `setProjectSidebar`) and the legacy starred
  * lists. Core stores it as sent.
  */
@@ -315,7 +315,7 @@ export interface ViewStateLoaded {
 }
 
 /**
- * The `ui` group (phase 5d-2, Decision 22): one window's view state per
+ * The `ui` group (phase 5d-2): one window's view state per
  * project, and its active project. `windowId` must be the caller's origin
  * (its window id); Core refuses any other (`INVALID_ARGUMENT`).
  *

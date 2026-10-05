@@ -113,8 +113,8 @@ pub async fn append(st: &Storage, item: &PersistedQueryHistoryItem) -> Result<()
 
 /// Adds `items` in order and prunes each connection they name once, as
 /// [`append`] does, all in one transaction: every row or none. An applied
-/// batch of pending changes records one row per change this way (phase 5c,
-/// Decision 8). Nothing to add is a no-op. Fails, adding nothing, when a
+/// batch of pending changes records one row per change this way (phase 5c).
+/// Nothing to add is a no-op. Fails, adding nothing, when a
 /// connection isn't saved or an id is taken.
 pub async fn append_many(st: &Storage, items: &[PersistedQueryHistoryItem]) -> Result<()> {
     if items.is_empty() {

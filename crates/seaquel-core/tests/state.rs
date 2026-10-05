@@ -1673,7 +1673,7 @@ async fn a_workflow_gets_core_id_and_times_and_keeps_the_rest_byte_for_byte() {
     );
 }
 
-/// 5d-2 Task 7 review: a rename is Core's (`workflowRename`), done on the
+/// A rename is Core's (`workflowRename`), done on the
 /// stored row inside the write, so a save another window made between two
 /// renames here isn't lost (the GUI used to read the body, then write it
 /// back whole). One event per rename; a missing workflow is not found; the
@@ -1778,7 +1778,7 @@ async fn a_rename_keeps_a_save_that_landed_before_it() {
     assert!(e.message.contains("max_name_bytes"), "{e:?}");
 }
 
-/// 5d-2 Task 7 review: opening a workspace fills the list metadata an
+/// Opening a workspace fills the list metadata an
 /// older release's writes left out (its replace-all workflow save).
 #[tokio::test]
 async fn opening_a_workspace_refills_list_metadata() {

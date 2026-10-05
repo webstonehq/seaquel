@@ -1,4 +1,4 @@
-//! The DuckDB helper's loop (the DuckDB helper plan, Task 2): what the
+//! The DuckDB helper's loop: what the
 //! `seaquel-duckdb` binary runs over its stdin and stdout, in `wire.rs`'s
 //! frames.
 //!
@@ -43,7 +43,7 @@
 //! every call is interrupted, the output gets a second to write what's
 //! queued, and [`serve`] then waits for DuckDB's connections to close (the
 //! last one closes the database and checkpoints its WAL into the file) for
-//! up to [`SESSION_CLOSE_WAIT`] (probe F3 of the DuckDB helper plan). After
+//! up to [`SESSION_CLOSE_WAIT`]. After
 //! a wedge it doesn't wait, after a broken wire or a refusal it waits
 //! [`SESSION_EXIT_WAIT`], and a write the client never reads stops the wait
 //! too: that close can't come.
@@ -99,8 +99,8 @@ use crate::wire::MAX_READ_ONLY_CALLS;
 #[derive(Clone, Copy)]
 pub(crate) struct Limits {
     /// How long queued frames may wait with none written before the client
-    /// counts as wedged. The client always reads (it has to: the plan's
-    /// Decision 5), so this only ends a helper whose client hung.
+    /// counts as wedged. The client always reads (it has to, or a
+    /// stream's credit stalls), so this only ends a helper whose client hung.
     pub wedge: Duration,
     pub max_read_only: usize,
     /// How long a clean end waits for DuckDB's close
@@ -148,7 +148,7 @@ const SESSION_EXIT_WAIT: Duration = Duration::from_millis(500);
 /// How long [`serve`] waits, ending cleanly (`close`, the input's end, the
 /// output closed), for DuckDB's connections to close: the last one to go
 /// closes the database, and its checkpoint writes the WAL into the file
-/// (the DuckDB helper plan's probe F3: a 2.4 GB WAL took about 800 ms, and
+/// (a 2.4 GB WAL took about 800 ms, and
 /// a WAL cut off is replayed by the next open, which can then outlast the
 /// client's 30 s connect timeout). The client stops waiting for the exit
 /// after 2 s and leaves the helper to finish; this bound is what makes it
@@ -404,7 +404,7 @@ enum Refused {
 /// the turn to write (`Queue::writing`): the writer thread
 /// ([`Output::write_all`]), or a call thread that queued a frame while no
 /// one was writing ([`Output::rows`], [`Output::last`]), which then writes
-/// it itself instead of waking the writer thread (Checkpoint H-1: that
+/// it itself instead of waking the writer thread (that
 /// hand-off was a quarter of a `SELECT 1`'s overhead). A call thread
 /// writes up to and including its own frames, so it also writes any other
 /// calls' frames queued ahead of them, at most the queue limit's worth;
@@ -900,7 +900,7 @@ struct Ended {
 }
 
 /// The rows a sink holds back, at most, so a small result goes out in one
-/// write with its last frame (Checkpoint H-1).
+/// write with its last frame.
 const HOLD_BYTES: usize = 64 * 1024;
 
 /// The helper's [`ChunkSink`]: the statement's Arrow schema as one schema
@@ -1499,7 +1499,7 @@ impl Dispatcher {
                 let ended = run_job(&shared, &conn, job);
                 // The clone goes before the count: at the end, `serve`
                 // waits for the count, and the last connection to go
-                // closes the database (probe F3).
+                // closes the database.
                 drop(conn);
                 // Before the last frame, so the client can start another
                 // call as soon as it reads it.
@@ -2187,7 +2187,7 @@ mod tests {
 
     /// The schema frames carry the column kinds recorded in
     /// `tests/fixtures/kinds.json` for every reference case and the
-    /// lossy-Arrow ones (Checkpoint H-1), so moving where the kinds are
+    /// lossy-Arrow ones, so moving where the kinds are
     /// read (`kinds.rs`) changed nothing the client sees.
     /// `SEAQUEL_RECORD_KINDS=1` wrote the file before the move, while the
     /// native driver's `Decoder::of` read them; `kinds.rs`'s own test reads
@@ -2549,7 +2549,7 @@ mod tests {
         }
     }
 
-    /// Probe F3: on `close`, and at the input's end, `serve` waits for
+    /// On `close`, and at the input's end, `serve` waits for
     /// DuckDB's close (its checkpoint) past the old 500 ms, up to
     /// [`SESSION_CLOSE_WAIT`], so the file is left without a WAL. The
     /// test's main session takes `close_delay` before it closes.

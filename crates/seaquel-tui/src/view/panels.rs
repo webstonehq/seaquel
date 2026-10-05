@@ -1,4 +1,4 @@
-//! Panels 1–3 and what the main view shows for them (Decision 10): the
+//! Panels 1–3 and what the main view shows for them: the
 //! connection, the tables and views by schema, the saved queries by folder
 //! and the history. Drawn from the model only.
 
@@ -140,7 +140,7 @@ pub fn fit(text: &str, width: usize) -> String {
 
 /// What panel 2 says instead of its rows, if anything: no connection,
 /// loading, or a failed read. The mouse's hit-testing asks too, so a click
-/// never lands on rows that aren't drawn (review M3).
+/// never lands on rows that aren't drawn.
 pub(super) fn tables_placeholder(model: &Model) -> Option<&'static str> {
     match model.schema_load {
         Load::Idle if model.conn.core_id().is_none() => Some(text::NO_CONNECTION),
@@ -350,7 +350,7 @@ pub fn main_lines(model: &Model) -> Option<Vec<Line<'static>>> {
                 // The columns are known once read (the table opened, or
                 // completion needed them); `schema_tables` lists none on
                 // any engine, so until then the preview says how to load
-                // them, never "0 columns" (probe F1).
+                // them, never "0 columns".
                 let known = !table.columns.is_empty();
                 let rows = match table.row_count {
                     Some(n) if table.kind == TableKind::Table => {

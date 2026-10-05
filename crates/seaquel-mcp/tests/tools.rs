@@ -1169,7 +1169,7 @@ async fn the_global_default_decides_for_connections_that_follow_it() {
     h.stop().await;
 }
 
-/// Phase 5d-2 (Decision 20): Core rewrites the `aiSettings` record from the
+/// Phase 5d-2: Core rewrites the `aiSettings` record from the
 /// stored copy (`aiSettingsPatch`, the provider calls), keeping fields it
 /// doesn't know. What it writes is what this reader takes: the flags the
 /// patch set, over a record that held legacy provider fields and a newer
@@ -1793,8 +1793,8 @@ async fn an_unreadable_secret_is_a_tool_error() {
 }
 
 /// A workspace without a secret store (never the CLI's, which always has
-/// the keychain) connects a saved row with no password, as a form would
-/// (phase 6 probe F5), so the call reaches the driver, which refuses it.
+/// the keychain) connects a saved row with no password, as a form would,
+/// so the call reaches the driver, which refuses it.
 #[tokio::test]
 async fn a_workspace_without_a_secret_store_connects_with_no_password() {
     let seeded = seed(None).await;

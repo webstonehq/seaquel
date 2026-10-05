@@ -3,9 +3,8 @@
 Every native interface (the desktop app, the TUI and the CLI's MCP server)
 reaches DuckDB the same way: the remote driver (`src/remote/`, "the
 client") over a `seaquel-duckdb` child process ("the helper", the loop in
-`src/helper.rs` running `src/session.rs`). The in-process native driver was
-deleted in Task 12 of the desktop DuckDB helper plan; this file was
-`REMOTE.md`, which listed how the two differed. What it called differences
+`src/helper.rs` running `src/session.rs`). The in-process native driver is
+gone; this file was `REMOTE.md`, which listed how the two differed. What it called differences
 are now the limits below, stated as behaviour with the tests that pin them.
 
 Every integration suite here that opens DuckDB gets its engine from
@@ -55,9 +54,8 @@ the … bytes the DuckDB helper takes in one call."), naming no SQL, and the
 connection goes on. Core splits a script into statements, so only one huge
 statement (a pasted `INSERT … VALUES` dump) reaches it.
 
-- Why: the helper plan's Decision 3. Frames above 16 MiB are a protocol
-  error on either side, so the cap bounds what either process allocates
-  for one frame. Kept by the desktop plan's Decision 9.
+- Why: frames above 16 MiB are a protocol error on either side, so the
+  cap bounds what either process allocates for one frame.
 - Pinned by: `frame_limits.rs`
   (`a_statement_past_the_frame_is_refused_before_it_is_sent`, a 17 MiB
   statement, no SQL in the message) and `remote.rs` (a 17 MiB request).
@@ -85,8 +83,7 @@ first, in a frame of their own), so the client can't reach this message,
 and no remote test does; if it ever did, the message would name the
 browser.
 
-- Why: the helper plan's Decision 3 (the client decodes with the shared
-  `ipc::Columns`).
+- Why: the client decodes with the shared `ipc::Columns`.
 - **Exempt from pinning**, being unreachable through the helper. The
   message itself is pinned on the driver that produces it: the browser
   driver's live suite, `src/lib/engine/engine-duckdb-browser.test.ts`,
@@ -113,25 +110,21 @@ cover these; `tests/remote.rs`, the helper's own tests and Core's
 `duckdb_remote.rs`, `lost_connection.rs` and `exclusive_reconnect.rs` do.
 
 - The helper missing, of another version, or in a folder others can write:
-  `ENGINE_NOT_INSTALLED` at open (Decisions 7 and 9). One that doesn't answer
+  `ENGINE_NOT_INSTALLED` at open. One that doesn't answer
   `hello` in time: `ENGINE_UNAVAILABLE`.
 - The helper dying (a signal, a protocol break): every waiting and later
-  call fails with `CONNECTION_CLOSED` (Decision 8); the app and the
+  call fails with `CONNECTION_CLOSED`; the app and the
   terminal binaries stay up. `Driver::closed()` resolves with that error
   when the helper ends without `close` (and with `None` after `close`, a
   closing helper let go, or a dropped driver), and Core then takes the
   connection out and announces it once as `ConnectionClosed` with
-  `CONNECTION_CLOSED` (the desktop DuckDB helper plan, Decision 7; pinned by
-  `remote.rs`'s `closed_*` tests, Core's `lost_connection.rs` and
-  `duckdb_remote.rs`).
+  `CONNECTION_CLOSED` (pinned by `remote.rs`'s `closed_*` tests, Core's `lost_connection.rs` and `duckdb_remote.rs`).
 - At most 16 read-only calls (`readOnly`, `explainReadOnly`) run in one
   helper at once, each on a clone and a thread of its own. The client
   sends no more than that: a 17th waits for a slot, which a call holds
   until its last frame arrives (a dropped call's included, once the helper
   has let it go). The helper's `TOO_MANY_REQUESTS` past 16 is only a
-  backstop (desktop plan, Decision 5; pinned by
-  `read_only_calls_past_sixteen_wait_for_a_slot` and
-  `dropped_read_only_calls_free_their_slots`).
+  backstop (pinned by `read_only_calls_past_sixteen_wait_for_a_slot` and `dropped_read_only_calls_free_their_slots`).
 - A file a live helper of this process holds isn't opened a second time:
   the open is refused at once with `CONNECTION_ERROR` "This DuckDB file is
   already open in another connection. Disconnect it first." (no path),
@@ -142,10 +135,7 @@ cover these; `tests/remote.rs`, the helper's own tests and Core's
   helper died; from the start of its connection's `close` an open waits
   for the helper instead of being refused (below). In process, the
   deleted native driver's second open succeeded and lost committed writes
-  (the desktop plan's spike S1;
-  Decision 6; pinned by `a_second_open_of_an_open_file_is_refused_at_once`,
-  `a_hard_link_to_an_open_file_is_refused_at_once` and
-  `a_connect_beside_a_closing_connection_of_the_same_file_waits_and_opens`).
+  (pinned by `a_second_open_of_an_open_file_is_refused_at_once`, `a_hard_link_to_an_open_file_is_refused_at_once` and `a_connect_beside_a_closing_connection_of_the_same_file_waits_and_opens`).
   Where the key can mislead: on a network filesystem (NFS, SMB) device and
   inode numbers may not be stable or unique across mounts, so two paths to
   one file could compare different (the second open then meets DuckDB's
@@ -157,11 +147,10 @@ cover these; `tests/remote.rs`, the helper's own tests and Core's
   second open meets DuckDB's lock instead.
 - A client that ends with `process::exit` (the app's quit) leaves its
   helpers to read EOF, checkpoint and exit 0 within their 60 s bound
-  (desktop plan, Decision 16; pinned by
-  `a_client_that_exits_leaves_its_helper_to_checkpoint`).
+  (pinned by `a_client_that_exits_leaves_its_helper_to_checkpoint`).
 - Started from an AppImage (`APPIMAGE` set), the helper's environment loses
-  the `LD_LIBRARY_PATH` and `LD_PRELOAD` entries under `$APPDIR` (the
-  desktop plan's spike S3): it links the system's libraries and can outlive
+  the `LD_LIBRARY_PATH` and `LD_PRELOAD` entries under `$APPDIR`:
+ it links the system's libraries and can outlive
   the AppImage's mount while it checkpoints. Pinned by
   `process.rs`'s `appimage_library_paths_are_kept_from_the_helper`.
 - A client that stops reading for 30 s while frames wait loses its helper
@@ -171,15 +160,15 @@ cover these; `tests/remote.rs`, the helper's own tests and Core's
   committed. Core passes the code on (an apply's failed change; a page whose
   count fails with it fails the statement instead of estimating), and the
   TUI and the GUI treat such an apply as interrupted: the queue is kept and
-  marked "may be partly applied" (probe F1, F2).
+  marked "may be partly applied".
 - `close` and the end of input wait for DuckDB's close checkpoint up to
   60 s in the helper. The client waits 2 s; after that a helper that took
   `close` (its output ended) is left to finish on its own, not killed, so a
-  large WAL is written into the file rather than replayed on the next open
-  (probe F3). A wedge (exit 5) doesn't wait, and the next open replays the
+  large WAL is written into the file rather than replayed on the next open.
+ A wedge (exit 5) doesn't wait, and the next open replays the
   WAL.
 - While a helper let go after `close` is still closing a file, DuckDB's
-  lock on that file is held (review I1 of the probe fixes). In this
+  lock on that file is held. In this
   process, an open of the same file waits for that helper to exit, at
   most 25 s (under Core's 30 s connect timeout), then fails with
   `CONNECTION_ERROR` "DuckDB is still saving this file. Try again in a few
@@ -194,7 +183,4 @@ cover these; `tests/remote.rs`, the helper's own tests and Core's
   this process holds is refused at once instead (above). A window that
   reconnects the same saved connection to a file closes its older
   connection right before the open, after the checks that can refuse
-  without opening anything (`Engine::exclusive_file` and
-  `Engine::preflight`, desktop plan Decision 21; pinned by Core's
-  `exclusive_reconnect.rs` and
-  `a_window_reconnecting_a_duckdb_file_replaces_its_old_connection`).
+  without opening anything (`Engine::exclusive_file` and `Engine::preflight`; pinned by Core's `exclusive_reconnect.rs` and `a_window_reconnecting_a_duckdb_file_replaces_its_old_connection`).

@@ -1,4 +1,4 @@
-//! The turns a workspace runs and what each waits for (Decision 6): an
+//! The turns a workspace runs and what each waits for: an
 //! approval or a client tool's answer, keyed by the turn's stream id and
 //! the call's id. `ai.respond` reaches only this workspace's turns; a
 //! second answer to the same call is ignored; and a turn's waiters go with

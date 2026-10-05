@@ -1,4 +1,4 @@
-//! `query_read_only` (AI safety, Task 4): every attack goes through the
+//! `query_read_only` (AI safety): every attack goes through the
 //! read-only path and a normal session then checks it left no trace. Runs on
 //! an in-memory database and on a temp copy of the seeded file (skipped when
 //! it hasn't been seeded; `npm run e2e:db:seed`).
@@ -25,12 +25,12 @@
 //! check can't read, the scanners' `postgres_execute`/`mysql_execute`/…
 //! (SQL on an attached database, outside the read-only transaction), the UI
 //! server and `load_aws_credentials`. A table macro the user created that
-//! wraps one of them still runs (plan: Decision 1, gaps). The same check
+//! wraps one of them still runs (gaps). The same check
 //! admits only statements starting with SELECT or WITH, so `FROM t`,
 //! `VALUES`, `SUMMARIZE`, `DESCRIBE` and `SHOW`, which the driver allows,
 //! don't reach it from the AI.
 //!
-//! Accepted gaps (plan, "Probe results", DuckDB column), not asserted:
+//! Accepted gaps ("Probe results", DuckDB column), not asserted:
 //!
 //! - **Local file reads and network egress.** `read_text('/etc/hosts')` and
 //!   `read_csv('https://…')` are SELECTs and run. `enable_external_access`
@@ -284,7 +284,7 @@ fn spec(dir: &Scratch, wal: Option<PathBuf>) -> ReadOnlySpec {
     let ext_dir = dir.path("extensions");
 
     let attacks = vec![
-        // ── What the plan's probes found a read-only transaction allows ──
+        // ── What probing found a read-only transaction allows ──
         // duckdb-rs runs every statement but the last while preparing; the
         // COMMIT would end the read-only transaction.
         refused(

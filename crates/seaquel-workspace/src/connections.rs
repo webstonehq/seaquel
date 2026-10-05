@@ -5,8 +5,7 @@
 //! Both targets go through one function ([`plan`]), so a saved row and a
 //! form that describe the same connection get the same config. The v2
 //! fixtures in `tests/fixtures/connect-config-v2` are the spec; their README
-//! explains every rule and the phase 5a plan's Decision 6 row behind it. In
-//! short:
+//! explains every rule. In short:
 //!
 //! - **Secrets.** Supplied secrets always win. A saved row reads the ones
 //!   not supplied from the store under its save flags; a form reads nothing.

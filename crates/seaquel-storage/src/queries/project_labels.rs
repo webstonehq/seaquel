@@ -1,5 +1,5 @@
-//! `project_labels`: a project's custom connection labels, one row each
-//! (phase 5d Decision 10). The three predefined labels aren't stored; their
+//! `project_labels`: a project's custom connection labels, one row each.
+//! The three predefined labels aren't stored; their
 //! ids appear only in `connection_labels`.
 //!
 //! `connection_labels` has no foreign key to this table, so removing a label
@@ -109,7 +109,7 @@ pub async fn delete(tx: &mut WriteTx, project_id: &str, label_id: &str) -> Resul
 }
 
 /// Takes `label_id` off every connection that has it, in any project (phase
-/// 5d Decision 10: no row may point at a removed label), and returns their
+/// No row may point at a removed label), and returns their
 /// ids in rowid order. Custom label ids are unique across projects, so only
 /// the removed label's rows go.
 pub async fn strip_from_connections(tx: &mut WriteTx, label_id: &str) -> Result<Vec<String>> {

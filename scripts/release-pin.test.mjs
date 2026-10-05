@@ -1,5 +1,5 @@
-// The DuckDB helper's pin in the release job (the desktop DuckDB helper plan,
-// Task 9): what `release-pin.mjs` exports for the app's build, how it checks
+// The DuckDB helper's pin in the release job:
+// what `release-pin.mjs` exports for the app's build, how it checks
 // the built app, and that the uploaded .gz is the one it hashed.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";

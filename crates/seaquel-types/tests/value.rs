@@ -1,5 +1,5 @@
-//! The `Value` wire format. See "Value wire format" in
-//! docs/plans/2026-09-25-rust-core-phase-1-plan.md: plain JSON wherever
+//! The `Value` wire format (`src/value.rs`; CLAUDE.md, "Cell values"):
+//! plain JSON wherever
 //! JavaScript holds the value exactly, a `{"$sq": kind, "v": …}` tag otherwise.
 
 use seaquel_types::{SqlWithBindings, Value};

@@ -1,6 +1,6 @@
 /**
- * Keeping a shown row's object when a reload reads it back unchanged (phase
- * 7a Task 1 review). Every `external` event (another process wrote the
+ * Keeping a shown row's object when a reload reads it back unchanged.
+ * Every `external` event (another process wrote the
  * file) reloads every list, and replacing each row's object with an equal
  * new one would re-render every dashboard, connection and query it touches.
  */

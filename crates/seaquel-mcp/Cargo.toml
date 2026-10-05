@@ -13,7 +13,7 @@ futures = { workspace = true }
 # native DuckDB): the server registers no engine; `seaquel-cli` builds its
 # Core through seaquel-terminal, with DuckDB in the helper.
 # `engine-duckdb-remote` (no DuckDB linked) for `Core::duckdb_helper_status`,
-# which words a missing helper's tool error (the DuckDB helper plan, Task 8).
+# which words a missing helper's tool error.
 seaquel-core = { path = "../seaquel-core", default-features = false, features = ["storage", "secrets", "ssh", "workspace", "ai", "engine-duckdb-remote"] }
 seaquel-types = { path = "../seaquel-types" }
 rmcp = { workspace = true }

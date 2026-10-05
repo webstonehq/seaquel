@@ -1,5 +1,9 @@
 # Postgres dialect fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`. The same day, the `about` text of `bugfixes.json` (no test reads it) gained ", now in git history at ae7f269" after the plan it names; nothing else in the file changed.
+
 These JSON files were recorded from the TypeScript `PostgresAdapter`
 (`src/lib/db/postgres.ts`) during phase 1 of the Rust core work, by running it
 against the e2e Postgres database. They pinned down what the Rust port had to
@@ -17,7 +21,7 @@ where the Rust dialect deliberately differs from the old TypeScript output (see
 
 The recorder was `scripts/fixtures/postgres-dialect.fixtures.test.ts`, run with
 `npm run fixtures:postgres`. It was removed together with the TypeScript adapter
-it imported. A reference copy is kept at
+it imported. A reference copy was kept at
 `docs/plans/artifacts/2026-09-25-postgres-fixture-recorder.ts.txt` (renamed so
 no tooling runs it). Phase 2 replaced it with one recorder for every engine,
 kept at `docs/plans/artifacts/2026-09-27-recorder-*.txt`.

@@ -37,7 +37,7 @@
         try {
             const { announce } = await vault.unlock(pp);
             // Not when an assistant send asked for the key: the toast
-            // would cover its Stop button (phase 6 probe F1).
+            // would cover its Stop button.
             if (announce) toast.success("Vault unlocked");
         } catch (err) {
             errorToast((err as Error).message);

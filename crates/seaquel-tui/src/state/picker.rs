@@ -1,8 +1,8 @@
-//! Choosing what to connect to (Decision 10, panel 1): the picker (a
+//! Choosing what to connect to (panel 1): the picker (a
 //! project, then one of its connections), how `--project` and
 //! `--connection` skip it (an id, else an exact, case-sensitive name, as
 //! `seaquel-cli mcp` resolves them), and what the TUI remembers between
-//! runs (Q4 A: the state file, `runtime/state_file.rs`).
+//! runs (the state file, `runtime/state_file.rs`).
 
 use std::collections::BTreeMap;
 
@@ -22,9 +22,8 @@ pub struct Picker {
     pub selected: usize,
 }
 
-/// What the TUI remembers between runs (Q4 A). Ids only, no names; the
-/// open query tabs keep their text (Q4 A's "open query tabs with their
-/// text").
+/// What the TUI remembers between runs. Ids only, no names; the
+/// open query tabs keep their text.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Remembered {
     pub last_project: Option<String>,
@@ -35,16 +34,16 @@ pub struct Remembered {
     pub saved_tab: Option<String>,
     /// `--theme`, once given: `dark` or `light`.
     pub theme: Option<String>,
-    /// The open query tabs (Task 6) and the active one.
+    /// The open query tabs and the active one.
     pub query_tabs: Vec<RememberedTab>,
     pub query_active: usize,
 }
 
-/// A tab's text kept longer than this isn't written to the state file
-/// (review M1): the tab is remembered with a notice instead.
+/// A tab's text kept longer than this isn't written to the state file:
+/// the tab is remembered with a notice instead.
 pub const MAX_REMEMBERED_TEXT: usize = 1024 * 1024;
 
-/// A query tab as the state file keeps it (review M1): the saved query it
+/// A query tab as the state file keeps it: the saved query it
 /// came from (by id; its name and stored text are read from the library),
 /// a hash of the stored text, and the text only when it differs from the
 /// stored one and is at most [`MAX_REMEMBERED_TEXT`]. `Debug` shows no

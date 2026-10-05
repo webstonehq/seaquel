@@ -1,5 +1,5 @@
-//! The import readers' pure mapping (`seaquel_workspace::imports`, phase 5e
-//! Task 4a): every TablePlus and DBeaver case in `tests/fixtures/imports`
+//! The import readers' pure mapping (`seaquel_workspace::imports`):
+//! every TablePlus and DBeaver case in `tests/fixtures/imports`
 //! replayed through `tableplus_candidates`/`dbeaver_candidates` and
 //! `mark_duplicates`, compared with `changes.json` exactly. Core's replay
 //! (`seaquel-core/tests/imports.rs`) reads the same inputs from a temp home.
@@ -710,7 +710,7 @@ fn never_panics() {
         assert_eq!(dbeaver_candidates(doc.as_bytes()), Ok(Vec::new()));
     }
     // A configuration too deep to decode has no fields; the connection
-    // stays (review M2), and has no name.
+    // stays, and has no name.
     let deep_config = format!(
         r#"{{"connections": {{"k": {{"provider": "postgres", "configuration": {nested}}}}}}}"#
     );
@@ -751,7 +751,7 @@ fn debug_shows_no_host_name_or_user() {
     );
 }
 
-/// Coordinator's decision (Decision 47): a TablePlus SSH port that isn't a
+/// Coordinator's decision: a TablePlus SSH port that isn't a
 /// whole number from 0 to 65535 is `invalidSshPort`, with the tunnel's port
 /// 0, since `connectionCreate` would refuse it. `parseInt(…) || 22` still
 /// makes `NaN` and 0 into 22. Id problems and `invalidPort` come first. No
@@ -810,7 +810,7 @@ fn an_ssh_port_out_of_range_is_a_problem() {
     );
 }
 
-/// Coordinator's decision (Decision 47): a DBeaver connection whose name is
+/// Coordinator's decision: a DBeaver connection whose name is
 /// missing, `null` or blank after JavaScript's trim is `noName`, since
 /// `connectionCreate` refuses an empty name. `invalidPort` comes first. No
 /// recorded case has such a connection.
@@ -856,7 +856,7 @@ fn a_dbeaver_connection_without_a_name_is_a_problem() {
     );
 }
 
-/// Review M1: a `connections` object or array that doesn't decode (a key
+/// A `connections` object or array that doesn't decode (a key
 /// with a lone surrogate escape, which `serde_json` can't hold) is
 /// unreadable, never an empty list.
 #[test]
@@ -876,7 +876,7 @@ fn undecodable_connections_are_unreadable() {
     assert_eq!(dbeaver_candidates(ok.as_bytes()).unwrap()[0].key, "A🦀");
 }
 
-/// Review M2: only `provider`, `name` and `configuration` (and in it
+/// Only `provider`, `name` and `configuration` (and in it
 /// `host`, `port`, `database` and `user`) are read, so a number past f64's
 /// range or deep nesting anywhere else keeps the connection, as in
 /// JavaScript. Such a number in a field that is read is `Infinity`.
@@ -926,7 +926,7 @@ fn fields_that_arent_read_never_drop_a_connection() {
     );
 }
 
-/// Review M3: a driver or provider named like an `Object.prototype` member
+/// A driver or provider named like an `Object.prototype` member
 /// is unsupported (the TypeScript's map lookup returned the inherited
 /// function).
 #[test]

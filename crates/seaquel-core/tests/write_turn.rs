@@ -1,4 +1,4 @@
-//! The write turn's wait runs on Core's executor (phase 8 Decision 5).
+//! The write turn's wait runs on Core's executor.
 //!
 //! In the browser there is no tokio timer, so storage's `WRITE_WAIT` has to
 //! race the executor's `sleep`. Core hands storage its executor when it

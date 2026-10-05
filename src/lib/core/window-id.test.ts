@@ -1,5 +1,5 @@
 /**
- * The window id (phase 5d-2, Decision 22): the web tab's `win-<uuid>` in
+ * The window id (phase 5d-2): the web tab's `win-<uuid>` in
  * `sessionStorage`, a new one for a duplicated tab, settled before the
  * page's first Core call, and the origin of every call and of the socket.
  */

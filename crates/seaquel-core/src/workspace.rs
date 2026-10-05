@@ -66,8 +66,8 @@ pub struct WorkspaceSpec {
 }
 
 impl WorkspaceSpec {
-    /// Opens the storage as a second process beside the app (phase 7a
-    /// Decision 3; the TUI): writable, but only a current file
+    /// Opens the storage as a second process beside the app (the TUI):
+    /// writable, but only a current file
     /// ([`seaquel_storage::SchemaPolicy::RequireCurrent`]: a missing file is
     /// `STORAGE_NOT_FOUND`, one with schema work left
     /// `STORAGE_NEEDS_UPGRADE`, and nothing is created or migrated), and
@@ -88,8 +88,8 @@ impl WorkspaceSpec {
     /// Polls the storage every `interval` for commits made by any other
     /// connection to the file (another process: the TUI beside the app, or
     /// the app beside the TUI), and announces each change it sees as one
-    /// [`WorkspaceEvent::StorageChanged`] of kind [`StoredKind::External`]
-    /// (phase 7a Decision 6). Off by default; the desktop app and the TUI
+    /// [`WorkspaceEvent::StorageChanged`] of kind [`StoredKind::External`].
+    /// Off by default; the desktop app and the TUI
     /// turn it on (1 s), the web server and the demo don't. Native only:
     /// in the browser no one else writes the file.
     ///
@@ -136,7 +136,7 @@ impl WorkspaceSpec {
         self
     }
 
-    /// The browser's open (phase 8 Decision 4): the metadata file in memory,
+    /// The browser's open: the metadata file in memory,
     /// starting from `image` (the snapshot the page kept), or empty. The
     /// data dir and file name then only name the file in errors.
     #[cfg(all(feature = "storage", target_arch = "wasm32"))]
@@ -198,7 +198,7 @@ impl fmt::Display for WorkspaceId {
 /// being asked to close. Core watches each connection whose driver can tell
 /// (`Driver::closed`, the remote DuckDB driver: its helper died) and, when
 /// it fires, takes the connection out and announces it with the driver's
-/// message (the desktop DuckDB helper plan, Decision 7). Other drivers
+/// message. Other drivers
 /// don't notice a lost connection by themselves: their calls fail instead.
 pub const CONNECTION_CLOSED: &str = "CONNECTION_CLOSED";
 
@@ -212,15 +212,13 @@ pub const TUNNEL_CLOSED: &str = "TUNNEL_CLOSED";
 pub const WORKSPACE_EVICTED: &str = "WORKSPACE_EVICTED";
 
 /// [`WorkspaceEvent::ConnectionClosed`]: [`Workspace::close_owned_by`]
-/// closed it, because the window that opened it is gone (the web server
-/// reaps a window whose last `/rpc/stream` socket stayed closed past its
-/// grace period; phase 6 probe F4).
+/// closed it, because the window that opened it is gone (the web server reaps a window whose last `/rpc/stream` socket stayed closed past its grace period).
 pub const WINDOW_CLOSED: &str = "WINDOW_CLOSED";
 
 /// [`WorkspaceEvent::ConnectionClosed`]: the window that opened it
 /// connected the same saved connection again, and [`Workspace::connect`]
 /// (or [`Workspace::bind_saved_connection`]) closed this older one once
-/// the new one had opened (phase 6 probe F4).
+/// the new one had opened.
 pub const CONNECTION_REPLACED: &str = "CONNECTION_REPLACED";
 
 /// [`CONNECTION_REPLACED`]'s message.
@@ -256,7 +254,7 @@ pub enum WorkspaceEvent {
         code: String,
         message: String,
     },
-    /// A stored write committed (phase 5d, Decision 16): exactly one per
+    /// A stored write committed (phase 5d): exactly one per
     /// write, after its commit, and none for a refused or failed call.
     StorageChanged(StorageChange),
 }
@@ -268,7 +266,7 @@ pub struct Workspace {
     /// Set by [`Workspace::close_all`]: no new connection after it.
     closed: AtomicBool,
     /// Cancelled by [`Workspace::close_all`], for the calls it must stop
-    /// that aren't streams (an apply's transaction, probe M1). Streams are
+    /// that aren't streams (an apply's transaction). Streams are
     /// cancelled through their own tokens.
     closing: CancellationToken,
     /// The receivers [`Workspace::events`] handed out; a dropped one is
@@ -279,10 +277,10 @@ pub struct Workspace {
     /// [`crate::ConnectionLimits::per_workspace`] with the open connections.
     #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
     connecting: Mutex<Connecting>,
-    /// The change sequence (phase 5d, Decision 17).
+    /// The change sequence (phase 5d).
     changes: ChangeCounter,
     /// Cancelled by [`Workspace::close`] and [`Workspace::close_all`]: ends
-    /// the external-changes poll (phase 7a Decision 6).
+    /// the external-changes poll.
     poll_stop: CancellationToken,
     /// Whether the external-changes poll is running.
     polling: AtomicBool,
@@ -302,7 +300,7 @@ pub struct Workspace {
 
 impl Workspace {
     /// Opens the spec's storage. With an `executor` (Core's), storage's
-    /// write turn waits on its clock (phase 8 Decision 5): the page's timer
+    /// write turn waits on its clock: the page's timer
     /// in the browser, tokio's natively.
     pub(crate) async fn open(
         spec: WorkspaceSpec,
@@ -507,7 +505,7 @@ impl Workspace {
         core.bind_saved_as(connection_id, self.id, saved_id)
             .map_err(|e| CoreError::new(e.code, e.message))?;
         // Now it is the window's connection for that saved connection: an
-        // older one the window still holds for it goes (phase 6 probe F4).
+        // older one the window still holds for it goes.
         if let Some(window) = core.window_of(connection_id, self.id) {
             self.replace_older(core, connection_id, &window, saved_id)
                 .await;
@@ -518,7 +516,7 @@ impl Workspace {
     /// Close the connections window `window` holds for saved connection
     /// `saved_id` that opened before `keep` (its new one), cancelling their streams
     /// as [`Workspace::disconnect`] does, and announce each as
-    /// [`CONNECTION_REPLACED`] (phase 6 probe F4: a reload reconnects
+    /// [`CONNECTION_REPLACED`] (a reload reconnects
     /// everything, and the page's old connections would otherwise stay open
     /// until eviction).
     async fn replace_older(&self, core: &Core, keep: &str, window: &str, saved_id: &str) {
@@ -563,7 +561,7 @@ impl Workspace {
             taken_out.push((id, taken));
         }
         let closed = taken_out.len();
-        // Side by side (the desktop DuckDB helper plan, Task 4 review I2):
+        // Side by side:
         // one slow close (a DuckDB helper's checkpoint) doesn't hold the
         // others open.
         futures::future::join_all(taken_out.into_iter().map(|(id, taken)| async move {
@@ -666,7 +664,7 @@ impl Workspace {
         Arc::downgrade(&self.subscribers)
     }
 
-    /// The published change sequence (Decision 17): every write numbered up
+    /// The published change sequence: every write numbered up
     /// to it has committed or failed. A read records it before its SELECTs,
     /// so what it returns is at least that new.
     pub fn change_seq(&self) -> ChangeSeq {
@@ -703,7 +701,7 @@ impl Workspace {
     }
 
     /// Announce a write that committed without a Core write transaction:
-    /// the storage group's writes, which `seaquel-rpc` makes (Decision 16).
+    /// the storage group's writes, which `seaquel-rpc` makes.
     /// The number is taken after the commit, which the published sequence
     /// allows for (see `changes.rs`). Call it only after the write
     /// succeeded.
@@ -718,7 +716,7 @@ impl Workspace {
         self.announce(ticket, kind, scope, ids, origin)
     }
 
-    /// Starts the external-changes poll (phase 7a Decision 6): every
+    /// Starts the external-changes poll: every
     /// `interval` on `executor`'s clock, [`Storage::external_version`]; a
     /// value that moved since the last poll is one
     /// [`StoredKind::External`] event, after taking a change-sequence
@@ -841,14 +839,14 @@ pub const SECRET_UNREADABLE: &str = "SECRET_UNREADABLE";
 /// `Workspace::connect` when every secret read the connection needs found
 /// no store at all (no Secret Service on a headless Linux host, no login
 /// keychain over SSH on macOS; `SecretError::unavailable`), so an
-/// interface can ask for the secret instead (phase 7a probe F4). A refusal
+/// interface can ask for the secret instead. A refusal
 /// among the reads is `SECRET_UNREADABLE`.
 #[cfg(feature = "workspace")]
 pub const SECRET_STORE_UNAVAILABLE: &str = "SECRET_STORE_UNAVAILABLE";
 
 /// The code a workspace without a secret store (the web server's) gives a
-/// secret read. `Workspace::connect` no longer fails with it (phase 6 probe
-/// F5): a saved row then connects with only what was supplied, as a form
+/// secret read. `Workspace::connect` no longer fails with it:
+/// a saved row then connects with only what was supplied, as a form
 /// does. Kept for the builder's SSH wording and the other reads.
 #[cfg(feature = "workspace")]
 pub const NO_SECRET_STORE: &str = "NO_SECRET_STORE";
@@ -905,12 +903,12 @@ pub struct ConnectRequest {
     /// undone on a running instance and would break the editor's file
     /// functions.
     pub restricted: bool,
-    /// The saved connection a form connect opens (phase 6, Decision 6):
+    /// The saved connection a form connect opens (phase 6):
     /// Core records it on the connection, and an assistant turn refuses a
     /// connection whose recorded id isn't its chat's (`CONNECTION_MISMATCH`).
     /// A saved target records its own id when this is `None`.
     pub saved_connection_id: Option<String>,
-    /// The window (write origin) that asks (phase 6 probe F4). Core records
+    /// The window (write origin) that asks. Core records
     /// it on the connection; [`Workspace::close_owned_by`] closes a
     /// window's connections, and a window's new connection for a saved
     /// connection replaces its older ones. None: the connection belongs to
@@ -983,7 +981,7 @@ impl ConnectRequest {
         self
     }
 
-    /// A saved target may only be recorded as itself (review M6); a form
+    /// A saved target may only be recorded as itself; a form
     /// connect's `savedConnectionId` is trusted (the page connects before
     /// the row exists).
     fn check_saved_id(&self) -> Result<(), CoreError> {
@@ -1037,7 +1035,7 @@ impl Workspace {
         let window = req.origin.as_deref().map(str::to_string);
         let saved_id = req.recorded_saved_id();
         // The window's older connections for this saved connection, which
-        // this one replaces once it has opened (phase 6 probe F4): they
+        // this one replaces once it has opened: they
         // don't count against the cap, so a reload at the cap still works.
         let replaced = match (&window, &saved_id) {
             (Some(window), Some(saved)) => core.connections_of_window(self.id, window, Some(saved)),
@@ -1058,8 +1056,8 @@ impl Workspace {
                     // A file one connection holds exclusively (DuckDB
                     // through its helper): the window's older connections
                     // for it would block this one, so they go now, once
-                    // nothing but the open itself can refuse it (Decision
-                    // 21). A failed open then has closed them anyway;
+                    // nothing but the open itself can refuse it.
+                    // A failed open then has closed them anyway;
                     // other engines keep the replace after the open.
                     if let (Some(window), Some(saved)) = (&window, &saved_id) {
                         if engine.exclusive_file(&config) {
@@ -1191,9 +1189,9 @@ impl Workspace {
     /// lock, and a connect releases its slot only after its connection is
     /// in Core's map, so concurrent calls can't pass the cap.
     ///
-    /// `replaced` are the open connections this connect will replace (phase
-    /// 6 probe F4): they don't count, so a tab at the cap can reload. The
-    /// discount is netted across the connects in flight (review M2): every
+    /// `replaced` are the open connections this connect will replace:
+    /// they don't count, so a tab at the cap can reload. The
+    /// discount is netted across the connects in flight: every
     /// slot's ids are kept under the same lock, and an open connection that
     /// any of them will replace is discounted once, however many claim it.
     fn reserve_slot(
@@ -1268,7 +1266,7 @@ impl Workspace {
         // workspace with no store at all (the web) is different: nothing
         // was refused, there is just nowhere a secret could be, so a saved
         // row connects with what was supplied, as a form does (phase 6
-        // probe F5: a trust-auth database saved with `savePassword` on).
+        // A trust-auth database saved with `savePassword` on).
         // The builder still words a missing SSH password itself.
         let failed: Vec<&UnreadableSecret> = plan
             .secrets()
@@ -1281,7 +1279,7 @@ impl Workspace {
                 Target::Saved(row) => row.name.as_str(),
                 Target::Form(form) => form.name.as_str(),
             };
-            // A store that isn't there (probe F4) isn't a refusal; a
+            // A store that isn't there isn't a refusal; a
             // refusal among the reads still wins.
             if failed.iter().all(|u| u.code == SECRET_STORE_UNAVAILABLE) {
                 return Err(unavailable_error(name, first));
@@ -1683,7 +1681,7 @@ impl fmt::Debug for Workspace {
 pub struct CoreError {
     pub code: String,
     pub message: String,
-    /// For `NAME_TAKEN` (phase 5d, Q3): the id of the row that has the name.
+    /// For `NAME_TAKEN` (phase 5d): the id of the row that has the name.
     pub taken_by: Option<String>,
 }
 

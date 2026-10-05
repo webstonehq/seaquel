@@ -1,6 +1,6 @@
 //! The read-only statement gate: SQLite's own parser decides whether a
 //! query is exactly one statement that doesn't write, before the driver's
-//! read-only path runs it (plan: AI safety, Decision 1 and open question 2).
+//! read-only path runs it.
 //!
 //! sqlx runs every statement in a string, so `SELECT 1; INSERT …` would
 //! insert, and `PRAGMA query_only = OFF; INSERT …` would switch off the

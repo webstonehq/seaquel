@@ -1,7 +1,7 @@
 //! The terminal binaries' `--version` reports the desktop app's version,
 //! since they ship with it. It's read from `src-tauri/Cargo.toml`, the
 //! version the release steps bump, so no crate's own `0.1.0` ever shows.
-//! (Moved from `seaquel-cli`'s `build.rs`, Decision 21.)
+//! (Moved from `seaquel-cli`'s `build.rs`.)
 
 use std::path::Path;
 

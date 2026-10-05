@@ -1,4 +1,4 @@
-//! `windows` (migration `0002_window_state.sql`, phase 5d-2 Decision 22):
+//! `windows` (migration `0002_window_state.sql`):
 //! one row per desktop window (its webview label) or web browser tab
 //! (`win-<uuid>`), with the project it shows and when it was last used.
 //! A window's view state per project is in `window_state`, which cascades
@@ -8,7 +8,7 @@
 //! (`2026-10-04T00:00:00.000Z`), which order as text. The 30-day prune
 //! goes by them; "most recently used" goes by `write_seq` (migration
 //! `0003`), one past the table's highest on every write, so it is the last
-//! write committed even when two land in one millisecond (5d-2 Task 7).
+//! write committed even when two land in one millisecond.
 
 use crate::db;
 use crate::db::Row;
@@ -103,8 +103,8 @@ pub const MOST_RECENT_ACTIVE: &str = "\
     FROM windows WHERE active_project_id IS NOT NULL \
     ORDER BY write_seq DESC, rowid DESC LIMIT 1";
 
-/// `windowGet`'s fallback for a window with no active project of its own
-/// (Decision 22): the most recently used window that has one, or `None`.
+/// `windowGet`'s fallback for a window with no active project of its own:
+/// the most recently used window that has one, or `None`.
 pub async fn most_recent_active(r: impl Into<Reader<'_>>) -> Result<Option<WindowRow>> {
     let mut conn = r.into().conn().await?;
     let row = db::query(MOST_RECENT_ACTIVE)
@@ -144,7 +144,7 @@ pub(crate) fn spare_json(spare: &[&str]) -> Result<String> {
     serde_json::to_string(spare).map_err(|e| encode_error(e.to_string()))
 }
 
-/// The bounded cleanup a view-state save runs (Decision 22), each step one
+/// The bounded cleanup a view-state save runs, each step one
 /// indexed `DELETE` of at most [`PRUNE_BATCH`] windows (their view states
 /// cascade):
 /// - windows last used before `unused_before` (Core passes 30 days ago);

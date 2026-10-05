@@ -11,7 +11,7 @@
 //! {"method":"library","result":{"method":"connectionRemove","result":{"value":null,"seq":{"epoch":"…","n":7}}}}
 //! ```
 //!
-//! Every result is a `Seqd` (`{value, seq}`, Decision 17): a write's `seq`
+//! Every result is a `Seqd` (`{value, seq}`): a write's `seq`
 //! is its own number, a list's the published number it's at least as new
 //! as. Request fields are camelCase; drafts and patches are
 //! `seaquel_core::domain::library`'s (a patch field left out is kept, a
@@ -146,7 +146,7 @@ pub enum LibraryRequest {
         dashboard: DashboardDraft,
     },
     /// Records a version of the previous state only when the patch says
-    /// `captureVersion: true` (Decision 21).
+    /// `captureVersion: true`.
     DashboardUpdate {
         id: String,
         patch: DashboardPatch,

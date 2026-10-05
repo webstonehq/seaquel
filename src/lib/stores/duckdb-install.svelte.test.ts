@@ -1,6 +1,6 @@
 /**
- * The DuckDB support install dialog's store (desktop DuckDB helper plan,
- * Task 5, Decision 10): the steps (checking, the question, the download,
+ * The DuckDB support install dialog's store:
+ * the steps (checking, the question, the download,
  * a failure worded by code), one shared request for every connect that
  * meets it, cancel through `duckdb_helper_cancel`, and "Install from a
  * file…". A fake service stands in for the Tauri commands.
@@ -196,7 +196,7 @@ describe("failures", () => {
     expect(service.calls).toEqual(["offer", "install", "pick", "file /copies/seaquel-duckdb.gz"]);
   });
 
-  // Task 10's P2: under the pin the download is the only request, so a
+  // Under the pin the download is the only request, so a
   // release without this platform's file says so there. The file can still
   // come from another computer.
   it.each(["ASSET_NOT_FOUND", "RELEASE_NOT_FOUND"])(

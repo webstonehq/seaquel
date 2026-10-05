@@ -1,7 +1,7 @@
-//! How names are compared (phase 5d, Q3), shared by Core's checks
+//! How names are compared (phase 5d), shared by Core's checks
 //! (`seaquel_workspace::library`, which re-exports it) and by storage, which
 //! stores each connection's, project's and saved query's key in a
-//! `name_key` column (phase 5d-1 probe fix) and backfills it in a data
+//! `name_key` column and backfills it in a data
 //! step. One function for both, so the stored keys and new writes agree by
 //! construction.
 //!
@@ -33,7 +33,7 @@ pub fn js_trim(s: &str) -> &str {
     s.trim_matches(is_js_space)
 }
 
-/// The key names are compared by (Q3): trimmed, NFC-normalised and fully
+/// The key names are compared by: trimmed, NFC-normalised and fully
 /// Unicode case-folded, so `Straße` equals `STRASSE`, and a name typed in
 /// NFD equals its NFC form. The fold runs between two normalisations, since
 /// folding can leave text that isn't NFC.

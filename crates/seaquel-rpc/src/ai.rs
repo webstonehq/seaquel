@@ -70,11 +70,11 @@ pub enum AiRequest {
         call_id: String,
         decision: AiDecision,
     },
-    /// The inline prompt: the SQL to insert (Decision 18).
+    /// The inline prompt: the SQL to insert.
     Generate(GenerateParams),
-    /// The provider's model ids (Decision 28).
+    /// The provider's model ids.
     Models(ProviderParams),
-    /// Whether the provider takes the key (Decision 28).
+    /// Whether the provider takes the key.
     Test(ProviderParams),
 }
 

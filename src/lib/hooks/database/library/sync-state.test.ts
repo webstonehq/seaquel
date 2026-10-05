@@ -1,5 +1,5 @@
 /**
- * Other windows' 5d-2 changes reaching this page (Decisions 16 and 18):
+ * Other windows' 5d-2 changes reaching this page:
  * dashboards, saved workflows, AI chats and their messages, and the
  * settings kinds, through `LibrarySync` + `ChangeFeed` and the view models,
  * over one recording library that two pages share and a Core client whose
@@ -408,7 +408,7 @@ describe("other windows' 5d-2 changes", () => {
   });
 
   it("Stop: Core's later store of the stopped reply reaches the page despite its own origin", async () => {
-    // Review: on Stop the transport ends the stream at once, so the
+    // On Stop the transport ends the stream at once, so the
     // re-read after the turn runs before Core stores what streamed; Core's
     // `chatMessages` event then carries this page's origin.
     const one = await openPage("tab-1");

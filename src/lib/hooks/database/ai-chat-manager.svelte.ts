@@ -11,11 +11,11 @@ import { withLiveView } from "./ai/events.js";
 import type { PersistedAIMessage } from "$lib/types/generated/PersistedAIMessage";
 
 /**
- * AI chats (phase 5d-2, Decision 24): a chat is created at once through
+ * AI chats (phase 5d-2): a chat is created at once through
  * Core (`chatCreate`, Core's id) and its title is a `chatUpdate`. Its
  * messages are Core's to store since phase 6: a turn's `done` or `error`
  * carries the rows Core stored, applied here by their `seq`. A turn past
- * the web's per-chat budget (`CHAT_FULL`, Q17) marks the chat full: the
+ * the web's per-chat budget (`CHAT_FULL`) marks the chat full: the
  * refused turn stays on screen, and sending there stops.
  */
 export class AIChatManager {
@@ -219,7 +219,7 @@ export class AIChatManager {
 
   /**
    * The rows Core stored for a turn (`done.messages`, or an `error`'s), at
-   * their `seq` (phase 6, Decision 31): each replaces the message the page
+   * their `seq` (phase 6): each replaces the message the page
    * showed under its id, keeping what the page saw live (tool rows, the
    * worded error), unless a newer version of it was applied already.
    */

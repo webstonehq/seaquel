@@ -155,7 +155,7 @@
 
 		const linkedPath = project?.gitRepoPath;
 		if (saveHasPendingGitChange && savePendingGitRepoPath !== linkedPath) {
-			// Every question first, so a cancel changes nothing (Q30, Q31).
+			// Every question first, so a cancel changes nothing.
 			// A new link asks which connections to share: the user's own,
 			// the ones shared from here included (a relink keeps them).
 			let share: string[] = [];

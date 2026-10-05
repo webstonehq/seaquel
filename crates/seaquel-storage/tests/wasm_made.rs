@@ -1,4 +1,4 @@
-//! A metadata file made by the browser's storage (phase 8 Decision 4)
+//! A metadata file made by the browser's storage
 //! opens natively with nothing pending: `tests/wasm.rs` writes
 //! `fixtures/wasm-made/meta.db` from wasm32 (with
 //! `SEAQUEL_RECORD_WASM_FIXTURE=1`), and this opens it read-only, which

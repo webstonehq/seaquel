@@ -819,7 +819,7 @@ fn models_answers_decode() {
     ));
 }
 
-// ------------------------------------------------- per-round budget (review fix 1) --
+// ------------------------------------------------- per-round budget --
 
 use seaquel_ai::wire::{MAX_OPEN_CALLS, MAX_ROUND_TEXT_BYTES, MAX_TOOL_ARGUMENT_BYTES};
 
@@ -959,7 +959,7 @@ fn a_rounds_text_past_the_budget_is_refused() {
     assert!(took <= 16, "took {took}");
 }
 
-// ------------------------------------------------------------ fuzz (review fix 8) --
+// ------------------------------------------------------------ fuzz --
 
 /// xorshift64*, seeded, so a failure reproduces.
 struct Rng(u64);
@@ -1034,7 +1034,7 @@ fn the_decoder_never_panics_on_random_input() {
     }
 }
 
-// --------------------------------------------------- models cap (review fix 9) --
+// --------------------------------------------------- models cap --
 
 #[test]
 fn the_model_list_has_its_own_larger_cap() {
@@ -1049,7 +1049,7 @@ fn the_model_list_has_its_own_larger_cap() {
     assert_eq!(decode_models(body.as_bytes()).unwrap().len(), 4000);
 }
 
-// ------------------------------------------- names, ids and call count (re-review) --
+// ------------------------------------------- names, ids and call count --
 
 use seaquel_ai::wire::{MAX_ROUND_CALLS, MAX_TOOL_NAME_BYTES};
 
@@ -1134,7 +1134,7 @@ fn a_round_has_at_most_64_tool_calls_in_all() {
     assert_eq!(fed_until_refused(ProviderKind::Anthropic, events), 128);
 }
 
-// ── The supplied key in a provider's message (Task 8 review) ──
+// ── The supplied key in a provider's message ──
 
 #[test]
 fn a_status_message_that_echoes_the_key_is_redacted_before_the_cut() {

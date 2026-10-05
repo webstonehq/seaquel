@@ -1,5 +1,5 @@
 //! `query_history::append` and `set_favorite`: the targeted history writes
-//! that replace the TypeScript's whole-list `replaceAll` (phase 5b Task 3).
+//! that replace the TypeScript's whole-list `replaceAll`.
 //!
 //! The cap must be exactly the rule `serializeQueryHistory` applied to the
 //! in-memory list before every save, so an existing user's first append
@@ -301,7 +301,7 @@ async fn a_favourite_set_after_the_cap_passed_it_is_kept() {
     assert!(kept.contains("h0"));
 }
 
-/// Decision 11's accepted difference: a legacy file (written newest first by
+/// An accepted difference: a legacy file (written newest first by
 /// `replace_all`) with two rows sharing a timestamp across the cap. The old
 /// serializer, working on the load order it had (the lower rowid first),
 /// kept the newer row; `append` ranks ties by `rowid DESC` and keeps the

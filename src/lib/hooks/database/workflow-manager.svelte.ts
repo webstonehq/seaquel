@@ -31,7 +31,7 @@ import { keepSame } from "./library/same-data.js";
 const DEFAULT_NODE_WIDTH = 320;
 
 /**
- * The most rows a workflow query node fetches (phase 5c, Decision 10).
+ * The most rows a workflow query node fetches (phase 5c).
  * Result rows are saved with the workflow, so the cap is well under the
  * engine's 100,000; a result past it is cut short and says so.
  */
@@ -65,7 +65,7 @@ function rowsOf(data: WorkflowNodeData | undefined): unknown[][] | null {
 }
 
 /**
- * The nodes as stored (Q16, Decision 23): a chart node whose source, in the
+ * The nodes as stored: a chart node whose source, in the
  * same workflow, holds rows is stored with `rows: []`, since the load
  * rebuilds it from there. Any other chart keeps its rows.
  */
@@ -469,8 +469,8 @@ export class WorkflowManager {
   // === QUERY EXECUTION ===
 
   /**
-   * Run a query node read-only on its own saved connection (phase 5c,
-   * Decision 10), at most `WORKFLOW_MAX_ROWS` rows, and create or update its
+   * Run a query node read-only on its own saved connection (phase 5c),
+   * at most `WORKFLOW_MAX_ROWS` rows, and create or update its
    * result node. A write is refused as read-only. Re-running the node
    * cancels its run in flight; only the latest run updates the canvas.
    */
@@ -652,13 +652,13 @@ export class WorkflowManager {
   }
 
   /**
-   * Save the current workflow (Decision 23): a new one is `workflowCreate`
+   * Save the current workflow: a new one is `workflowCreate`
    * (Core gives it its id and times), one already saved `workflowUpdate`.
    * `activeWorkflowId` is looked up in every project the page holds, since
    * the canvas is global: after a project switch it still names the
    * workflow it shows, which is updated where it lives (bug 22); an id no
    * project holds (deleted) saves a new one here. Chart nodes don't store
-   * their source's rows again (Q16). `null` when it wasn't saved: the error
+   * their source's rows again. `null` when it wasn't saved: the error
    * is shown and the canvas stays as it is.
    */
   async saveWorkflow(name?: string): Promise<SavedWorkflowSummary | null> {
@@ -722,8 +722,7 @@ export class WorkflowManager {
   }
 
   /**
-   * The stored workflow Core answered, listed as the sidebar lists it (the
-   * page holds no bodies: opening one reads it, 5d-2 Task 7).
+   * The stored workflow Core answered, listed as the sidebar lists it (the page holds no bodies: opening one reads it).
    */
   private show(stored: unknown): SavedWorkflowSummary | null {
     const o = (stored ?? {}) as Record<string, unknown>;
@@ -789,7 +788,7 @@ export class WorkflowManager {
   }
 
   /**
-   * A refused save. Past the web's `max_workflow_bytes` (Q16) it says so
+   * A refused save. Past the web's `max_workflow_bytes` it says so
    * once per workflow, naming it and the limit; anything else each time.
    */
   private refused(key: string, name: string, error: unknown): void {
@@ -811,7 +810,7 @@ export class WorkflowManager {
 
   /**
    * Open a saved workflow on the canvas: its body is read now
-   * (`workflowGet`), since the list holds none (5d-2 Task 7). Only the
+   * (`workflowGet`), since the list holds none. Only the
    * latest open lands: one clicked while another is being read wins. A
    * workflow that can't be read is said and the canvas stays; one deleted
    * elsewhere is also dropped from the list. False when nothing opened.
@@ -900,7 +899,7 @@ export class WorkflowManager {
     }
     this.forget(found?.projectId ?? this.state.activeProjectId, workflowId);
 
-    // An open of it still reading its body never lands (5d-2 Task 7 review).
+    // An open of it still reading its body never lands.
     if (this.openingId === workflowId) {
       this.opening++;
       this.openingId = null;
@@ -925,9 +924,8 @@ export class WorkflowManager {
   /**
    * Rename a saved workflow (`workflowRename`): Core changes only the
    * stored name, on the row as stored, so a save another window made isn't
-   * undone and the body never crosses (5d-2 Task 7 review). A workflow
-   * saved before 5d-2 keeps its chart copies: only `saveWorkflow` drops them
-   * (Decision 23).
+   * undone and the body never crosses. A workflow
+   * saved before 5d-2 keeps its chart copies: only `saveWorkflow` drops them.
    */
   async renameWorkflow(workflowId: string, newName: string): Promise<void> {
     const found = this.findSaved(workflowId);

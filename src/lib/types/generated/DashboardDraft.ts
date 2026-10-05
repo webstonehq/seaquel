@@ -11,7 +11,7 @@ export type DashboardDraft = { projectId: string, name: string, description?: st
 shared?: boolean, 
 /**
  * A taken name becomes the first free `"<name> (n)"` instead of
- * `NAME_TAKEN` (as the library's imports, Decision 13): "New
+ * `NAME_TAKEN` (as the library's imports): "New
  * Dashboard" and the git reconcile.
  */
 renameIfTaken?: boolean, };

@@ -1,5 +1,5 @@
 /**
- * A sync's notices (Decision 34), worded for the user. Core names rows by
+ * A sync's notices, worded for the user. Core names rows by
  * id and files by their path relative to `.seaquel/`; the page names the
  * rows it holds. Core already applies the once-per-session rule, so each
  * notice that arrives is said.
@@ -74,7 +74,7 @@ export function skipReason(why: SkipReason): string {
   }
 }
 
-/** The values a template replaced (Q27), as `field value` pairs, the fields worded. */
+/** The values a template replaced, as `field value` pairs, the fields worded. */
 function replacedText(replaced: ReplacedValues): string {
   const labels: Record<keyof ReplacedValues, () => string> = {
     name: m.shared_field_name,
@@ -145,7 +145,7 @@ export function failureText(
     (failure.projectId && state.projects.find((p) => p.id === failure.projectId)?.name) ||
     failure.dir ||
     "";
-  // Probe fix 8: a folder a project here already links isn't imported again.
+  // A folder a project here already links isn't imported again.
   const message =
     failure.code === PROJECT_ALREADY_LINKED
       ? m.shared_import_dir_already_linked()

@@ -1,4 +1,4 @@
-//! The browser's storage (phase 8 Task 2), run in wasm32 under Node:
+//! The browser's storage, run in wasm32 under Node:
 //!
 //! ```sh
 //! CC_wasm32_unknown_unknown=<a clang with the wasm32 backend> \
@@ -280,7 +280,7 @@ async fn history_keeps_an_applied_changes_values() {
 
 #[wasm_bindgen_test]
 async fn secure_delete_vacuum_and_checkpoint_work_in_memory() {
-    // The string-secrets upgrade calls all three (5d Decision 12a).
+    // The string-secrets upgrade calls all three.
     let st = open(None).await;
     let mut tx = st.write().await.unwrap();
     tx.secure_delete(true).await.unwrap();

@@ -53,7 +53,7 @@ fn selected_row(model: &Model, rows: &[Row]) -> usize {
 
 /// The entry (its place in panel 4's list) drawn on body line `line` of
 /// a panel 4 in `area`, as [`lines`] draws it; `None` for a table's
-/// header, the hint or past the end (the mouse, probe F3).
+/// header, the hint or past the end (the mouse).
 pub fn entry_at(model: &Model, area: Rect, line: usize) -> Option<usize> {
     let height = usize::from(area.height.saturating_sub(2));
     let rows = rows(model);
@@ -133,7 +133,7 @@ pub fn lines(model: &Model, area: Rect) -> Vec<Line<'static>> {
             out.push(Line::default());
         }
         let here = crate::state::browse::here(model);
-        // A commit cut off by its connection may have landed (probe F1).
+        // A commit cut off by its connection may have landed.
         let warn = model.queue.interrupted();
         let last = if warn {
             format!("! {}", text::MAYBE_APPLIED_HINT)

@@ -1,8 +1,8 @@
 //! `Workspace::run` and `Workspace::page` against real databases: a run of
-//! several statements, row-returning `other` statements (Decision 18), a
+//! several statements, row-returning `other` statements, a
 //! paged SELECT with its count, a stream, bound and inlined parameters,
 //! cancel on the server, and what a hand-typed transaction does on a pooled
-//! connection (Decision 16: recorded, not asserted).
+//! connection (recorded, not asserted).
 //!
 //! Live: `SEAQUEL_TEST_POSTGRES`, `_MYSQL`, `_MARIADB` and `_MSSQL` as for
 //! the engine smoke tests (each skipped when unset unless
@@ -81,7 +81,7 @@ fn config(db: Db) -> Option<Option<ConnectConfig>> {
     }
 }
 
-/// The tests here run one at a time, so the Decision 16 record and the
+/// The tests here run one at a time, so the transaction record and the
 /// cancel check see only their own sessions on the shared servers.
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -417,7 +417,7 @@ async fn a_paged_select_counts_and_a_stream_sends_everything() {
     }
 }
 
-/// Decision 5: an empty page carries its column names, on every engine
+/// An empty page carries its column names, on every engine
 /// (the sqlx engines read them from the prepared statement when no row
 /// comes back).
 #[tokio::test]
@@ -552,7 +552,7 @@ async fn cancel_stops_the_statement_on_the_server_and_the_rest_never_run() {
     }
 }
 
-/// Decision 16: a hand-typed transaction on a pooled connection. Records
+/// A hand-typed transaction on a pooled connection. Records
 /// what happens for the follow-up; asserts only that the run finishes.
 #[tokio::test]
 async fn a_typed_transaction_on_a_pool_is_recorded() {

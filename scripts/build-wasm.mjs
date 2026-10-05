@@ -74,8 +74,7 @@ const WASM_OPT_FLAGS = [
 ];
 
 /**
- * The browser module's size budget, brotli 11, in bytes (phase 8, Q3 A:
- * 2.0 MB). The build fails past it.
+ * The browser module's size budget, brotli 11, in bytes (2.0 MB). The build fails past it.
  */
 const BROWSER_BUDGET_BYTES = 2_000_000;
 
@@ -310,7 +309,7 @@ function printSizes(raw) {
   return br;
 }
 
-/** Fails the build when the module's brotli size is past its budget (Q3 A). */
+/** Fails the build when the module's brotli size is past its budget. */
 function checkBudget(br) {
   if (MODULE.budget === null) return;
   if (br > MODULE.budget) {
@@ -379,7 +378,7 @@ function patchEditorGlue(dir) {
   writeFileSync(dts, readFileSync(dts, "utf8") + REINIT_DTS);
 }
 
-// The browser module's version (phase 8, Decision 16). Its async exports
+// The browser module's version (phase 8). Its async exports
 // hand JavaScript closures (promise callbacks, timers) that call back into
 // the instance that made them, and the glue routes every such call, and
 // every closure's destructor, through its one `wasm` variable. After a swap

@@ -51,7 +51,7 @@ function plainMessage(error: unknown): string {
 }
 
 /**
- * This window's view state (phase 5d-2, Decision 22): its open tabs with
+ * This window's view state (phase 5d-2): its open tabs with
  * their text, pane layout, active ids and active view, per project, stored
  * by Core's `ui` group under the window's id. Another window of the same
  * project keeps its own; a window's first load of a project copies the most
@@ -233,7 +233,7 @@ export class WindowStateManager {
 
   /**
    * This window's view state of `projectId` (`windowStateLoad`): its own,
-   * or on its first load a copy (Decision 22). `null` when the load failed:
+   * or on its first load a copy. `null` when the load failed:
    * the project's saves are then refused until a later load succeeds.
    *
    * An answered load still leaves the project unsaveable, as pending, until
@@ -468,8 +468,8 @@ export class WindowStateManager {
   /**
    * The view state as sent: `buildState` with every string well-formed,
    * as run text is, since Core refuses a lone surrogate (which a tab's
-   * text can hold) and would then refuse every save of the project (5d-2
-   * Task 7 probe). The page keeps showing what it has.
+   * text can hold) and would then refuse every save of the project.
+   * The page keeps showing what it has.
    */
   private sendable(projectId: string): ViewState {
     return wellFormedJson(this.buildState(projectId));
@@ -493,7 +493,7 @@ export class WindowStateManager {
       activeStatisticsTabId: s.activeStatisticsTabIdByProject[projectId] ?? null,
       activeWorkflowTabId: s.activeWorkflowTabIdByProject[projectId] ?? null,
       activeView: this.activeViewOf(projectId),
-      // Per window (Q14).
+      // Per window.
       activeConnectionId: s.activeConnectionIdByProject[projectId] ?? null,
       starterTabs: this.serializeStarterTabs(projectId),
       activeStarterTabId: s.activeStarterTabIdByProject[projectId] ?? null,

@@ -1,22 +1,21 @@
-//! The GUI's DuckDB helper install (the desktop DuckDB helper plan, Q5 A,
-//! Task 4): desktop-only Tauri commands beside `cli_info`/`install_cli`.
+//! The GUI's DuckDB helper install:
+//! desktop-only Tauri commands beside `cli_info`/`install_cli`.
 //!
 //! - [`duckdb_helper_offer`]: this version's helper's status and download
-//!   size (no request with the pinned asset, Decision 4);
+//!   size (no request with the pinned asset);
 //! - [`duckdb_helper_install`]: download and install it, with progress over
-//!   a `Channel`. A second install while one runs (the prefetch and the
-//!   dialog, Decision 11) joins it: its progress from where it is, and the
+//!   a `Channel`. A second install while one runs (the prefetch and the dialog)
+//!  joins it: its progress from where it is, and the
 //!   same answer, from one download;
 //! - [`duckdb_helper_cancel`]: aborts the running install, so Core's future
 //!   drops and the partial file goes; the install answers `CANCELLED`;
 //! - [`duckdb_helper_install_file`]: "Install from a file…", checked
 //!   against the pinned digest (Core's `install_from_file(None)`).
 //!
-//! Everything goes through the app's one Core (Decision 3), so these, the
+//! Everything goes through the app's one Core, so these, the
 //! CLI flow and the prefetch share Core's install lock. Logs:
 //! `activity=duckdb.helper` with `event=offer|install|cancel`, codes,
-//! `downloaded`, `pruned`; never a path, a URL or the file the user picked
-//! (Decision 17).
+//! `downloaded`, `pruned`; never a path, a URL or the file the user picked.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -88,7 +87,7 @@ pub struct HelperOffer {
     /// file…"; `None` when installed or when the asset couldn't be had.
     pub asset_name: Option<String>,
     /// Whether "Install from a file…" can check a file: only with the
-    /// digest built in (Decision 4; the dialog never asks for a hash).
+    /// digest built in (the dialog never asks for a hash).
     pub from_file: bool,
 }
 
@@ -121,8 +120,8 @@ pub async fn offer(core: &Core) -> Result<HelperOffer, RpcError> {
 }
 
 /// A `seaquel-duckdb` built beside a debug app, used instead of a download
-/// only where [`cli_download::may_use_debug_helper`] allows it (Decision
-/// 3). `beside` finds it (`cli_download::debug_helper`). Release builds
+/// only where [`cli_download::may_use_debug_helper`] allows it.
+/// `beside` finds it (`cli_download::debug_helper`). Release builds
 /// always download.
 pub fn local_helper(
     identifier: &str,
@@ -267,8 +266,8 @@ impl HelperInstalls {
     /// Stops the running download and the file install, if any; each
     /// answers `CANCELLED` and leaves no partial file. The download is
     /// shared, so this also cancels it for every install that joined it:
-    /// the prefetch, the CLI flow (review M1). Returns whether an install
-    /// was registered when it was called (review M2), not whether it then
+    /// the prefetch, the CLI flow. Returns whether an install
+    /// was registered when it was called, not whether it then
     /// stopped: one that was finishing may still answer with its result.
     pub fn cancel(&self) -> bool {
         let mut any = false;
@@ -371,7 +370,7 @@ async fn hash_file(path: &Path) -> Result<String, CoreError> {
 }
 
 /// The install command's body: the debug rule ([`local_helper`]) applied
-/// to `identifier` and `data_dir_env` at this call site (Task 1 review M3).
+/// to `identifier` and `data_dir_env` at this call site.
 pub async fn install_for(
     core: &Core,
     installs: &HelperInstalls,
@@ -462,8 +461,8 @@ mod tests {
     }
 
     /// A Core with only the helper's locator, downloading from `releases`
-    /// and pinned to `pin` when given. Never the compiled pin (Task 3's
-    /// note): these tests serve their own files.
+    /// and pinned to `pin` when given. Never the compiled pin:
+    /// these tests serve their own files.
     fn core(dir: PathBuf, releases: Option<DuckdbHelperReleases>, pin: Option<&[u8]>) -> Core {
         let mut builder =
             seaquel_core::with_plugins(|_| false).duckdb_helper(seaquel_core::DuckdbHelper {
@@ -548,7 +547,7 @@ mod tests {
         assert!(offer.size_error.is_none());
         assert_eq!(offer.version, cli_download::VERSION);
         assert!(!offer.from_file, "no pin, so no file install");
-        // The file a copy must be (Task 5 review M7): Core's asset name.
+        // The file a copy must be: Core's asset name.
         assert_eq!(offer.asset_name.as_deref(), Some(asset_name().as_str()));
         let json = serde_json::to_value(&offer).unwrap();
         assert_eq!(json["assetName"], asset_name());

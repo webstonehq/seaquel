@@ -1,24 +1,24 @@
-//! The `.seaquel` projection of a shared project (phase 5e, Task 4b):
+//! The `.seaquel` projection of a shared project (phase 5e):
 //! the five file formats, file names, the content hash, pairing and the
 //! sync and publish plans. Pure: no I/O, never panics on input, builds for
-//! wasm32. Core (`shared.rs`, Task 5) scans the directory through
+//! wasm32. Core (`shared.rs`) scans the directory through
 //! `seaquel-git`'s `tree`, hands the scan and the rows here, and applies
 //! what comes back.
 //!
-//! - [`format`], the readers and writers (Decision 45), ports of
+//! - [`format`], the readers and writers, ports of
 //!   `query-file-parser.ts`, `dashboard-file-parser.ts`,
 //!   `config-file-parser.ts` and `yaml-utils.ts` with CRLF and a BOM
 //!   accepted, the quoting fixed so every value reads back, and the stable
-//!   file id (Q22). Each kind's `*_content` is the canonical text its hash
-//!   is taken over (Decision 34).
-//! - [`names`], with [`names::file_stem`] (Q21), [`names::free_path`] and the
-//!   path rules (Decision 32).
-//! - [`plan`], with [`plan::plan_sync`] (Decision 34's pairing and rule table)
-//!   and [`plan::plan_publish`] (Decision 36).
+//!   file id. Each kind's `*_content` is the canonical text its hash
+//!   is taken over.
+//! - [`names`], with [`names::file_stem`], [`names::free_path`] and the
+//!   path rules.
+//! - [`plan`], with [`plan::plan_sync`] (pairing and the three-way rule table)
+//!   and [`plan::plan_publish`].
 //!
 //! Paths in rows, scans and file operations are repo-relative
 //! (`.seaquel/projects/<dir>/…`); paths in notices are relative to
-//! `.seaquel/` (Decision 50). No `Debug` here shows a name, a path, a host
+//! `.seaquel/`. No `Debug` here shows a name, a path, a host
 //! or a file's text.
 
 pub mod format;
@@ -44,11 +44,11 @@ pub const MAX_FILE_NAME_BYTES: usize = 255;
 /// (`.json`, `.yaml`).
 pub const MAX_STEM_BYTES: usize = 250;
 
-/// A repo-relative path's byte cap (Decision 32).
+/// A repo-relative path's byte cap.
 pub const MAX_PATH_BYTES: usize = 1024;
 
 /// SHA-256 of `canonical`, as lowercase hex: the base and the hashes
-/// Decision 34 compares. `canonical` is a kind's `*_content` text.
+/// the sync compares. `canonical` is a kind's `*_content` text.
 pub fn content_hash(canonical: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(canonical.as_bytes());

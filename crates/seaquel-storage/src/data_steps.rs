@@ -158,7 +158,7 @@ pub(crate) async fn pending(
         .collect())
 }
 
-/// Decision 13.1: connection strings the TypeScript stored with a password
+/// Connection strings the TypeScript stored with a password
 /// (key=value strings, which it couldn't parse) lose it. Rows are addressed
 /// by rowid, so a NULL id doesn't matter, and only rows that change are
 /// written. Text that isn't valid UTF-8 is left alone.
@@ -189,7 +189,7 @@ async fn strip_connection_string_passwords(
     Ok(())
 }
 
-/// Phase 5d Decision 12: the strings rows written before phase 5a hold,
+/// The strings rows written before phase 5a hold,
 /// which the old `buildConnectionString` rebuilt from the row's own fields
 /// on every save, become NULL. Core connects with a string when there is one
 /// and ignores the fields, so such a string went stale the moment a field
@@ -252,7 +252,7 @@ pub(crate) const NAME_KEY_TABLES: [&str; 3] = ["connections", "projects", "saved
 pub(crate) const ALL_NAME_KEY_TABLES: [&str; 4] =
     ["connections", "projects", "saved_queries", "dashboards"];
 
-/// Phase 5d-1 probe fix: fills `name_key` (added by `0001_name_keys.sql`)
+/// Fills `name_key` (added by `0001_name_keys.sql`)
 /// for the rows written before it, with [`seaquel_types::names::name_key`],
 /// the function storage's writes use, so stored keys and new ones agree by
 /// construction. Only rows whose key is NULL and whose name is UTF-8 text
@@ -284,7 +284,7 @@ pub(crate) async fn name_keys_pending(pool: &SqlitePool) -> Result<bool, Storage
     Ok(false)
 }
 
-/// Phase 5d-2 (Decision 21): [`backfill_name_keys`] for `dashboards`, whose
+/// Phase 5d-2: [`backfill_name_keys`] for `dashboards`, whose
 /// `name_key` came with `0002_window_state.sql`. A dashboard with a NULL
 /// `project_id` (beta-era files) gets its key too; it's in no project's
 /// lookup either way.

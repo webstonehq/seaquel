@@ -1,5 +1,5 @@
-//! The DuckDB helper's install dialog (the DuckDB helper plan, Q5 A,
-//! Decision 12, Task 7). A connect Core answers with `ENGINE_NOT_INSTALLED`
+//! The DuckDB helper's install dialog.
+//! A connect Core answers with `ENGINE_NOT_INSTALLED`
 //! opens it, keeping the connect it belongs to ([`Pending`], with the
 //! secrets typed for it). It looks up the download's size first (one
 //! request for the release metadata), asks, then shows the download's
@@ -681,8 +681,7 @@ mod tests {
         assert_ne!(title("DIGEST_MISMATCH"), title("FILE_ERROR"));
         assert_ne!(title("FILE_ERROR"), title("UNSAFE_FOLDER"));
         assert_ne!(title("NETWORK_ERROR"), title("UNSAFE_FOLDER"));
-        // A folder the install won't touch: the hint says what to do (the
-        // desktop plan's Task 7 review, item 10).
+        // A folder the install won't touch: the hint says what to do.
         let (_, hint) = text::install_failure("UNSAFE_FOLDER");
         assert!(hint.contains("install again"), "{hint}");
         assert!(hint.contains("SEAQUEL_DATA_DIR"), "{hint}");
@@ -742,7 +741,7 @@ mod tests {
         assert!(matches!(m.modal, Some(Modal::Picker(_))));
     }
 
-    /// Review M2: an `Unsafe` helper's offer says an install makes the
+    /// An `Unsafe` helper's offer says an install makes the
     /// folder private, and Enter still downloads.
     #[test]
     fn a_loose_folder_s_offer_is_a_repair() {
@@ -764,7 +763,7 @@ mod tests {
         assert!(install_op(&update(&mut m, press(KeyCode::Enter))).is_some());
     }
 
-    /// Review M1: the connection was removed (by the app, say) while its
+    /// The connection was removed (by the app, say) while its
     /// helper downloaded: nothing to connect, so the picker opens and the
     /// command log says why.
     #[test]

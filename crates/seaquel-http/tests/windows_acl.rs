@@ -1,5 +1,5 @@
-//! Windows: what an install sets on the helper's folders and file (the
-//! desktop DuckDB helper plan, Task 7; Q9 A). A protected DACL of the user
+//! Windows: what an install sets on the helper's folders and file.
+//! A protected DACL of the user
 //! and SYSTEM on `bin`, `duckdb`, the version folder and the file; the app's
 //! folder (`root`) is left as the profile made it unless another principal
 //! can write it, and refused when someone else owns it. Run by CI's Windows
@@ -77,7 +77,7 @@ fn an_install_leaves_each_folder_and_the_file_private() {
     assert!(!root.security.protected, "left as inherited");
 }
 
-/// Q9 A: a version folder given `Everyone:(M)` is unsafe until an install
+/// A version folder given `Everyone:(M)` is unsafe until an install
 /// (or the offline repair, `prepare_target`) makes it private again.
 #[test]
 fn a_loosened_folder_is_repaired() {

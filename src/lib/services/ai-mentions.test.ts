@@ -1,7 +1,6 @@
 /**
  * The `@` popover offers nothing when the chat's connection doesn't share
- * its schema (phase 6, Decision 5; Core resolves a typed mention to the
- * bare name then).
+ * its schema (phase 6; Core resolves a typed mention to the bare name then).
  */
 import { describe, expect, it } from "vitest";
 import type { Dashboard, SavedQuery, SchemaTable } from "$lib/types";

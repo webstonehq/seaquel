@@ -403,7 +403,7 @@ describe.skipIf(missing)("dashboard version history", () => {
 
 describe.skipIf(missing)("shared saved queries", () => {
   // Core writes, moves and deletes a shared query's file inside the library
-  // call (phase 5e, Decision 36); the GUI's side is `shared-gui.svelte.test.ts`.
+  // call (phase 5e); the GUI's side is `shared-gui.svelte.test.ts`.
   it("renaming a shared query is one library call", async () => {
     const tab = await openTab();
     const id = (await tab.savedQueries.saveQuery("Orders", "SELECT 1"))!;
@@ -460,7 +460,7 @@ describe.skipIf(missing)("unlinking a project", () => {
     await library.setProjectSidebar("p1", [kept, imported]);
     tab.state.connectionOrderByProject = { p1: [kept, imported] };
     // Core removes the template's connection and stores the order without
-    // it, in one transaction (phase 5e, Decision 40).
+    // it, in one transaction (phase 5e).
     const none = new NoShared();
     setShared({
       listRepos: none.listRepos,

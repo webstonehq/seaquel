@@ -1,4 +1,4 @@
-//! `ConnectConfig::duckdb_config` (phase 5a, Decision 6 row 10): options
+//! `ConnectConfig::duckdb_config` (phase 5a): options
 //! parsed out of a `duckdb://path?key=value` string open the database with
 //! them. An unknown option fails the connect with DuckDB's message, and a
 //! `restricted` instance takes only an allowlist.

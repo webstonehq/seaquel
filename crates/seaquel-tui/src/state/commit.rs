@@ -1,8 +1,8 @@
-//! Pending Changes and commit (Decision 12, Task 5) in `update`: panel 4's
+//! Pending Changes and commit in `update`: panel 4's
 //! list, unstaging (`space`), re-editing a staged value (`e`), discarding
 //! the queue (`D`, asks), the commit dialog (`c`) with its counts per kind
 //! and table, the destructive list, the SQL preview (`p`) and the typed
-//! `prod` confirm (Q11 A), the apply through Core's `apply_changes`, its
+//! `prod` confirm, the apply through Core's `apply_changes`, its
 //! outcome, and the question a switch of connection asks while changes are
 //! staged (keep them, discard them, or stay).
 //!
@@ -11,8 +11,8 @@
 //! and marks the failed change; an in-order failure removes the applied
 //! prefix and marks the change it stopped at.
 //!
-//! **An apply can end without saying what ran** (the DuckDB helper plan's
-//! probe F1): with DuckDB out of process, the helper can stop mid-commit,
+//! **An apply can end without saying what ran**:
+//! with DuckDB out of process, the helper can stop mid-commit,
 //! and Core answers `CONNECTION_CLOSED` (as an error, or as the failed
 //! change of its outcome) though the COMMIT may have landed. That is the
 //! GUI's `interrupted`: the connection is lost (`connect::lost_by`), what
@@ -46,7 +46,7 @@ use super::pending::{Entry, Plan, RowValues, Staging};
 use super::text;
 
 /// The predefined label every connection may carry that makes a commit ask
-/// for `prod` to be typed (Q11 A).
+/// for `prod` to be typed.
 pub const PROD_LABEL: &str = "prod";
 
 /// The predefined labels as the GUI's history snapshot stores them
@@ -242,7 +242,7 @@ impl fmt::Debug for KindLine {
 }
 
 /// Core's code for a connection lost mid-call: an apply that ends with it
-/// may have committed (probe F1).
+/// may have committed.
 const CONNECTION_CLOSED: &str = "CONNECTION_CLOSED";
 
 /// How many history rows panel 3 keeps (the GUI's 500, `HISTORY_KEEP`).
@@ -500,7 +500,7 @@ pub fn start_value_edit(model: &mut Model) -> Vec<Effect> {
 
 /// A column's type as panel 2 (or the opened table's metadata) knows it.
 fn column_type(model: &Model, entry: &Entry, column: &str) -> String {
-    // Panel 2 and the grid describe panel 1's connection (review M5).
+    // Panel 2 and the grid describe panel 1's connection.
     if !browse::here(model) {
         return String::new();
     }
@@ -690,7 +690,7 @@ pub fn execute(model: &mut Model) -> Vec<Effect> {
     if !can_execute(model) || model.committing.is_some() {
         return Vec::new();
     }
-    // The connection may have changed under the dialog (review M4).
+    // The connection may have changed under the dialog.
     if let Some(effects) = elsewhere(model) {
         return effects;
     }
@@ -813,7 +813,7 @@ pub fn on_applied(
     let elapsed = Some(grid::elapsed_text(stamp.elapsed_ms as f64));
     let (mode, applied, results, failed, ddl, history) = match result {
         Err(e) if e.code == CONNECTION_CLOSED => {
-            // Nothing says what ran (probe F1): keep the queue, mark it.
+            // Nothing says what ran: keep the queue, mark it.
             model.queue.mark_interrupted(true);
             model.log.push(line(
                 &stamp,
@@ -930,8 +930,7 @@ pub fn on_applied(
     }
     sync(model);
     // History, from Core's answer only (newest first, as panel 3 lists it).
-    // Rows already shown aren't added twice; the newest 500 are kept
-    // (review M3).
+    // Rows already shown aren't added twice; the newest 500 are kept.
     add_history(model, &committing.connection_id, history);
     if cut_off {
         // The connection is gone (`connect::lost` follows): nothing to read
@@ -959,8 +958,8 @@ pub fn on_applied(
 
 /// History rows Core recorded for `connection_id`, in the order recorded,
 /// added to panel 3 newest first when it shows that connection. Rows
-/// already shown aren't added twice; the newest [`HISTORY_KEEP`] are kept
-/// (review M3). Task 6's runs add theirs the same way.
+/// already shown aren't added twice; the newest [`HISTORY_KEEP`] are kept.
+/// Task 6's runs add theirs the same way.
 pub fn add_history(model: &mut Model, connection_id: &str, history: Vec<HistoryItem>) {
     if model.conn.id() != Some(connection_id) || history.is_empty() {
         return;
@@ -1134,7 +1133,7 @@ mod tests {
         assert_eq!(describe(&m.queue.entries()[1]), "delete id 48106");
     }
 
-    // Decision 12: `e` re-edits the value; Core plans it again.
+    // `e` re-edits the value; Core plans it again.
     #[test]
     fn e_re_edits_a_staged_value_and_core_plans_it_again() {
         let mut m = staged(false);
@@ -1241,7 +1240,7 @@ mod tests {
         assert_eq!(m.modal, None);
     }
 
-    // Decision 12 (Task 4's note): unplanned entries are planned again
+    // Unplanned entries are planned again
     // before the dialog shows their SQL, and Enter waits for them.
     #[test]
     fn c_plans_again_what_is_unplanned_and_enter_waits_for_it() {
@@ -1291,7 +1290,7 @@ mod tests {
         assert!(m.committing.is_none());
     }
 
-    // Q11 A: on a `prod` connection Enter does nothing until `prod` is
+    // On a `prod` connection Enter does nothing until `prod` is
     // typed; elsewhere Enter commits.
     #[test]
     fn on_a_prod_connection_enter_waits_for_prod_to_be_typed() {
@@ -1568,7 +1567,7 @@ mod tests {
         assert!(p.reconnect.is_some());
     }
 
-    // DuckDB helper probe F1: the helper died mid-commit, so Core's outcome
+    // The helper died mid-commit, so Core's outcome
     // fails with CONNECTION_CLOSED, but the COMMIT may have landed. The
     // connection is lost and the queue is kept, marked, not failed.
     #[test]
@@ -1868,7 +1867,7 @@ mod tests {
             .any(|e| matches!(e, Effect::Disconnect { .. }))
     }
 
-    // Review I1: no switch or reconnect while an apply runs.
+    // No switch or reconnect while an apply runs.
     #[test]
     fn no_switch_or_reconnect_while_a_commit_runs() {
         let mut m = staged(false);
@@ -1902,7 +1901,7 @@ mod tests {
         assert_eq!(m.queue.entries().len(), 4);
     }
 
-    // Review M3: history rows already shown aren't added twice, and the
+    // History rows already shown aren't added twice, and the
     // list keeps the newest 500 (the GUI's rule).
     #[test]
     fn history_rows_are_added_once_and_trimmed_to_500() {
@@ -1938,7 +1937,7 @@ mod tests {
         assert_eq!(m.history.len, HISTORY_KEEP);
     }
 
-    // Review M4: Enter checks the queue's connection again.
+    // Enter checks the queue's connection again.
     #[test]
     fn enter_refuses_when_the_connection_changed_under_the_dialog() {
         let mut m = staged(false);
@@ -1959,7 +1958,7 @@ mod tests {
         assert!(m.committing.is_none());
     }
 
-    // Review M5: the queue's connection's engine, not panel 1's.
+    // The queue's connection's engine, not panel 1's.
     #[test]
     fn the_queue_s_engine_names_the_values() {
         let mut m = staged(false);

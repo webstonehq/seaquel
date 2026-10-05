@@ -1,12 +1,16 @@
 # run fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`.
+
 These files record what today's TypeScript query runner does when the editor runs SQL: which statements it finds, what it sends Core, what the result grid ends up holding, what goes to pending changes and what history records. Phase 5b moves that work into Core (`seaquel_workspace::run::plan`, `Workspace::run` and `Workspace::page`), and these cases pin it the way `../connect-config` pinned the connection builder. See `docs/plans/2026-10-02-rust-core-phase-5b-plan.md`, Task 2.
 
 **The fixtures are frozen.** After phase 5b the GUI runs through Core, and the TS runner survives only in the demo (`TsQueryRunner`) until phase 8. Change a case only when Core is meant to behave differently, say why in `changes.json` and in "Changes" below, and never re-record to make a failing test pass.
 
 ## How they were made
 
-The recorder is `docs/plans/artifacts/2026-10-02-record-run-fixtures.test.ts.txt`, a vitest file. It ran on `cf2085d` plus the phase 5b working tree after Task 1 (`StatementResult.pageSource`, so paging re-runs the substituted SQL with its binds), with `src/lib` otherwise as it was. To rerun it, copy it to `src/lib/hooks/database/record-run.test.ts`, run it with `FREEZE_RUN=1`, and delete the copy. It needs a tree that still has the TS runner.
+The recorder was `docs/plans/artifacts/2026-10-02-record-run-fixtures.test.ts.txt`, a vitest file. It ran on `cf2085d` plus the phase 5b working tree after Task 1 (`StatementResult.pageSource`, so paging re-runs the substituted SQL with its binds), with `src/lib` otherwise as it was. To rerun it, copy it to `src/lib/hooks/database/record-run.test.ts`, run it with `FREEZE_RUN=1`, and delete the copy. It needs a tree that still has the TS runner.
 
 It runs the real code:
 

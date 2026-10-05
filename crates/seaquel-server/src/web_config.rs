@@ -1,4 +1,4 @@
-//! What a web user may put in a connection config (Decision 11b).
+//! What a web user may put in a connection config.
 //!
 //! [`check_connect_config`] is the web `ConnectPolicy`'s check
 //! ([`crate::web_connect_policy`]): Core runs it on the config it builds

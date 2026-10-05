@@ -321,7 +321,7 @@ export interface AIChat {
 /**
  * A message in the AI assistant conversation.
  */
-/** One tool call of a reply, as its line shows it (phase 6, Q7). */
+/** One tool call of a reply, as its line shows it (phase 6). */
 export interface AiToolLine {
   callId: string;
   name: string;
@@ -336,7 +336,7 @@ export interface AiToolLine {
   code?: string;
 }
 
-/** A reply in order: its text and its tool calls' lines (phase 6, Q7). */
+/** A reply in order: its text and its tool calls' lines (phase 6). */
 export type AiSegment = { type: "text"; text: string } | ({ type: "tool" } & AiToolLine);
 
 export interface AIMessage {
@@ -372,14 +372,14 @@ export interface AIMessage {
     allowAllTicked: boolean;
     setAllowAllTicked: (ticked: boolean) => void;
   } | null;
-  /** The reply's text and tool calls in order (Q7); none for a plain reply. */
+  /** The reply's text and tool calls in order; none for a plain reply. */
   segments?: AiSegment[];
   /** Why the turn failed, worded for the user. Shown, never stored. */
   error?: string;
   /** The model's token limit cut the reply (`stop: maxTokens`). */
   truncated?: boolean;
   /**
-   * Core cut the reply for its size (`stop: tooLong`, probe F2). Stored:
+   * Core cut the reply for its size (`stop: tooLong`). Stored:
    * the row ends with Core's note, which `messageFromWire` takes off.
    */
   cut?: boolean;

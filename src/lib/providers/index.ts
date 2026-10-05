@@ -4,8 +4,8 @@
  * module in the demo's page (phase 8).
  *
  * The tutorial is the exception: on web and in the demo it runs on
- * DuckDB-WASM in the page (`getDuckDBProvider`, Q5 A), since the web server
- * has no DuckDB engine (Decision 11b). On desktop it uses Core's SQLite.
+ * DuckDB-WASM in the page (`getDuckDBProvider`), since the web server
+ * has no DuckDB engine. On desktop it uses Core's SQLite.
  */
 
 import type { DatabaseProvider } from "./types";

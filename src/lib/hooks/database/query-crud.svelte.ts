@@ -273,7 +273,7 @@ export class QueryCrudManager {
   }
 
   /**
-   * The sidebar's DROP (Decision 11): an intent Core builds with the
+   * The sidebar's DROP: an intent Core builds with the
    * dialect. Queued with pending changes on; otherwise applied, confirmed
    * (the sidebar's own dialog asked). Throws the error when it fails.
    */
@@ -294,8 +294,8 @@ export class QueryCrudManager {
   }
 
   /**
-   * The sidebar's TRUNCATE (Decision 11; SQLite's is a `DELETE FROM`, which
-   * Core builds). Queued or applied like `dropObject`.
+   * The sidebar's TRUNCATE (SQLite's is a `DELETE FROM`, which Core builds).
+   * Queued or applied like `dropObject`.
    */
   async truncateTable(
     connectionId: string,

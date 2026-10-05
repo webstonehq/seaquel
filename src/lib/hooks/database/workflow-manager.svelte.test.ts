@@ -1,5 +1,5 @@
 /**
- * Workflow query nodes (phase 5c, Decision 10): read-only on the node's own
+ * Workflow query nodes (phase 5c): read-only on the node's own
  * saved connection, at most `WORKFLOW_MAX_ROWS` rows, cancelled when the
  * node is re-run or deleted.
  */

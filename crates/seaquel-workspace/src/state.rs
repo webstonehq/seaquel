@@ -43,8 +43,7 @@ pub use crate::library::INVALID_ARGUMENT;
 // ── Codes ──
 
 pub const DASHBOARD_NOT_FOUND: &str = "DASHBOARD_NOT_FOUND";
-/// `dashboardVersionGet` naming a version its dashboard doesn't have
-/// (5d-2 Task 7).
+/// `dashboardVersionGet` naming a version its dashboard doesn't have.
 pub const DASHBOARD_VERSION_NOT_FOUND: &str = "DASHBOARD_VERSION_NOT_FOUND";
 pub const WORKFLOW_NOT_FOUND: &str = "WORKFLOW_NOT_FOUND";
 pub const CHAT_NOT_FOUND: &str = "CHAT_NOT_FOUND";
@@ -53,7 +52,7 @@ pub const AI_PROVIDER_NOT_FOUND: &str = "AI_PROVIDER_NOT_FOUND";
 
 // ── Fixed values ──
 
-/// The id prefixes Core keeps (Decision 1), each followed by a v4 uuid.
+/// The id prefixes Core keeps, each followed by a v4 uuid.
 /// Chats, messages and AI providers are plain uuids.
 pub const DASHBOARD_ID_PREFIX: &str = "dashboard-";
 pub const DASHBOARD_VERSION_ID_PREFIX: &str = "dver-";
@@ -78,7 +77,7 @@ pub const DEFAULT_DARK_THEME: &str = "default-dark";
 
 /// The desktop's main window: the prunes never delete it there.
 pub const MAIN_WINDOW: &str = "main";
-/// Windows unused this long are pruned (Decision 22).
+/// Windows unused this long are pruned.
 pub const WINDOW_UNUSED_DAYS: u64 = 30;
 
 /// The import sources `importStateSave` takes.
@@ -90,7 +89,7 @@ pub const AI_PROVIDER_TYPES: [&str; 2] = ["anthropic", "openai-compatible"];
 // ── Limits ──
 
 /// What one state call may carry and what a workspace may hold, set per
-/// interface with Core's `CoreBuilder::state_limits` (Decision 27). The
+/// interface with Core's `CoreBuilder::state_limits`. The
 /// default is [`StateLimits::DESKTOP`]: no size or count limit, and only
 /// the window counts (20 windows, 20 view states per project, `main`
 /// spared). The web server sets every one. A size past its limit is
@@ -125,7 +124,7 @@ pub struct StateLimits {
     pub max_message_bytes: Option<usize>,
     /// Messages per chat (and per put).
     pub max_messages_per_chat: Option<usize>,
-    /// One chat's stored message content together (Q17).
+    /// One chat's stored message content together.
     pub max_chat_bytes: Option<u64>,
     /// Chats per user.
     pub max_chats: Option<usize>,
@@ -337,7 +336,7 @@ fn string_of(v: &RawValue) -> Option<String> {
 /// missing or `null` is "needs a name", another JSON type "is text", and a
 /// JSON string that doesn't decode (a lone surrogate, `"\ud800"`, which
 /// JavaScript strings can hold and Rust's can't) says so (5d-2 Task 7
-/// probe: that was reported as a missing name).
+/// That was reported as a missing name).
 fn name_of(obj: &Obj, what: &str) -> Result<String, LibraryError> {
     let value = obj_get(obj, "name").filter(|v| v.get() != "null");
     let Some(value) = value else {
@@ -356,7 +355,7 @@ fn name_of(obj: &Obj, what: &str) -> Result<String, LibraryError> {
 
 // ── Ids a GUI makes ──
 
-/// A window id (Decision 22) or a message id (Decision 24): 1–64 of
+/// A window id or a message id: 1–64 of
 /// `[A-Za-z0-9_-]`, the origin's form.
 pub fn is_client_id(value: &str) -> bool {
     (1..=64).contains(&value.len())
@@ -375,7 +374,7 @@ pub fn check_window_id(id: &str) -> Checked {
     }
 }
 
-// ── Settings (Decision 20) ──
+// ── Settings ──
 
 /// The app-state keys the `settings` group reads and writes, by their
 /// stored key text. Any other key is refused.
@@ -403,7 +402,7 @@ pub enum SettingKey {
     /// Read only: `windowActivate` writes it.
     #[serde(rename = "lastActiveProjectId")]
     LastActiveProjectId,
-    /// Core's (Decision 12a): read, and cleared with `null`.
+    /// Core's: read, and cleared with `null`.
     #[serde(rename = "connectionStringSecretsNotice")]
     ConnectionStringSecretsNotice,
 }
@@ -513,7 +512,7 @@ fn is_version_limit(v: &str) -> bool {
         && v.parse::<u32>().is_ok_and(|n| n <= 100_000)
 }
 
-// ── AI settings (Decision 20) ──
+// ── AI settings ──
 
 /// A new AI provider (`aiProviderCreate`). Core makes its id (a uuid).
 #[derive(Clone, Serialize, Deserialize)]
@@ -647,7 +646,7 @@ pub fn check_api_key(key: &Clearable<String>, limits: &LibraryLimits) -> Checked
     }
 }
 
-/// The AI settings record as Core reads and rewrites it (Decision 20):
+/// The AI settings record as Core reads and rewrites it:
 /// the four known fields (`enabled`, `providers`, `shareSchemaGlobally`,
 /// `shareDataGlobally`) first, each as stored or its default, then every
 /// other stored field in its order, values byte for byte. The providers
@@ -765,7 +764,7 @@ impl AiSettings {
     }
 
     /// `enabled` as the GUI reads it: the stored value's JavaScript
-    /// truthiness, `true` when absent (phase 6, Decision 5).
+    /// truthiness, `true` when absent (phase 6).
     pub fn enabled(&self) -> bool {
         obj_get(&self.fields, "enabled")
             .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
@@ -818,7 +817,7 @@ pub fn provider_not_found() -> LibraryError {
     LibraryError::new(AI_PROVIDER_NOT_FOUND, "AI provider not found.")
 }
 
-/// The stored `aiSettings` text as the GUI's load read it (Decision 20):
+/// The stored `aiSettings` text as the GUI's load read it:
 /// `{...DEFAULT_AI_SETTINGS, ...parsed, providers}` with each provider's
 /// `model` and `provider` dropped and `type = type ?? provider ??
 /// "anthropic"`. No value, `""`, text that isn't JSON, a value that isn't
@@ -877,7 +876,7 @@ pub fn check_ai_settings_size(settings: &AiSettings, limits: &StateLimits) -> Ch
     )
 }
 
-// ── Onboarding (Decision 20) ──
+// ── Onboarding ──
 
 /// The onboarding store's fields and their defaults, in its order.
 const ONBOARDING_DEFAULTS: [(&str, &str); 6] = [
@@ -965,7 +964,7 @@ pub fn merge_onboarding(stored: Option<&RawValue>, patch: &RawValue) -> Box<RawV
     lit(&render_obj(&obj))
 }
 
-// ── Themes (Decision 20) ──
+// ── Themes ──
 
 /// What the theme calls answer: the preferences (the defaults when there
 /// is no row) and every user theme that reads, as stored.
@@ -1056,7 +1055,7 @@ pub fn check_theme_id(id: &str, lib: &LibraryLimits) -> Checked {
     Ok(())
 }
 
-// ── Saved workflows (Decision 23) ──
+// ── Saved workflows ──
 
 /// A new saved workflow (`workflowCreate`): the project and today's
 /// `SavedWorkflow` JSON without `id`, `projectId`, `createdAt` and
@@ -1094,7 +1093,7 @@ pub fn check_workflow_body(body: &RawValue, lib: &LibraryLimits, limits: &StateL
 }
 
 /// A workflow body's shape: a JSON object with a bounded text `name`
-/// (5d-2 Task 7 probe: a `name` of `5`, or none, was stored).
+/// (a `name` of `5`, or none, was stored).
 pub fn check_workflow_shape(body: &RawValue, lib: &LibraryLimits) -> Checked {
     let Some(obj) = parse_obj(body.get()) else {
         return Err(LibraryError::invalid("A workflow is a JSON object."));
@@ -1124,7 +1123,7 @@ pub fn workflow_json(
     render_obj(&obj)
 }
 
-/// A rename's name (`workflowRename`, 5d-2 Task 7 review): not empty
+/// A rename's name (`workflowRename`): not empty
 /// after trimming, no NUL, within `max_name_bytes`.
 pub fn check_workflow_rename(name: &str, lib: &LibraryLimits) -> Checked {
     check_name(name, "workflow", lib)
@@ -1158,7 +1157,7 @@ pub fn check_workflow_size(json: &str, stored: Option<usize>, limits: &StateLimi
     )
 }
 
-// ── Dashboards (Decision 21) ──
+// ── Dashboards ──
 
 /// A new dashboard (`dashboardCreate`). Widgets, viewport and date filter
 /// are JSON values Core stores as they are.
@@ -1183,7 +1182,7 @@ pub struct DashboardDraft {
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub shared: bool,
     /// A taken name becomes the first free `"<name> (n)"` instead of
-    /// `NAME_TAKEN` (as the library's imports, Decision 13): "New
+    /// `NAME_TAKEN` (as the library's imports): "New
     /// Dashboard" and the git reconcile.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
@@ -1268,8 +1267,8 @@ impl fmt::Debug for DashboardPatch {
 
 /// What `dashboardUpdate` stored: the row, the version it appended (only
 /// with `captureVersion`), and the versions the prune removed. The new
-/// version comes without its snapshot, like `dashboardVersionsList`'s
-/// (5d-2 Task 7): the snapshot is the dashboard before the change, which
+/// version comes without its snapshot, like `dashboardVersionsList`'s:
+/// the snapshot is the dashboard before the change, which
 /// the page just showed, and the history fetches it only when it's
 /// compared or restored (`dashboardVersionGet`).
 #[derive(Clone, Serialize, Deserialize)]
@@ -1407,7 +1406,7 @@ pub fn dashboard_from_draft(id: String, d: &DashboardDraft, now: &str) -> Persis
     }
 }
 
-/// Applies `patch` (Decision 21) and answers whether the name's key
+/// Applies `patch` and answers whether the name's key
 /// changed (the name is checked again). `updated_at` becomes `now` unless
 /// the patch holds only `starred`, as today.
 pub fn apply_dashboard_patch(
@@ -1473,7 +1472,7 @@ pub fn dashboard_snapshot(row: &PersistedDashboard) -> String {
     render_obj(&obj)
 }
 
-// ── AI chats (Decision 24) ──
+// ── AI chats ──
 
 /// A new chat (`chatCreate`). Core makes its id (a uuid).
 #[derive(Clone, Serialize, Deserialize)]
@@ -1515,7 +1514,7 @@ impl fmt::Debug for ChatPatch {
     }
 }
 
-/// One message of `chatMessagesPut`. Its id is the GUI's (Decision 24).
+/// One message of `chatMessagesPut`. Its id is the GUI's.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -1531,7 +1530,7 @@ pub struct ChatMessageDraft {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub dashboard_id: Option<String>,
-    /// A reply's tool calls (phase 6, Decision 23): a JSON list, stored as
+    /// A reply's tool calls (phase 6): a JSON list, stored as
     /// given when present. Absent keeps what the message had (none for a
     /// new one), as an older release's put does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1734,7 +1733,7 @@ pub fn apply_chat_patch(row: &mut PersistedAIChat, patch: &ChatPatch, now: &str)
     }
 }
 
-/// The web chat budget (Q17): the chat's stored content bytes, minus those
+/// The web chat budget: the chat's stored content bytes, minus those
 /// of the messages the put replaces, plus the put's, must stay within
 /// `max_chat_bytes`.
 pub fn check_chat_budget(stored: u64, replaced: u64, added: u64, limits: &StateLimits) -> Checked {
@@ -1776,7 +1775,7 @@ pub fn check_import_time(time: Option<&str>, lib: &LibraryLimits) -> Checked {
     time.map_or(Ok(()), |t| short(t, "import time", lib))
 }
 
-// ── Window view state (Decision 22) ──
+// ── Window view state ──
 
 /// Where a window's first load of a project took its state from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1851,7 +1850,7 @@ pub struct WindowActive {
 
 /// The highest `rev` a view-state save may carry: 2^53 - 1, the last
 /// whole number the page's JavaScript counter holds exactly, so its
-/// `rev + 1` is always the next number (5d-2 Task 7 probe).
+/// `rev + 1` is always the next number.
 pub const MAX_REV: u64 = (1 << 53) - 1;
 
 /// A view-state save's `rev` is at most [`MAX_REV`].
@@ -1885,8 +1884,8 @@ pub struct ViewStateSize {
     pub texts: HashMap<String, usize>,
 }
 
-/// A window's view state read as today's `PersistedProjectState` (Decision
-/// 22), for the legacy mirror: its `projectId` the project's (a state
+/// A window's view state read as today's `PersistedProjectState`,
+/// for the legacy mirror: its `projectId` the project's (a state
 /// naming another project is refused), and an `activeView` of `canvas`
 /// (from before the workflow rename) written as `workflow`, which the
 /// frozen baseline turns it into on every open anyway. The window's own
@@ -1952,7 +1951,7 @@ pub fn view_state_size(state: &RawValue, s: &PersistedProjectState) -> ViewState
     }
 }
 
-/// A view state's limits (Decision 27): its bytes, its tabs and each tab's
+/// A view state's limits: its bytes, its tabs and each tab's
 /// text. A size past its limit is still accepted when it is no larger than
 /// what the window's stored row holds (`stored`), item by item (the whole
 /// state against the stored state, a tab's text against the same tab id's
@@ -2009,8 +2008,8 @@ pub fn legacy_mirror(
     Ok(s)
 }
 
-/// The keys a window's view state leaves out of today's project state
-/// (Decision 22): shared or stored elsewhere.
+/// The keys a window's view state leaves out of today's project state:
+/// shared or stored elsewhere.
 const NOT_VIEW_STATE: [&str; 4] = [
     "savedWorkflows",
     "connectionOrder",

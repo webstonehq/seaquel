@@ -94,7 +94,7 @@ export class StorageGate {
   }
 
   async #probe(): Promise<boolean> {
-    // The page's window id is the origin of every Core call (Decision 22):
+    // The page's window id is the origin of every Core call:
     // settled before the first one, which is this probe.
     await windowIdReady();
     for (let attempt = 0; ; attempt++) {

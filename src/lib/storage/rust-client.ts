@@ -105,7 +105,7 @@ export const tauriCoreTransport: CoreTransport = async (body) => {
 
 /**
  * Web: `POST /api/rpc`, same bytes, same JSON back. Errors are `RpcError`
- * JSON. Every call waits for the page's window id (Decision 22), which is
+ * JSON. Every call waits for the page's window id, which is
  * its origin: the first call can't go out under another id.
  */
 export const httpCoreTransport: CoreTransport = async (body) => {
@@ -260,7 +260,7 @@ export type LibraryResult<M extends LibraryMethod> = Extract<
 
 /**
  * Whether each library call writes. Writes join the storage group's write
- * queue (Decision 3), so every write this page issues lands in order; the
+ * queue, so every write this page issues lands in order; the
  * lists don't wait. A `Record` over every method, so a new one doesn't
  * compile until it's classified.
  */

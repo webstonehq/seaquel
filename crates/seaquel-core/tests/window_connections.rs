@@ -1,4 +1,4 @@
-//! Phase 6 probe F4: connections belong to the window (write origin) that
+//! Connections belong to the window (write origin) that
 //! opened them. A window that connects a saved connection again replaces
 //! its older connection for it, and `Workspace::close_owned_by` closes a
 //! window's connections (the web server calls it for a window whose socket
@@ -401,7 +401,7 @@ impl Fixture {
     }
 }
 
-/// Review M2: the discount for replaced connections is netted across
+/// The discount for replaced connections is netted across
 /// connects in flight. A tab at the cap that reconnects all of its saved
 /// connections at once (a reload) gets every one back.
 #[tokio::test]

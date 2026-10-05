@@ -1,5 +1,4 @@
-//! The DuckDB helper's status and install (the DuckDB helper plan, Task 4,
-//! Decisions 9 and 10).
+//! The DuckDB helper's status and install.
 //!
 //! - [`Core::duckdb_helper_status`] (`engine-duckdb-remote`, no HTTP): is
 //!   this version's helper there and does it pass the check every start
@@ -17,7 +16,7 @@
 //!   version's.
 //!
 //! With a pin ([`crate::CoreBuilder::duckdb_helper_pinned`], the app's
-//! release build: the desktop DuckDB helper plan, Decision 4) the asset's
+//! release build) the asset's
 //! size and SHA-256 come from the binary: the asset is answered with no
 //! request, the install fetches only the download (never the release
 //! metadata), and a copied file with no hash given is checked against it.
@@ -25,7 +24,7 @@
 //! The interface installs before it connects again: `RemoteEngine::open`
 //! fails at once with `ENGINE_NOT_INSTALLED`, so Core's connect timeout
 //! never covers a download. The first start of a newly installed file gets
-//! the 20 s retry (`remote/process.rs`, Task 3's M5): the file is new by
+//! the 20 s retry (`remote/process.rs`): the file is new by
 //! inode and mtime, so nothing needs doing here.
 //!
 //! Logs: `activity=duckdb.helper`, `event=install`, whether it downloaded,
@@ -183,8 +182,7 @@ mod install {
     use std::sync::Arc;
 
     /// Sets its flag when dropped: a dropped `install_from_file` future
-    /// stops the blocking copy between reads, so its partial file goes
-    /// (review I2).
+    /// stops the blocking copy between reads, so its partial file goes.
     struct CancelOnDrop(Arc<AtomicBool>);
 
     impl Drop for CancelOnDrop {
@@ -193,7 +191,7 @@ mod install {
         }
     }
 
-    /// `f` on tokio's blocking pool (review M2: hashing a 35 MB file and
+    /// `f` on tokio's blocking pool (hashing a 35 MB file and
     /// copying one off the async threads), as `imports.rs` reads files.
     async fn blocking<T: Send + 'static>(
         f: impl FnOnce() -> T + Send + 'static,
@@ -224,7 +222,7 @@ mod install {
 
     /// Whether `file` could be the pinned asset before it is hashed: a
     /// regular file (a FIFO, device or folder isn't, and isn't opened in a
-    /// way that blocks: Task 4 review I1), whose length is the pinned size
+    /// way that blocks), whose length is the pinned size
     /// and which starts as gzip does. A file that can't be read counts as
     /// one (the install then says why).
     fn looks_like_the_asset(file: &Path, size: u64) -> bool {
@@ -244,7 +242,7 @@ mod install {
     }
 
     /// `WRONG_FILE` for a copied file that isn't this build's asset, naming
-    /// the asset to pick (review 3, for the app's dialog).
+    /// the asset to pick (for the app's dialog).
     fn wrong_file(version: &str) -> Result<CoreError, CoreError> {
         Ok(CoreError::new(
             "WRONG_FILE",
@@ -357,12 +355,12 @@ mod install {
         /// The helper already there, intact (its file's SHA-256 is the one
         /// its install recorded) and passing the start's check.
         ///
-        /// A folder that went loose since (review M5) is tightened first, as
+        /// A folder that went loose since is tightened first, as
         /// an install would, so this works offline too.
         ///
         /// Under a pin, a record naming another asset digest than the
-        /// pinned one doesn't count: that helper came from another asset
-        /// (review 1), so the pinned one is downloaded over it. A record
+        /// pinned one doesn't count: that helper came from another asset,
+        /// so the pinned one is downloaded over it. A record
         /// without an asset digest is kept.
         async fn already_installed(&self, target: &InstallTarget, helper: &DuckdbHelper) -> bool {
             let (target, helper) = (target.clone(), helper.clone());

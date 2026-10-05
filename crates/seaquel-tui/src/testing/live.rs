@@ -1,4 +1,4 @@
-//! Live-database test support (probe F9): a table name no other run uses,
+//! Live-database test support: a table name no other run uses,
 //! and a guard that drops the table when the test ends, passed or failed.
 
 use std::time::Duration;

@@ -27,6 +27,6 @@ apiKey?: string,
 /**
  * The provider `api_key` is for, required with it: a key for any other
  * provider than the one Core resolves is refused before a request
- * (`AI_PROVIDER_CHANGED`, Task 7 review I1).
+ * (`AI_PROVIDER_CHANGED`).
  */
 providerId?: string, };

@@ -1,5 +1,5 @@
 //! The numbered migrations in `migrations/`, embedded by `build.rs` for
-//! the in-memory executor's migrator (phase 8 Decision 4), which records
+//! the in-memory executor's migrator, which records
 //! each one in `_sqlx_migrations` exactly as sqlx's does: the version and
 //! description sqlx reads from the file name, and the SHA-384 of the
 //! file's text as its checksum. So a file made in the browser and one made

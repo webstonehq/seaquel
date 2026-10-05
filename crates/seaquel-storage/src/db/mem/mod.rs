@@ -1,4 +1,4 @@
-//! The in-memory executor (phase 8 Decision 3): the part of sqlx's API
+//! The in-memory executor: the part of sqlx's API
 //! this crate uses, over one SQLite connection to an in-memory database
 //! (`ffi.rs`). The demo's metadata file lives here; the page keeps
 //! snapshots of it ([`SqlitePool::snapshot`]).

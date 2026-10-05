@@ -1,5 +1,5 @@
 /**
- * Core in the demo's page (phase 8, Decisions 2 and 19): the module opened
+ * Core in the demo's page (phase 8): the module opened
  * once, before the app renders (`src/routes/+layout.ts`), over the page's
  * DuckDB-WASM, and made the page's `CoreClient` and storage transport.
  *
@@ -13,8 +13,7 @@
  * fails that connect with the reason, and the next connect tries again.
  *
  * The assistant's model calls go through the page's `fetch`
- * (`makeFetchBridge`, which `openBrowserCore` passes to the module when
- * none is given, and again after each trap restart; phase 6 Task 8).
+ * (`makeFetchBridge`, which `openBrowserCore` passes to the module when none is given, and again after each trap restart).
  */
 import {
   makeDuckDbBridge,

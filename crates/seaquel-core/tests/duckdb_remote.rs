@@ -1,4 +1,4 @@
-//! Core with the remote DuckDB engine (the DuckDB helper plan, Task 3):
+//! Core with the remote DuckDB engine:
 //! `with_plugins(|id| id != "duckdb").duckdb_helper(…)`, as the terminal
 //! binaries build it, connects a `duckdb` target through
 //! `Workspace::connect`, and the editor's run and page, the data tab's
@@ -430,7 +430,7 @@ async fn closed_events(
     seen
 }
 
-/// The desktop DuckDB helper plan, Decision 7: a helper killed under a
+/// A helper killed under a
 /// connection makes Core take the connection out and announce it once as
 /// `ConnectionClosed` with `CONNECTION_CLOSED` and the helper's message
 /// (which the GUI's `handleConnectionClosed` shows); `db.alive` then leaves

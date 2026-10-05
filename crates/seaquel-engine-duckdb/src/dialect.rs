@@ -19,7 +19,7 @@
 //!   a note.
 //! - 12: no bare `ARRAY`, `LIST`, `MAP`, `STRUCT` or `UNION` column types.
 //!
-//! CRUD binds its values with `?` (decision 4 of the phase 2 plan) instead
+//! CRUD binds its values with `?` instead
 //! of the adapter's inline literals. The cast map is ignored, as it is for
 //! MySQL and MSSQL (the UI sends one for Postgres only): DuckDB casts a
 //! bound text key to the column's type itself (DATE, TIMESTAMP, UUID, …).
@@ -132,7 +132,7 @@ const ALTER_RULES: AlterTableRules = AlterTableRules {
     not_null_after_add_column: true,
     indexes_block_column_changes: true,
     constraints_block_column_drops: true,
-    // DuckDB has no ALTER TABLE ADD/DROP CONSTRAINT (Task 18).
+    // DuckDB has no ALTER TABLE ADD/DROP CONSTRAINT.
     unique_changes: UniqueChanges::Notes,
 };
 

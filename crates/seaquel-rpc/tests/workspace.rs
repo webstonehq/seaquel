@@ -544,7 +544,7 @@ async fn dispatch_logs_the_method_and_never_the_params() {
     );
 }
 
-/// Phase 5d, Decision 16: a storage-group write emits one `storage` event
+/// A storage-group write emits one `storage` event
 /// after it committed, naming the method's key; a read or a failed write
 /// emits none.
 #[tokio::test]

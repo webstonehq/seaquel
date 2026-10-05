@@ -1,4 +1,4 @@
-//! `ai_messages.parts` (phase 6, migration `0007`, Decisions 12 and 23): a
+//! `ai_messages.parts` (phase 6, migration `0007`): a
 //! reply's tool calls, stored next to its text. Expand-only: older releases
 //! never read the column, and a row they write reads back with no parts.
 
@@ -55,7 +55,7 @@ const SEED: &str =
      INSERT INTO ai_messages (id, chat_id, role, content, timestamp) \
        VALUES ('old', 'a', 'user', 'from an older release', '2026-10-01T00:00:00.000Z');";
 
-/// Decision 23's shape: a round's text and one tool call with its result.
+/// A reply's `parts`: a round's text and one tool call with its result.
 fn parts() -> serde_json::Value {
     json!([
         {"round": 0, "type": "text", "text": "Checking. "},
@@ -259,7 +259,7 @@ async fn parts_round_trip_and_unreadable_parts_read_as_none() {
     assert_eq!(stored.as_deref(), Some("[]"));
 }
 
-/// Core's turn write (Decision 31): the messages upserted by id, and the
+/// Core's turn write: the messages upserted by id, and the
 /// chat's `updated_at` set when asked, in the caller's transaction. A
 /// message id of another chat writes nothing.
 #[tokio::test]

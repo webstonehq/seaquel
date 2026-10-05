@@ -1,12 +1,16 @@
 # shared fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`.
+
 These files record what today's TypeScript does with shared projects: the `.seaquel` file formats (queries, dashboards, connection templates, `project.yaml`, `labels.yaml`), the file names, and the projection end to end (linking, importing and renaming projects, sharing and editing queries, dashboards and connections, the reconcile that reads the repo back, pulls). Phase 5e moves that work into Core (`seaquel_workspace::shared`, `seaquel-git`'s `tree`, Core's `shared.rs` and the `shared` RPC group), and these cases pin it the way `../library` and `../state` pinned 5d. See `docs/plans/2026-10-05-rust-core-phase-5e-plan.md`, "What the code shows", "Parity fixtures", Q20–Q26 and Decisions 29–52.
 
 **The fixtures are frozen.** After 5e the projection runs in Core, and the TypeScript is deleted (Decision 48: there is no TypeScript twin, not even in the demo). Change a case only when Core is meant to behave differently, say why in `changes.json` and here, and never re-record to make a failing test pass.
 
 ## How they were made
 
-The recorder is `docs/plans/artifacts/2026-10-05-record-shared-fixtures.test.ts.txt`, a vitest file that writes these files and `../imports`. It ran on `cfc7294` plus the phase 5e working tree after Task 1 (with its review fixes and the N1 re-review fix) and Task 3. So it records Task 1's fixes as today's behaviour: shared dashboard edits written to the file, writes going to the row's own project's repo, no reconcile while the repo has conflicted files, and a reconcile that ignores a viewport-only difference. To rerun it, copy it to `src/lib/hooks/database/record-shared.test.ts`, run it with `FREEZE_SHARED=1` (and `SEAQUEL_WASM_PREBUILT=1` if `pkg/` is current), and delete the copy. `FREEZE_SHARED_OUT=<dir>` writes `<dir>/shared` and `<dir>/imports` instead. It needs a tree that still has the TypeScript projection, so before 5e Task 7.
+The recorder was `docs/plans/artifacts/2026-10-05-record-shared-fixtures.test.ts.txt`, a vitest file that writes these files and `../imports`. It ran on `cfc7294` plus the phase 5e working tree after Task 1 (with its review fixes and the N1 re-review fix) and Task 3. So it records Task 1's fixes as today's behaviour: shared dashboard edits written to the file, writes going to the row's own project's repo, no reconcile while the repo has conflicted files, and a reconcile that ignores a viewport-only difference. To rerun it, copy it to `src/lib/hooks/database/record-shared.test.ts`, run it with `FREEZE_SHARED=1` (and `SEAQUEL_WASM_PREBUILT=1` if `pkg/` is current), and delete the copy. `FREEZE_SHARED_OUT=<dir>` writes `<dir>/shared` and `<dir>/imports` instead. It needs a tree that still has the TypeScript projection, so before 5e Task 7.
 
 Two runs gave byte-identical files. After the Task 2 re-review the set was recorded again: everything came out byte-identical except `repo/two-projects-one-repo-pull`, whose steps were meant to change, and the new case. After the Task 2 review the whole set was recorded again: every case from the first recording came out byte-identical and in its place, the review's cases follow them, and two runs matched again.
 

@@ -9,7 +9,7 @@ export const prerender = true;
 export const ssr = false;
 
 /**
- * The demo's Core in the page (phase 8, Decision 2), opened before anything
+ * The demo's Core in the page (phase 8), opened before anything
  * renders, like the editor module: every storage call goes to it. The branch
  * is on the build-time constant itself, so Rollup drops the import (the
  * module, the bridge and the transport) from the desktop and web builds.

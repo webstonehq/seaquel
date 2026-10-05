@@ -1,4 +1,4 @@
-//! Where everything goes (Decision 8). A pure function of the terminal's
+//! Where everything goes. A pure function of the terminal's
 //! size and the panel the main view shows, so nothing is cached per size
 //! and `update` hit-tests clicks with the same rectangles the view draws.
 //!

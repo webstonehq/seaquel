@@ -1,5 +1,5 @@
-//! One write transaction per Core call (phase 5d Decision 3), the one
-//! connection every write goes through (phase 7a Decision 5), and the
+//! One write transaction per Core call, the one
+//! connection every write goes through, and the
 //! reader that lets a query run either inside a write or on the pool.
 
 use std::ops::{Deref, DerefMut};
@@ -28,7 +28,7 @@ fn as_conn_ref(c: &TxConn) -> &SqliteConnection {
     c
 }
 
-/// What the write mutex guards (phase 7a Decision 5).
+/// What the write mutex guards.
 ///
 /// Natively it owns the storage's **writer connection**: one SQLite
 /// connection outside the pool that every [`WriteTx`], `VACUUM` and
@@ -241,7 +241,7 @@ impl std::fmt::Debug for WriteTx {
 /// sent as plain statements, not through sqlx's `Transaction`, because sqlx
 /// counts transaction depth and never lowers it when that `ROLLBACK` fails,
 /// which would leave the connection unusable for every later transaction
-/// (phase 5d-2 review, the size cap).
+/// (the size cap).
 ///
 /// `fail` sends a statement that fails instead (tests only), so the path a
 /// failed `ROLLBACK` takes can be tested.
@@ -317,8 +317,8 @@ impl WriteTx {
     /// Turns `PRAGMA secure_delete` on or off for this transaction's
     /// connection. While it's on, the space deletes and overwrites free is
     /// zeroed, so text they remove doesn't linger in the pages written: the
-    /// upgrade that strips secrets from stored connection strings (phase
-    /// 5d, Decision 12a) turns it on around its row update and off again
+    /// upgrade that strips secrets from stored connection strings (phase 5d)
+    /// turns it on around its row update and off again
     /// before the commit, so the writer connection goes on as it came.
     pub async fn secure_delete(&mut self, on: bool) -> Result<(), StorageError> {
         let sql = if on {
@@ -392,8 +392,8 @@ impl Drop for WriteTx {
         }
     }
 
-    /// Rolls back a transaction that wasn't committed (phase 8 Decision
-    /// 5). The in-memory executor is synchronous, so the `ROLLBACK` runs
+    /// Rolls back a transaction that wasn't committed.
+    /// The in-memory executor is synchronous, so the `ROLLBACK` runs
     /// here, before the connection and the write turn are released; "no
     /// transaction is active" (SQLite already rolled back) is fine, and any
     /// other failure is logged by code.
@@ -471,8 +471,8 @@ impl Storage {
 impl Storage {
     /// Rebuilds the file (`VACUUM`), so bytes deleted earlier don't linger
     /// in free space or pages nothing rewrote since. For the upgrade that
-    /// strips secrets from stored connection strings (phase 5d, Decision
-    /// 12a). It waits for this process's writers first, runs on the writer
+    /// strips secrets from stored connection strings (phase 5d).
+    /// It waits for this process's writers first, runs on the writer
     /// connection, and fails with `STORAGE_READ_ONLY` on read-only storage.
     pub async fn vacuum(&self) -> Result<(), StorageError> {
         #[cfg(not(target_arch = "wasm32"))]
@@ -560,7 +560,7 @@ impl Storage {
                 .map_err(|_| timed_out())
         }
         // No tokio timer in the browser: the wait races the page's own
-        // timer (phase 8 Decision 5), the one Core's `WasmExecutor` uses.
+        // timer, the one Core's `WasmExecutor` uses.
         #[cfg(target_arch = "wasm32")]
         {
             use seaquel_runtime::Executor as _;
@@ -577,8 +577,8 @@ impl Storage {
 #[cfg(not(target_arch = "wasm32"))]
 impl Storage {
     /// A number that changes whenever another connection to the file (in
-    /// this process or another) has committed since the last call (phase
-    /// 7a Decision 5). `PRAGMA data_version` on the writer connection, which
+    /// this process or another) has committed since the last call.
+    /// `PRAGMA data_version` on the writer connection, which
     /// this storage's own writes never move, since they all run on it.
     ///
     /// - `None` while a write holds the write turn (this process's writers

@@ -1,5 +1,5 @@
 /**
- * Decision 12a's one-time notice. When Core first opens a file, it moves
+ * The string-secrets upgrade's one-time notice. When Core first opens a file, it moves
  * the passwords the driver reads out of saved connection strings into the
  * keychain (desktop) and strips every secret from the strings. The
  * connections whose secrets couldn't all be moved (on web: every stripped

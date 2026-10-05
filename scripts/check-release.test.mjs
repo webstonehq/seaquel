@@ -1,5 +1,5 @@
-// The release check (the desktop DuckDB helper plan, Q11 B, Decision 15,
-// Task 9): a draft is ready only when every target has its pinned app, its
+// The release check:
+// a draft is ready only when every target has its pinned app, its
 // helper as pinned, its CLI and TUI and its updater entry, and the release
 // workflow is wired so the pin reaches the app and the check runs last.
 import { spawnSync } from "node:child_process";
@@ -259,7 +259,7 @@ describe("check-release.mjs on a downloaded draft", () => {
   });
 });
 
-// The workflow, parsed (review M3).
+// The workflow, parsed.
 describe("release.yml", () => {
   const workflow = parse(readFileSync(join(root, ".github/workflows/release.yml"), "utf8"));
   const steps = workflow.jobs["publish-tauri"].steps;
@@ -325,7 +325,7 @@ describe("release.yml", () => {
     ).toEqual([]);
   });
 
-  // The plan's follow-up from Task 9 review M4: a copy downloaded in a
+  // A copy downloaded in a
   // browser keeps the quarantine flag, so the three macOS binaries are
   // notarized. Notarizing doesn't change a file's bytes, but it runs before
   // the gzip and the pin all the same, so the pinned .gz is of a notarized

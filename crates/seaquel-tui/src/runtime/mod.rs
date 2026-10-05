@@ -1,8 +1,8 @@
-//! The runtime (Decision 2): it owns the terminal, the event loop and the
+//! The runtime: it owns the terminal, the event loop and the
 //! Core calls. It turns `update`'s effects into actions and feeds their
 //! results back as messages.
 //!
-//! **Startup** (Task 3): Core opens before the terminal is entered, so a
+//! **Startup**: Core opens before the terminal is entered, so a
 //! refused data dir (`STORAGE_NOT_FOUND`, `STORAGE_NEEDS_UPGRADE`,
 //! `LEGACY_STORAGE`, `STORAGE_CORRUPT`) or a `--project`/`--connection`
 //! that names nothing is printed to a normal terminal with a non-zero exit.
@@ -105,7 +105,7 @@ pub async fn run_app(options: AppOptions) -> Result<Exit, AppError> {
         }
     };
     let session = Arc::new(session);
-    // Leftover `$EDITOR` files of a run that crashed (review M2).
+    // Leftover `$EDITOR` files of a run that crashed.
     let swept = external_editor::sweep(
         &options.data_dir,
         std::time::Duration::from_secs(24 * 60 * 60),
@@ -183,7 +183,7 @@ pub async fn run_app(options: AppOptions) -> Result<Exit, AppError> {
         other => other,
     };
     // The terminal first: closing connections can take a moment. ratatui's
-    // `Drop` would `eprintln!` on a closed terminal (probe F5).
+    // `Drop` would `eprintln!` on a closed terminal.
     terminal::release(tui);
     drop(guard);
     match &exit {
@@ -196,8 +196,8 @@ pub async fn run_app(options: AppOptions) -> Result<Exit, AppError> {
             log::warn!(activity = "tui.state_file", error = format!("{:?}", e.kind()).as_str(); "Can't write the state file");
         }
     }
-    // Bounded, whichever way the loop ended (`q`, a hang-up, a signal;
-    // review I1): the calls in flight are dropped first (an `EXPLAIN
+    // Bounded, whichever way the loop ended (`q`, a hang-up, a signal):
+    // the calls in flight are dropped first (an `EXPLAIN
     // ANALYZE` of a long statement isn't a stream `close_all` cancels), and
     // closing gets at most `SETTLE_WITHIN`.
     runner.tasks.abort_all();
@@ -315,7 +315,7 @@ impl event_loop::Host<ratatui::backend::CrosstermBackend<std::io::Stdout>> for R
         let result = terminal::outside(self.options, || {
             external_editor::edit_with(text, &self.data_dir, &command, true)
         })?;
-        // A fresh terminal repaints everything; never `clear()` (S5).
+        // A fresh terminal repaints everything; never `clear()`.
         terminal::release(std::mem::replace(tui, terminal::new_terminal()?));
         if let Err(why) = &result {
             log::warn!(activity = "tui.external_editor", reason = why.split(':').next().unwrap_or(""); "The external editor didn't run");
@@ -327,7 +327,7 @@ impl event_loop::Host<ratatui::backend::CrosstermBackend<std::io::Stdout>> for R
         #[cfg(unix)]
         {
             terminal::suspend(self.options)?;
-            // A fresh terminal repaints everything; never `clear()` (S5).
+            // A fresh terminal repaints everything; never `clear()`.
             terminal::release(std::mem::replace(tui, terminal::new_terminal()?));
         }
         #[cfg(not(unix))]

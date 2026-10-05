@@ -1,5 +1,5 @@
-//! Importing connections from TablePlus and DBeaver (phase 5e, Decision
-//! 47): finding and reading the other tool's file, the candidates, and the
+//! Importing connections from TablePlus and DBeaver (phase 5e):
+//! finding and reading the other tool's file, the candidates, and the
 //! import itself.
 //!
 //! The mapping, problems and duplicate check are
@@ -144,7 +144,7 @@ pub(crate) fn plist_json(bytes: &[u8]) -> Option<serde_json::Value> {
     serde_json::to_value(value).ok()
 }
 
-/// [`candidates_of`] on a blocking thread (review M2: the plist decode can
+/// [`candidates_of`] on a blocking thread (the plist decode can
 /// take a while on a large file).
 async fn decode(source: ImportSource, bytes: Vec<u8>) -> ImportCandidates {
     tokio::task::spawn_blocking(move || candidates_of(source, &bytes))
@@ -209,7 +209,7 @@ impl Workspace {
                 paths.home.join(rel)
             }
         };
-        // Review M2: the read off the async threads.
+        // The read off the async threads.
         tokio::task::spawn_blocking(move || read_capped(&file))
             .await
             .unwrap_or(Source::Unreadable("The file can't be read."))

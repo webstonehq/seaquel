@@ -46,7 +46,7 @@ fn cap(model: &Model, mut lines: Vec<Line<'static>>, room: usize) -> Vec<Line<'s
     lines
 }
 
-/// The commit dialog (review M1): the counts (or the preview) on top, cut
+/// The commit dialog: the counts (or the preview) on top, cut
 /// to fit; the destructive list (the first 10) and the `prod` field below,
 /// always shown.
 pub fn commit(model: &Model, dialog: &CommitDialog, frame: &mut Frame) {
@@ -225,7 +225,7 @@ pub fn discard(model: &Model, frame: &mut Frame) {
     );
 }
 
-/// "Commit again?": the last commit lost its connection (probe F1).
+/// "Commit again?": the last commit lost its connection.
 pub fn recommit(model: &Model, frame: &mut Frame) {
     draw_box(
         model,

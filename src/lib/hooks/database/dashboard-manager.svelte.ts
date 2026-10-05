@@ -46,7 +46,7 @@ function storedWidgets(widgets: readonly DashboardWidget[]) {
  * Manages dashboard CRUD operations, widget execution, and auto-refresh.
  * Dashboards are per-project.
  *
- * Phase 5d-2 (Decision 21): every change is one `library` call. Core makes
+ * Phase 5d-2: every change is one `library` call. Core makes
  * the dashboard's id, checks its name (`NAME_TAKEN` within the project),
  * and applies a patch of only the fields the edit changed; the page says
  * which edits are versioned (`captureVersion`: a rename, a widget added,
@@ -66,7 +66,7 @@ export class DashboardManager {
    * Closing the dashboard or removing the widget aborts it.
    */
   private runs = new Map<string, AbortController>();
-  /** Dashboards refused as too large (Decision 27), told once each. */
+  /** Dashboards refused as too large, told once each. */
   private toldTooLarge = new Set<string>();
   /** The pane manager's `syncGlobalActiveState`, for closing a deleted dashboard's tabs. */
   private syncActive?: (tabId: string) => void;
@@ -148,7 +148,7 @@ export class DashboardManager {
     const projectId = this.state.activeProjectId;
     if (!projectId) return;
 
-    // One call: Core deletes a shared dashboard's file first (Decision 37);
+    // One call: Core deletes a shared dashboard's file first;
     // a refusal leaves the dashboard as stored.
     let answer;
     try {
@@ -576,7 +576,7 @@ export class DashboardManager {
       [projectId]: dashboards.map((d) => (d.id === id ? updated : d)),
     };
 
-    // One call: Core writes its file after the row (Decision 36).
+    // One call: Core writes its file after the row.
     await this.save(id, { shared: true }, dashboard);
     this.scheduleProjectPersistence(projectId);
   }
@@ -595,7 +595,7 @@ export class DashboardManager {
       [projectId]: dashboards.map((d) => (d.id === id ? updated : d)),
     };
 
-    // One call: Core deletes its file before the row (Decision 37).
+    // One call: Core deletes its file before the row.
     await this.save(id, { shared: false }, dashboard);
     this.scheduleProjectPersistence(projectId);
   }
@@ -648,7 +648,7 @@ export class DashboardManager {
 
   /**
    * One version with its snapshot, for the history's diff and restore
-   * (5d-2 Task 7: the list holds no snapshots). `null` when it can't be
+   * (the list holds no snapshots). `null` when it can't be
    * read, which is shown; a version pruned or a dashboard removed elsewhere
    * also reads the project's versions again, so the history drops it.
    */
@@ -765,7 +765,7 @@ export class DashboardManager {
     this.toldTooLarge.delete(id);
     this.spliceVersions(dashboard.projectId, updated);
     // Core writes a shared dashboard's file from the stored row inside the
-    // call (bug 1; not for a pan or zoom alone, Q24).
+    // call (not for a pan or zoom alone).
     reportProjection(answer, dashboard.projectId, { removal: patch.shared === false });
     // The stored row, which holds other windows' changes to other fields,
     // shows unless a later edit here is still on its way (its answer will).

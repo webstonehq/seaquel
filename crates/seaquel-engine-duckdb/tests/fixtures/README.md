@@ -1,5 +1,9 @@
 # DuckDB dialect fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`. The same day, the `about` text of `bugfixes.json` (no test reads it) gained ", now in git history at ae7f269" after the plan it names; nothing else in the file changed.
+
 > **Frozen.** These fixtures were recorded from the TypeScript `DuckDBAdapter`
 > (`src/lib/db/duckdb.ts`). That file stays for the browser demo, but the
 > recorder was deleted in phase 2 (Task 21), so the fixtures can no longer be
@@ -9,10 +13,10 @@
 
 They were recorded by the phase 2 recorder against a temp copy of
 `e2e/test-databases/duckdb/seaquel_test.duckdb` (written by
-`npm run e2e:db:seed`), with no server of its own. The corpus is kept at
+`npm run e2e:db:seed`), with no server of its own. The corpus was kept at
 `docs/plans/artifacts/2026-09-27-duckdb-fixture-corpus.ts.txt`.
 
-A reference copy of the recorder is in `docs/plans/artifacts/`, renamed to
+A reference copy of the recorder was in `docs/plans/artifacts/`, renamed to
 `.txt` so no tooling runs it: `2026-09-27-recorder-dialect-fixtures.test.ts.txt`
 is the vitest entry point, and the other `2026-09-27-recorder-*` files are its
 helpers, npm wrapper and tsconfig.
@@ -149,8 +153,8 @@ test should assert that the recorded TypeScript output differs. Its `input` is
 null when the recorded input applies. Otherwise it holds the rows of the
 fixed query, run live on the scratch objects.
 
-The generator is copied in
-[`docs/plans/artifacts/2026-09-27-duckdb-bugfixes-model.ts.txt`](../../../../docs/plans/artifacts/2026-09-27-duckdb-bugfixes-model.ts.txt).
+The generator was copied in
+`docs/plans/artifacts/2026-09-27-duckdb-bugfixes-model.ts.txt`.
 It is a vitest file that needs a `seaquel-server`, and it imports the
 recorder's `server`, `replay` and `corpus` modules (now the
 `2026-09-27-recorder-*.txt` copies). It holds the fixed catalog
@@ -394,7 +398,7 @@ email UNIQUE, status, balance)`, dropping `name` fails, and dropping
 ## DuckDB-WASM (the demo) compared
 
 A check (copied in
-[`docs/plans/artifacts/2026-09-27-duckdb-wasm-check.ts.txt`](../../../../docs/plans/artifacts/2026-09-27-duckdb-wasm-check.ts.txt);
+`docs/plans/artifacts/2026-09-27-duckdb-wasm-check.ts.txt`;
 its `corpus` import is the recorder's `2026-09-27-recorder-corpus.ts.txt`)
 replayed every non-synthetic parse case
 against `@duckdb/duckdb-wasm` 1.32.0, which is DuckDB 1.4.3, in Node. It used

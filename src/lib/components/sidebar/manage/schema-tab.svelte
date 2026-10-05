@@ -35,7 +35,7 @@
 	let truncateTableTarget = $state<{ connectionId: string; schema: string; name: string } | null>(null);
 	let showTruncateDialog = $state(false);
 
-	/** What Core drops (phase 5c, Decision 11): it builds the statement with the dialect. */
+	/** What Core drops (phase 5c): it builds the statement with the dialect. */
 	const dropKind = (type: "table" | "view" | "materialized-view") =>
 		type === "materialized-view" ? "materializedView" : type;
 

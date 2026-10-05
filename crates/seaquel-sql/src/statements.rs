@@ -1,8 +1,8 @@
-//! Statement checks on significant tokens (Task 3): query type, the
+//! Statement checks on significant tokens: query type, the
 //! destructive-statement check (fix 11) and the source table for inline
 //! editing (fix 12). Ports of `src/lib/db/query-utils.ts` (deleted in phase
-//! 2b), with the rules of the recorder's `statements-model.ts`
-//! (`docs/plans/artifacts/2026-09-27-sql-recorder-statements-model.ts.txt`).
+//! 2b), with the rules of the recorder's `statements-model.ts` (in git
+//! history).
 //!
 //! Every check reads the tokens with a MySQL/MariaDB executable comment as
 //! code ([`crate::scan::ScanOptions::exec_comments`]). Strings, comments and
@@ -555,8 +555,8 @@ pub fn table_from_select(sql: &str, engine: SqlEngine) -> Option<TableRef> {
     }
 }
 
-/// What a pending change does, for the sheet's description (phase 5c,
-/// Decision 12): [`change_summary`]'s verb.
+/// What a pending change does, for the sheet's description (phase 5c):
+/// [`change_summary`]'s verb.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
@@ -590,8 +590,7 @@ pub struct ChangeSummary {
 /// when the statement is none of [`ChangeVerb`]'s, or names no object where
 /// the verb needs one (`INSERT (1)`, a bare `UPDATE`); the GUI then falls
 /// back to the change's origin or the SQL. Replaces the TypeScript's
-/// regexes, which misread quoted and qualified names (phase 5c, Decision
-/// 12).
+/// regexes, which misread quoted and qualified names (phase 5c).
 ///
 /// - `INSERT … INTO name`, `DELETE … FROM name` (the first INTO or FROM
 ///   outside parentheses);

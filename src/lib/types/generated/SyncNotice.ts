@@ -4,7 +4,6 @@ import type { SharedKind } from "./SharedKind";
 import type { SkipReason } from "./SkipReason";
 
 /**
- * What a sync tells the user. Paths are relative to `.seaquel/`
- * (Decision 50).
+ * What a sync tells the user. Paths are relative to `.seaquel/`.
  */
 export type SyncNotice = { "type": "conflict", kind: SharedKind, id: string, replaced?: ReplacedValues, } | { "type": "removedInRepo", kind: SharedKind, id: string, } | { "type": "nameTaken", path: string, takenBy: string, } | { "type": "unpaired", path: string, claims: string, } | { "type": "skipped", path: string, why: SkipReason, } | { "type": "templateTypeChanged", kind: SharedKind, id: string, path: string, templateType: string, imported: string, };

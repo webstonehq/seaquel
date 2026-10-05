@@ -1,4 +1,4 @@
-//! A turn's chat writes and reads (Decisions 12 and 31): the user's
+//! A turn's chat writes and reads: the user's
 //! message before the first round, the reply at the end (on `done`, an
 //! error or a cancel), two writes per turn, each one `WriteTx` with its
 //! `chatMessages` event and change number; the reply's also announces the
@@ -17,7 +17,7 @@ use seaquel_workspace::state::{self as st, ChatMessageDraft, CHAT_NOT_FOUND};
 use crate::changes::WriteOrigin;
 use crate::{Core, CoreError, StoredKind, Workspace};
 
-/// `CHAT_FULL`: the chat can't take a turn here (the web's budget, Q17),
+/// `CHAT_FULL`: the chat can't take a turn here (the web's budget),
 /// checked before any model call.
 pub const CHAT_FULL: &str = "CHAT_FULL";
 
@@ -171,7 +171,7 @@ pub(crate) async fn write(
 
 /// The chat's stored rows as history reads them, leaving out `skip` (the
 /// turn's own rows, when a retry reuses their ids). A row whose `parts`
-/// doesn't read as Decision 23's items goes as its text.
+/// doesn't read as a list of text and tool parts goes as its text.
 pub(crate) async fn history_rows(
     ws: &Workspace,
     chat_id: &str,

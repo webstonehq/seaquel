@@ -6,78 +6,24 @@
         "kind": "tableSizes",
         "columns": ["schema_name", "table_name"],
         "rows": [
-          {
-            "schema_name": "fx.a.b",
-            "table_name": "things"
-          },
-          {
-            "schema_name": "fx_aux.main",
-            "table_name": "users"
-          },
-          {
-            "schema_name": "fx_sales",
-            "table_name": "fx order lines"
-          },
-          {
-            "schema_name": "fx_sales",
-            "table_name": "orders"
-          },
-          {
-            "schema_name": "fx_sales",
-            "table_name": "regions"
-          },
-          {
-            "schema_name": "fx_sales",
-            "table_name": "regions"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "all_types"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "categories"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "categories"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "fx it's"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "fx_items"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "fx_types"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "items"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "order_items"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "orders"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "products"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "users"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "users"
-          }
+          { "schema_name": "fx.a.b", "table_name": "things" },
+          { "schema_name": "fx_aux.main", "table_name": "users" },
+          { "schema_name": "fx_sales", "table_name": "fx order lines" },
+          { "schema_name": "fx_sales", "table_name": "orders" },
+          { "schema_name": "fx_sales", "table_name": "regions" },
+          { "schema_name": "fx_sales", "table_name": "regions" },
+          { "schema_name": "main", "table_name": "all_types" },
+          { "schema_name": "main", "table_name": "categories" },
+          { "schema_name": "main", "table_name": "categories" },
+          { "schema_name": "main", "table_name": "fx it's" },
+          { "schema_name": "main", "table_name": "fx_items" },
+          { "schema_name": "main", "table_name": "fx_types" },
+          { "schema_name": "main", "table_name": "items" },
+          { "schema_name": "main", "table_name": "order_items" },
+          { "schema_name": "main", "table_name": "orders" },
+          { "schema_name": "main", "table_name": "products" },
+          { "schema_name": "main", "table_name": "users" },
+          { "schema_name": "main", "table_name": "users" }
         ]
       },
       "output": [
@@ -365,13 +311,7 @@
       "input": {
         "kind": "overview",
         "columns": ["table_count", "index_count", "total_size_bytes"],
-        "rows": [
-          {
-            "table_count": 18,
-            "index_count": 10,
-            "total_size_bytes": 0
-          }
-        ]
+        "rows": [{ "table_count": 18, "index_count": 10, "total_size_bytes": 0 }]
       },
       "output": {
         "databaseName": "DuckDB Database",
@@ -383,11 +323,7 @@
     },
     {
       "name": "database overview, no rows (fallbacks)",
-      "input": {
-        "kind": "overview",
-        "columns": [],
-        "rows": []
-      },
+      "input": { "kind": "overview", "columns": [], "rows": [] },
       "output": {
         "databaseName": "DuckDB Database",
         "totalSize": "In-memory",
@@ -403,11 +339,7 @@
         "schema": "main",
         "table": "users",
         "columns": ["row_count"],
-        "rows": [
-          {
-            "row_count": 15
-          }
-        ]
+        "rows": [{ "row_count": 15 }]
       },
       "output": 15
     },
@@ -418,11 +350,7 @@
         "schema": "main",
         "table": "categories",
         "columns": ["row_count"],
-        "rows": [
-          {
-            "row_count": 5
-          }
-        ]
+        "rows": [{ "row_count": 5 }]
       },
       "output": 5
     },
@@ -433,11 +361,7 @@
         "schema": "main",
         "table": "orders",
         "columns": ["row_count"],
-        "rows": [
-          {
-            "row_count": 500
-          }
-        ]
+        "rows": [{ "row_count": 500 }]
       },
       "output": 500
     },
@@ -448,11 +372,7 @@
         "schema": "main",
         "table": "fx_types",
         "columns": ["row_count"],
-        "rows": [
-          {
-            "row_count": 1
-          }
-        ]
+        "rows": [{ "row_count": 1 }]
       },
       "output": 1
     },
@@ -463,11 +383,7 @@
         "schema": "fx_sales",
         "table": "orders",
         "columns": ["row_count"],
-        "rows": [
-          {
-            "row_count": 300
-          }
-        ]
+        "rows": [{ "row_count": 300 }]
       },
       "output": 300
     },
@@ -478,11 +394,7 @@
         "schema": "fx_sales",
         "table": "regions",
         "columns": ["row_count"],
-        "rows": [
-          {
-            "row_count": 3
-          }
-        ]
+        "rows": [{ "row_count": 3 }]
       },
       "output": 3
     }

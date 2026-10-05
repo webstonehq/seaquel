@@ -67,7 +67,7 @@ pub struct Calls {
     pub read_only: AtomicUsize,
     pub execute: AtomicUsize,
     pub transaction: AtomicUsize,
-    /// `table_metadata` reads (the edits' metadata, Decision 3).
+    /// `table_metadata` reads (the edits' metadata).
     pub metadata: AtomicUsize,
     /// Queries that were started and are hanging (`hang` in the SQL).
     pub hanging: AtomicUsize,

@@ -1,5 +1,5 @@
 //! Which saved connections the server exposes (open question 3 of the phase 4
-//! plan: only the ones named on the command line), and each one's AI sharing
+//! Only the ones named on the command line), and each one's AI sharing
 //! flags.
 
 use seaquel_core::storage::{app_state, connections, projects, Storage};
@@ -174,8 +174,7 @@ fn find_project<'a>(
     }
 }
 
-/// The sharing rule, the assistant's too (`seaquel_core::ai::sharing`,
-/// Decision 5).
+/// The sharing rule, the assistant's too (`seaquel_core::ai::sharing`).
 pub use seaquel_core::ai::sharing::{
     global_sharing_from, sharing, Sharing, AI_SETTINGS_KEY, DEFAULT_SHARING,
 };

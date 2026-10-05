@@ -8,12 +8,12 @@ description = "Seaquel's outbound HTTP (native only): the reqwest client that ne
 # The OS proxy settings (macOS/Windows system config). The desktop turns it
 # on, as seaquel-license's `desktop` feature does for its own client.
 system-proxy = ["reqwest/system-proxy"]
-# Downloading and installing a release asset (the DuckDB helper plan, Task
-# 4): the release metadata, the download checked for size and SHA-256,
+# Downloading and installing a release asset:
+# the release metadata, the download checked for size and SHA-256,
 # gzip, and the install into private folders. Core's
 # `duckdb-helper-install` turns it on; the web server doesn't.
 # On Windows the folders and the file get a protected DACL of the user and
-# SYSTEM (`seaquel-runtime/acl`; the desktop DuckDB helper plan, Task 7).
+# SYSTEM (`seaquel-runtime/acl`).
 release-asset = [
     "dep:flate2",
     "dep:libc",

@@ -1,5 +1,5 @@
-//! What the in-crate decoding tests compare against (Decision 19 of the
-//! desktop DuckDB helper plan). It used to be the native driver's own
+//! What the in-crate decoding tests compare against.
+//! It used to be the native driver's own
 //! decoding, which went through the same `decode.rs` as the paths it
 //! checked, so a mistake there showed on both sides and passed. Now it is:
 //!
@@ -177,7 +177,7 @@ impl Case {
 fn the_fixture_reads_back() {
     let cells = cells();
     assert_eq!(cells.len(), 119);
-    // The lossy-Arrow cases are in it (Checkpoint H-1).
+    // The lossy-Arrow cases are in it.
     for name in ["UHUGEINT", "::BIT ", "BIGNUM"] {
         assert!(
             cells.iter().any(|c| c.select.contains(name)),

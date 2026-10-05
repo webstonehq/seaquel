@@ -1,4 +1,4 @@
-//! `$EDITOR` (Decision 14, spike S5): Ctrl+O hands the tab's text to
+//! `$EDITOR`: Ctrl+O hands the tab's text to
 //! `$VISUAL`, else `$EDITOR`, else `vi`, and reads it back. The text goes to
 //! a file of its own under `<data_dir>/tui/` (created 0600, never through a
 //! symlink, removed afterwards whatever happened); the command runs through
@@ -34,7 +34,7 @@ pub fn editor_from_env() -> String {
 /// had none. `Err` says why the text is unchanged.
 ///
 /// With `job_control` (the real terminal), the editor runs in a process
-/// group of its own that owns the terminal (review I4): Ctrl+Z there
+/// group of its own that owns the terminal: Ctrl+Z there
 /// stops the editor alone, and the TUI then takes the terminal back and
 /// stops itself, so the shell sees one stopped job; `fg` continues the TUI,
 /// which gives the terminal back to the editor and continues it. Tests
@@ -56,7 +56,7 @@ pub fn edit_with(
     let folder = data_dir.join("tui");
     super::state_file::make_private_dir(&folder)
         .map_err(|e| format!("can't make the folder for the file: {}", e.kind()))?;
-    // Removed on every way out, an unwind included (review M2).
+    // Removed on every way out, an unwind included.
     let file = TempFile(temp_path(&folder));
     let mut out =
         new_private_file(&file.0).map_err(|e| format!("can't write the file: {}", e.kind()))?;
@@ -104,7 +104,7 @@ fn run(mut command: Command, job_control: bool) -> Result<(), String> {
     })
 }
 
-/// The editor as a job of its own on the terminal (review I4).
+/// The editor as a job of its own on the terminal.
 #[cfg(unix)]
 mod job {
     use std::os::unix::process::CommandExt;
@@ -225,7 +225,7 @@ fn shell(command: &str, path: &Path) -> Command {
 
 /// Removes `tui/edit-*` files and editors' swap files for them
 /// (`tui/.edit-*.sw?`) older than `max_age`, left by a run that crashed or
-/// was killed (review M2). A file whose process (the pid in its name) is
+/// was killed. A file whose process (the pid in its name) is
 /// still running is kept, whatever its age.
 pub fn sweep(data_dir: &Path, max_age: std::time::Duration) -> usize {
     let Ok(entries) = std::fs::read_dir(data_dir.join("tui")) else {
@@ -314,7 +314,7 @@ mod tests {
             .unwrap_or_default()
     }
 
-    // Review M2: old leftovers go, a live process's and new ones stay.
+    // Old leftovers go, a live process's and new ones stay.
     #[test]
     fn the_startup_sweep_removes_old_leftovers_only() {
         let dir = tempfile::tempdir().unwrap();
@@ -352,7 +352,7 @@ mod tests {
         );
     }
 
-    // Review M2: the temp file goes even when reading it back fails.
+    // The temp file goes even when reading it back fails.
     #[test]
     fn the_temp_file_goes_on_every_path() {
         let dir = tempfile::tempdir().unwrap();

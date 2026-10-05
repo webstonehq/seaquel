@@ -17,13 +17,13 @@ conflicted: boolean, rowsChanged: number, filesWritten: number,
  */
 notices: Array<SyncNotice>, 
 /**
- * A repo's sync goes on past a project that fails (review M5); each
+ * A repo's sync goes on past a project that fails; each
  * failure is named here.
  */
 failures?: Array<ProjectFailure>, 
 /**
- * Projects the scan skipped whole (past its file count or size,
- * probe fix 7): nothing in them was read or written. Named on every
+ * Projects the scan skipped whole (past its file count or size):
+ * nothing in them was read or written. Named on every
  * sync, outside the once-per-session rule.
  */
 skippedProjects?: Array<SkippedProject>, };

@@ -1,4 +1,4 @@
-//! Imports from TablePlus and DBeaver through Core (phase 5e, Decision 47):
+//! Imports from TablePlus and DBeaver through Core (phase 5e):
 //! the injected home, `found: false` and `unreadable`, the bounds on what
 //! is read and decoded, and the create's duplicate check and order append
 //! inside its one transaction.

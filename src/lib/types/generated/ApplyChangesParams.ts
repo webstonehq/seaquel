@@ -7,12 +7,12 @@ import type { HistoryContext } from "./HistoryContext";
  */
 export type ApplyChangesParams = { connectionId: string, changes: Array<Change>, 
 /**
- * The user confirmed the destructive statements (Decision 7). Absent
+ * The user confirmed the destructive statements. Absent
  * is false.
  */
 confirmed?: boolean, 
 /**
- * Record each applied change in history under this saved connection
- * (Decision 8). Without it nothing is recorded.
+ * Record each applied change in history under this saved connection.
+ * Without it nothing is recorded.
  */
 history?: HistoryContext, };

@@ -1,55 +1,9 @@
 {
-  "repo": "licenseRepo",
-  "source": "src/lib/storage/repos/license-repo.ts",
-  "note": "Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
-  "cases": [
-    {
-      "name": "license/save-and-load",
-      "description": "load is null until saved; an object round-trips; overwrite.",
-      "steps": [
-        {"call":"licenseRepo.load","args":[],"result":null},
-        {
-          "call": "licenseRepo.save",
-          "args": [
-            {
-              "key": "SQ-ÄÖÜ-🚀",
-              "status": "active",
-              "validatedAt": "2026-01-02T03:04:05.000Z",
-              "nested": {"n":1.5,"list":[]}
-            }
-          ]
-        },
-        {
-          "call": "licenseRepo.load",
-          "args": [],
-          "result": {
-            "key": "SQ-ÄÖÜ-🚀",
-            "status": "active",
-            "validatedAt": "2026-01-02T03:04:05.000Z",
-            "nested": {"n":1.5,"list":[]}
-          }
-        },
-        {"call":"licenseRepo.save","args":[{"status":"none"}]},
-        {"call":"licenseRepo.load","args":[],"result":{"status":"none"}}
-      ],
-      "rows": {
-        "license_state": {"columns":["id","data"],"rows":[[1,"{\"status\":\"none\"}"]],"types":[["integer","text"]]}
-      }
-    },
-    {
-      "name": "license/save-scalars-and-null",
-      "description": "null is stored as 'null' and loads null; a string and a number round-trip; bad stored JSON loads null.",
-      "steps": [
-        {"call":"licenseRepo.save","args":[null]},
-        {"call":"licenseRepo.load","args":[],"result":null},
-        {"call":"licenseRepo.save","args":["just a string"]},
-        {"call":"licenseRepo.load","args":[],"result":"just a string"},
-        {"call":"licenseRepo.save","args":[7]},
-        {"call":"licenseRepo.load","args":[],"result":7},
-        {"sql":"UPDATE license_state SET data = '{bad' WHERE id = 1","params":[]},
-        {"call":"licenseRepo.load","args":[],"result":null}
-      ],
-      "rows": {"license_state":{"columns":["id","data"],"rows":[[1,"{bad"]],"types":[["integer","text"]]}}
-    }
-  ]
+"repo":"licenseRepo",
+"source":"src/lib/storage/repos/license-repo.ts",
+"note":"Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
+"cases":[
+{"name":"license/save-and-load","description":"load is null until saved; an object round-trips; overwrite.","steps":[{"call":"licenseRepo.load","args":[],"result":null},{"call":"licenseRepo.save","args":[{"key":"SQ-ÄÖÜ-🚀","status":"active","validatedAt":"2026-01-02T03:04:05.000Z","nested":{"n":1.5,"list":[]}}]},{"call":"licenseRepo.load","args":[],"result":{"key":"SQ-ÄÖÜ-🚀","status":"active","validatedAt":"2026-01-02T03:04:05.000Z","nested":{"n":1.5,"list":[]}}},{"call":"licenseRepo.save","args":[{"status":"none"}]},{"call":"licenseRepo.load","args":[],"result":{"status":"none"}}],"rows":{"license_state":{"columns":["id","data"],"rows":[[1,"{\"status\":\"none\"}"]],"types":[["integer","text"]]}}},
+{"name":"license/save-scalars-and-null","description":"null is stored as 'null' and loads null; a string and a number round-trip; bad stored JSON loads null.","steps":[{"call":"licenseRepo.save","args":[null]},{"call":"licenseRepo.load","args":[],"result":null},{"call":"licenseRepo.save","args":["just a string"]},{"call":"licenseRepo.load","args":[],"result":"just a string"},{"call":"licenseRepo.save","args":[7]},{"call":"licenseRepo.load","args":[],"result":7},{"sql":"UPDATE license_state SET data = '{bad' WHERE id = 1","params":[]},{"call":"licenseRepo.load","args":[],"result":null}],"rows":{"license_state":{"columns":["id","data"],"rows":[[1,"{bad"]],"types":[["integer","text"]]}}}
+]
 }

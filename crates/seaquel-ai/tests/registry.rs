@@ -319,7 +319,7 @@ fn max_rows_out_of_range_is_refused() {
     }
 }
 
-/// Decision 24: keys are visited in sorted order, so of two bad fields the
+/// Keys are visited in sorted order, so of two bad fields the
 /// sorted-first is reported, whatever order the model wrote them in. This
 /// fails if anything turns on serde_json's `preserve_order`.
 #[test]

@@ -1014,13 +1014,7 @@
               "unique": false,
               "type": "btree"
             },
-            {
-              "id": "i2",
-              "name": "",
-              "columns": ["status"],
-              "unique": false,
-              "type": "btree"
-            }
+            { "id": "i2", "name": "", "columns": ["status"], "unique": false, "type": "btree" }
           ],
           "foreignKeys": [
             {

@@ -109,17 +109,16 @@ jobs:
           Set-Content $configPath $config
           Write-Host "Transformed version for Windows build"
 
-      # The DuckDB helper (the DuckDB helper plan, Decision 14): the terminal
+      # The DuckDB helper: the terminal
       # binaries link no DuckDB and download this on first use, so it is the
       # one DuckDB compile per target besides the app's. Built, signed and
       # uploaded as the CLI and TUI are, but with an entitlements file of its
       # own: DuckDB loads its extensions (httpfs, …) as dylibs signed by
       # DuckDB, which the hardened runtime refuses without
       # `disable-library-validation` (issue #114). The app, the CLI and the
-      # TUI load no DuckDB in process, so they carry no entitlements (the
-      # desktop DuckDB helper plan, Q12 B; scripts/macos-entitlements.test.mjs).
+      # TUI load no DuckDB in process, so they carry no entitlements (scripts/macos-entitlements.test.mjs).
       # It is gzipped after signing, so the .gz holds the signed binary; only
-      # the .gz is uploaded, by this job, right after the app (Decision 15).
+      # the .gz is uploaded, by this job, right after the app.
       # It comes first: the app's build needs its pin.
       - name: Build seaquel-duckdb
         shell: bash
@@ -138,7 +137,7 @@ jobs:
         shell: bash
         run: trusted-signing-cli -e https://eus.codesigning.azure.net -a Seaquel -c Seaquel -d Seaquel src-tauri/binaries/seaquel-duckdb-${{ matrix.target }}.exe
 
-      # Notarized (the desktop DuckDB helper plan, Task 9 review M4) so a copy
+      # Notarized so a copy
       # someone downloads in a browser and gunzips by hand passes Gatekeeper;
       # the app's, CLI's and TUI's own downloads carry no quarantine flag. With
       # the same Apple ID tauri-action notarizes the app with. A bare binary
@@ -160,7 +159,7 @@ jobs:
           node --input-type=module -e "import { gzipFile } from './scripts/build-cli.mjs'; gzipFile(process.argv[1], process.argv[1] + '.gz');" "$bin"
           ls -l "$bin" "$bin.gz"
 
-      # The pin (the desktop DuckDB helper plan, Q1 B, Decision 4): the .gz's
+      # The pin: the .gz's
       # size (plain decimal) and SHA-256 (64 lowercase hex, no prefix) go to
       # $GITHUB_ENV, so the app built below compiles them in and downloads
       # exactly this file. Also written to release-pins/ for check-release.
@@ -253,8 +252,8 @@ jobs:
           SEAQUEL_DUCKDB_HELPER_REQUIRE_PIN: "1"
         with:
           tagName: ${{ github.ref_name }}
-          # The title is the gate (the desktop DuckDB helper plan, Task 9
-          # review I1): only check-release sets "Release <tag>", once every
+          # The title is the gate:
+          # only check-release sets "Release <tag>", once every
           # target's app, helper, CLI, TUI and updater entry are in.
           releaseName: "NOT CHECKED: Release ${{ github.ref_name }}"
           releaseBody: |
@@ -262,7 +261,7 @@ jobs:
 
             > These binaries follow Seaquel's [pricing terms](https://seaquel.app/pricing): free for personal use, license required for commercial use. The source is MIT licensed and can be built and run for free, for both personal and commercial use.
           releaseDraft: true
-          # A pre-release (review I3): the website's update check skips
+          # A pre-release: the website's update check skips
           # pre-releases, so publishing the draft reaches no installed app.
           # Promoting it to the latest release, after the manual checks, is
           # the deliberate step.
@@ -276,9 +275,9 @@ jobs:
         shell: bash
         run: node scripts/release-pin.mjs verify-app --target ${{ matrix.target }}
 
-      # The helper goes into the draft with its app (Decision 15), so a job
+      # The helper goes into the draft with its app, so a job
       # that failed leaves neither. Through actions/github-script rather than
-      # `gh` (review I2): `gh` isn't promised on the partner images
+      # `gh`: `gh` isn't promised on the partner images
       # (windows-11-arm, ubuntu-24.04-arm) and installing it there isn't
       # reliable; github-script runs on the action's own Node with the job's
       # token. The script re-hashes the .gz against the pin's record, uploads
@@ -331,7 +330,7 @@ jobs:
           path: cli-assets
           merge-multiple: true
       # The DuckDB helpers are uploaded by each target's own job, with its
-      # app (the desktop DuckDB helper plan, Decision 15).
+      # app.
       - name: Add standalone CLI and TUI binaries to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -369,7 +368,7 @@ jobs:
             echo "Version already correct: $CURRENT"
           fi
 
-  # Q11 B, Decision 15 of the desktop DuckDB helper plan: the draft is
+  # The draft is
   # published by hand, and the website's update check offers the newest
   # published release at once, so a draft with an app but not its helper
   # must never be published. This runs after every other job, whatever they
@@ -380,7 +379,7 @@ jobs:
   # and only a pass here makes it "Release <tag>" (a failure makes it "NOT
   # READY …"). The release is a pre-release, which the update check skips;
   # promoting it to latest after the manual checks is the step that reaches
-  # users (the plan's "Risks: no fallback build").
+  # users, and there is no fallback build to ship instead.
   check-release:
     needs: [publish-tauri, publish-cli, fix-updater-manifest]
     if: always()
@@ -415,7 +414,7 @@ jobs:
             --job "publish-tauri=${{ needs.publish-tauri.result }}" \
             --job "publish-cli=${{ needs.publish-cli.result }}" \
             --job "fix-updater-manifest=${{ needs.fix-updater-manifest.result }}" || status=$?
-          # The title is the gate (review I1): "Release <tag>" only on a pass.
+          # The title is the gate: "Release <tag>" only on a pass.
           # Only a draft or a pre-release is retitled, never a release the
           # owner has already promoted.
           unpromoted=$(jq -r '.isDraft or .isPrerelease' release-check/release.json 2>/dev/null || echo false)

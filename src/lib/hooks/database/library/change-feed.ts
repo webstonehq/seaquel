@@ -1,6 +1,6 @@
 /**
  * `ChangeFeed`: other windows' and tabs' stored writes, as refetch requests
- * (phase 5d-1, Decision 18).
+ * (phase 5d-1).
  *
  * Core emits one `storageChanged` event per committed write, with its kind,
  * scope, ids, the writer's origin and the change `seq`, never a value. The
@@ -15,7 +15,7 @@
  *   each time the event channel (re)starts (`onResubscribed`, `initial` the
  *   first time), and when a result or an event shows a new epoch;
  * - asks for the same reload when another process wrote the file (phase 7a,
- *   Decision 6: an `external` event, which names no rows), once per 100 ms;
+ * An `external` event, which names no rows), once per 100 ms;
  * - says when updates stopped (`onEventsUnavailable`) until the channel is
  *   back.
  *
@@ -54,7 +54,7 @@ export interface ChangeFeedOptions {
    * reply, stored after the stream ended). Others are skipped.
    */
   acceptOwn?: (event: StorageChangedEvent) => boolean;
-  /** How long events of one kind and scope are grouped (Decision 18: 100 ms). */
+  /** How long events of one kind and scope are grouped (100 ms). */
   delayMs?: number;
 }
 

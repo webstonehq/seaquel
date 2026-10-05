@@ -1,12 +1,16 @@
 # ts-baseline fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`.
+
 These files record what today's TypeScript assistant does before phase 6 moves it into Rust: the requests it sends to Anthropic's Messages API and to OpenAI-compatible Chat Completions, the system prompt and schema context, what each tool returns to the model, `@mention` expansion, how a turn ends for each kind of provider stream, what the page shows, the inline prompt (`generateSQL`), and the model list and provider test. They pin `seaquel-ai`'s wire, prompt and tool renderers (Tasks 2 and 3) and Core's turn (Task 4). See `docs/plans/2026-10-08-rust-core-phase-6-plan.md`, "Parity", "What the code shows" (the numbered bugs) and Decisions 3–32 (22–32 were added in Task 1's review).
 
 **The fixtures are frozen.** Change a case only when Rust is meant to behave differently, say why in `changes.json`, and never re-record to make a failing test pass.
 
 ## How they were made
 
-The recorder is `docs/plans/artifacts/2026-10-08-record-ai-baseline.test.ts.txt`, a vitest file. It ran on `ef5014a` (Clean up), the phase 6 plan's survey commit, while Task 2's Rust changes were in progress in the same tree; they touch no TypeScript, so the recorded code is `ef5014a`'s. To rerun it, copy it to `src/lib/services/ai/record-ai-baseline.test.ts`, run it with `FREEZE_AI=1` (and `SEAQUEL_WASM_PREBUILT=1` if `src/lib/wasm/pkg/` is current), and delete the copy. `FREEZE_AI_OUT=<dir>` writes somewhere else. It needs a tree that still has the TypeScript assistant, so before Task 7.
+The recorder was `docs/plans/artifacts/2026-10-08-record-ai-baseline.test.ts.txt`, a vitest file. It ran on `ef5014a` (Clean up), the phase 6 plan's survey commit, while Task 2's Rust changes were in progress in the same tree; they touch no TypeScript, so the recorded code is `ef5014a`'s. To rerun it, copy it to `src/lib/services/ai/record-ai-baseline.test.ts`, run it with `FREEZE_AI=1` (and `SEAQUEL_WASM_PREBUILT=1` if `src/lib/wasm/pkg/` is current), and delete the copy. `FREEZE_AI_OUT=<dir>` writes somewhere else. It needs a tree that still has the TypeScript assistant, so before Task 7.
 
 The first recording was checked by three runs (two into scratch directories and one from the artifact), all byte-identical. The review's re-recording was checked by two runs, byte-identical, and every case of the first recording is unchanged byte for byte except `page/allow-all-other-connection`, whose second step now scripts an `allow` (TypeScript never uses it; Rust asks). The re-review's re-recording was checked by two runs, byte-identical; it changed only the 11 cases whose inputs changed (distinctive messages, requests and replies for the log checks, `page/history-skips-pending`'s seed, the reply marker) and added `page/no-api-key` and `tool-results/tool/assistant/explain-query-large`.
 

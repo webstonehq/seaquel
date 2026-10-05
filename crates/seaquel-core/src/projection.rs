@@ -1,5 +1,5 @@
-//! The library's hooks into the shared projection (phase 5e, Decisions 36
-//! and 37): what `library.rs` and `state.rs` call after a write that may
+//! The library's hooks into the shared projection (phase 5e):
+//! what `library.rs` and `state.rs` call after a write that may
 //! change a shared row's file, and around a removal. With Core's `git`
 //! feature they run `shared.rs`; without it (the web server, the wasm
 //! build) they do nothing, and so does a Core built without
@@ -14,7 +14,7 @@ use crate::changes::WriteOrigin;
 use crate::{Core, Workspace};
 
 /// The row a library call changed, by id. The publish reads it again under
-/// the repo lock (Decision 36), so a racing write is never overwritten by
+/// the repo lock, so a racing write is never overwritten by
 /// an older copy.
 #[derive(Debug, Clone, Copy)]
 // Without `git` the hooks do nothing, so nothing reads the fields.
@@ -30,14 +30,13 @@ pub(crate) enum Publish<'a> {
         id: &'a str,
         renamed: bool,
     },
-    /// `shared_now`: the call turned `isLocalOnly` off, which shares it
-    /// (Decision 53).
+    /// `shared_now`: the call turned `isLocalOnly` off, which shares it.
     Connection {
         id: &'a str,
         renamed: bool,
         shared_now: bool,
     },
-    /// A linked project's `project.yaml` (Q25).
+    /// A linked project's `project.yaml`.
     Project,
 }
 

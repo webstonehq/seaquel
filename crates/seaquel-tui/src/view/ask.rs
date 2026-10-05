@@ -1,7 +1,7 @@
-//! Ask AI's popup (Task 7; design 1d): `Ask AI` and the sharing line on its
+//! Ask AI's popup (design 1d): `Ask AI` and the sharing line on its
 //! top border, the request (with the `@` list under it), then the wait, the
 //! error, or the status line and the generated SQL highlighted with the
-//! connection's engine. Its keys are on the key bar (Decision 9). Drawn
+//! connection's engine. Its keys are on the key bar. Drawn
 //! from the model only; nothing here is logged.
 
 use ratatui::layout::Rect;

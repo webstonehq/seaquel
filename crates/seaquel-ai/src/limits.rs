@@ -1,6 +1,6 @@
 //! The assistant's and the MCP server's limits: the ones every interface
-//! applies (Q4, Decisions 4, 13, 23, 29 and 30) as constants, and the ones
-//! only the web sets as [`AiLimits`] (Decision 14).
+//! applies as constants, and the ones
+//! only the web sets as [`AiLimits`].
 
 use std::fmt;
 use std::time::Duration;
@@ -23,21 +23,21 @@ pub const MAX_FETCH_BYTES: usize = 8 * 1024 * 1024;
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// About the most bytes an MCP result's JSON may take.
 pub const MCP_RESULT_BYTES: usize = 4 * 1024 * 1024;
-/// About the most bytes an assistant result's JSON may take (Q4: about 64k
+/// About the most bytes an assistant result's JSON may take (about 64k
 /// tokens).
 pub const ASSISTANT_RESULT_BYTES: usize = 256 * 1024;
-/// A stored tool result is cut at this many bytes (Decision 23).
+/// A stored tool result is cut at this many bytes.
 pub const PART_RESULT_BYTES: usize = 16 * 1024;
-/// What a turn's history may cost (Decision 29).
+/// What a turn's history may cost.
 pub const HISTORY_BYTES: usize = 512 * 1024;
-/// The schema context's cap, whole tables only (Decision 13).
+/// The schema context's cap, whole tables only.
 pub const SCHEMA_CONTEXT_BYTES: usize = 128 * 1024;
 /// Tool calls per turn, counted across rounds; the next ends the turn with
 /// `TOOL_LIMIT`.
 pub const MAX_TOOL_CALLS_PER_TURN: usize = 20;
 
-/// The most a reply may hold, in bytes, whatever else is enforced (probe
-/// F2): past it, or past the chat's message limit when that is lower,
+/// The most a reply may hold, in bytes, whatever else is enforced:
+/// past it, or past the chat's message limit when that is lower,
 /// Core stops reading the provider and stores the reply cut.
 pub const MAX_REPLY_BYTES: usize = 1024 * 1024;
 
@@ -82,7 +82,7 @@ pub fn max_rows(requested: Option<u32>) -> Result<usize, ToolError> {
     }
 }
 
-/// How a tool's query runs (Decision 4, bug 14): read-only, with these
+/// How a tool's query runs: read-only, with these
 /// rows, this fetch budget and this timeout.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct QuerySpec {

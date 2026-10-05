@@ -95,7 +95,7 @@ export const databaseTypes: DatabaseTypeConfig[] = [
 
 /**
  * The database types this build offers in the wizard: all of them on desktop,
- * none of SQLite and DuckDB on web (Decision 11b). `databaseTypes` stays the
+ * none of SQLite and DuckDB on web. `databaseTypes` stays the
  * full list, for looking up an existing connection's type.
  */
 export function availableDatabaseTypes(

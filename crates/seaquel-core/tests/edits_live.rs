@@ -356,7 +356,7 @@ async fn postgres_uuid_and_date_keys_are_cast() {
         )]))
         .await;
     assert_eq!(got["applied"], 1, "{got}");
-    // A JSON cell's array and number bind as JSON (Decision 19).
+    // A JSON cell's array and number bind as JSON.
     for (i, value) in [
         json!([3]),
         json!(5),
@@ -400,7 +400,7 @@ async fn postgres_uuid_and_date_keys_are_cast() {
     l.drop_table(&t).await;
 }
 
-/// Decision 19 on each engine with a JSON type: a JSON cell's array and
+/// JSON columns on each engine with a JSON type: a JSON cell's array and
 /// number bind as JSON and store as JSON; typed JSON text binds as text and
 /// the database parses it. MariaDB's JSON is `longtext` with a
 /// `json_valid` check, which its metadata reports as `json`.

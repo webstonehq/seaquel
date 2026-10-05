@@ -11,7 +11,7 @@
 //!
 //! From phase 5d-2, Core numbers a new version inside its write
 //! transaction ([`append`]) and prunes from [`list_meta`] with
-//! [`delete_ids`], by `dashboard_version_limit` (Decision 21).
+//! [`delete_ids`], by `dashboard_version_limit`.
 
 use crate::db;
 use crate::db::SqliteRow;
@@ -35,8 +35,8 @@ pub const WIDGET_COUNT_OF_SNAPSHOT: &str = "CASE WHEN typeof(snapshot) = 'text' 
     AND json_valid(snapshot) THEN CASE WHEN json_type(snapshot, '$.widgets') = 'array' \
     THEN json_array_length(snapshot, '$.widgets') END END";
 
-/// Fills `widget_count` of every version an older release wrote without it
-/// (5d-2 Task 7 review); one that can't be counted gets `-1`, which reads
+/// Fills `widget_count` of every version an older release wrote without it;
+/// one that can't be counted gets `-1`, which reads
 /// as no count.
 pub(crate) fn refill_sql() -> String {
     format!(
@@ -61,7 +61,7 @@ pub fn list_meta_by_project_sql() -> String {
 }
 
 /// A text column selected as bytes, read lossily: a hand-edited value that
-/// isn't UTF-8 never fails the list (5d-2 Task 7 review).
+/// isn't UTF-8 never fails the list.
 fn lossy(row: &SqliteRow, col: &str) -> Result<String> {
     let bytes: Option<Vec<u8>> = db::Row::try_get_unchecked(row, col)?;
     Ok(bytes
@@ -83,7 +83,7 @@ fn map_meta(row: &SqliteRow) -> Result<PersistedDashboardVersionMeta> {
 }
 
 /// The versions of every dashboard in a project without their snapshots
-/// (`dashboardVersionsList`, phase 5d-2 Task 7): each version's number,
+/// (`dashboardVersionsList`): each version's number,
 /// time, widget count and snapshot size, by dashboard id, then oldest
 /// first. Only a row an older release wrote has its widgets counted here
 /// (its `widget_count` is NULL); the snapshots are otherwise never read.

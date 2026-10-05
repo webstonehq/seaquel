@@ -576,11 +576,7 @@
     },
     {
       "name": "database overview, no rows (fallbacks)",
-      "input": {
-        "kind": "overview",
-        "columns": [],
-        "rows": []
-      },
+      "input": { "kind": "overview", "columns": [], "rows": [] },
       "output": {
         "databaseName": "Unknown",
         "totalSize": "0 bytes",

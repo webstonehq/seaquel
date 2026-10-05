@@ -23,8 +23,8 @@ export interface FeatureFlags {
   /**
    * Offer SQLite connections. Off on web: a SQLite "connection string" is a
    * path on the server, and the server holds every user's data and its own
-   * auth database. `seaquel-server` doesn't register the engine either
-   * (Decision 11b), so this only keeps the UI from offering it.
+   * auth database. `seaquel-server` doesn't register the engine either,
+   * so this only keeps the UI from offering it.
    */
   sqliteSupport: boolean;
   /**
@@ -47,7 +47,7 @@ export interface FeatureFlags {
   editConnections: boolean;
   /**
    * Offer the AI assistant. On everywhere: in the demo the visitor's key is
-   * kept in page memory for the session (phase 6, Q2 B).
+   * kept in page memory for the session (phase 6).
    */
   aiAssistant: boolean;
   /** Allow saving queries */
@@ -73,12 +73,12 @@ export function getFeatures(): FeatureFlags {
     newConnections: !demo,
     sshTunnels: !demo && !web, // Tauri-only — no SSH stack in the web container
     mssqlSupport: !demo,
-    sqliteSupport: !web, // Server-side files: off on web (Decision 11b)
-    duckdbSupport: !web, // Server-side files: off on web (Decision 11b)
+    sqliteSupport: !web, // Server-side files: off on web
+    duckdbSupport: !web, // Server-side files: off on web
     fileExport: !demo && !web, // OS-save-dialog exports — Tauri-only
     appUpdater: !demo && !web, // Web tenant containers update via the platform, not the UI
     editConnections: !demo,
-    aiAssistant: true, // The demo's key lives in page memory for the session (phase 6, Q2 B)
+    aiAssistant: true, // The demo's key lives in page memory for the session (phase 6)
     savedQueries: true,
     connectionTypeSelector: !demo,
     sharedProjects: !demo && !web, // Desktop only until server-side git lands

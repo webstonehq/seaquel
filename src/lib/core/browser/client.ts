@@ -1,5 +1,5 @@
 /**
- * `CoreClient` in the demo (phase 8, Decision 15): Core runs in the page, so
+ * `CoreClient` in the demo (phase 8): Core runs in the page, so
  * every call goes to `BrowserCore` (`./transport.ts`):
  *
  * - `call`: the request's bytes to the module, the `CoreResponse` back; a

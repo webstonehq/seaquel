@@ -1,4 +1,4 @@
-//! The shared projection through Core (phase 5e, Task 5): the fixture
+//! The shared projection through Core (phase 5e): the fixture
 //! replay on real temp repos, and the tests of what the fixtures can't
 //! record (real symlinks, git, the repo lock against the storage lock,
 //! events, logs, the CLI's read-only workspace).
@@ -109,8 +109,6 @@ async fn drain<S: futures::Stream<Item = WorkspaceEvent> + Unpin>(
     out
 }
 
-// ── Decision 32 ──
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_symlinked_file_is_skipped_and_a_symlinked_dir_refuses_writes() {
     let w = World::new().await;
@@ -179,7 +177,7 @@ async fn a_path_with_dot_dot_is_refused() {
     )
     .await;
     // A folder that can't be a path in the repo is refused before the
-    // commit (Decision 32), on a shared query in a linked project.
+    // commit, on a shared query in a linked project.
     let err =
         w.ws.update_saved_query(
             &w.core,
@@ -240,8 +238,6 @@ async fn a_file_past_16_mib_is_skipped_and_named() {
     assert_eq!(q1["query"], "SELECT 1");
     assert_eq!(report.rows_changed, 0);
 }
-
-// ── Decision 35 ──
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_conflicted_repo_is_not_synced() {
@@ -306,7 +302,7 @@ async fn a_conflicted_repo_is_not_synced() {
     assert_eq!(err.code, "REPO_CONFLICTED");
 }
 
-/// Probe fix 7: a project past the scan's bounds is named on every sync,
+/// A project past the scan's bounds is named on every sync,
 /// not once per session, and the report marks the project skipped (the
 /// repo's sync too), so the GUI can show it.
 #[tokio::test(flavor = "multi_thread")]
@@ -424,8 +420,6 @@ async fn an_unreadable_directory_unshares_nothing() {
         ".seaquel/projects/team/queries/orders.sql"
     );
 }
-
-// ── Decisions 36 and 37 ──
 
 #[tokio::test(flavor = "multi_thread")]
 async fn publish_writes_the_row_read_under_the_lock() {
@@ -614,7 +608,7 @@ async fn a_publish_over_a_teammates_change_syncs_instead() {
     assert!(versions.iter().any(|v| v["snapshot"] == "SELECT 'mine'"));
 }
 
-/// Review M3: a rename whose new file is written while the old one turns
+/// A rename whose new file is written while the old one turns
 /// out changed by a teammate (the delete is stale) takes the new file back,
 /// so no two files share one id, and syncs: the teammate's file wins.
 #[tokio::test(flavor = "multi_thread")]
@@ -766,7 +760,7 @@ async fn a_removal_whose_file_cant_be_deleted_is_refused() {
     assert_eq!(row(&w, "q1").await["shared"], 1);
     assert_eq!(w.read(&format!("{Q}/orders.sql")).as_deref(), Some(text));
     w.hook.failing.lock().unwrap().clear();
-    // The project's link can't be read (a directory Decision 32 refuses):
+    // The project's link can't be read (a hidden directory is refused):
     // a row with a link isn't removed either.
     sqlx::query("UPDATE projects SET shared_dir = '.hidden' WHERE id = 'p1'")
         .execute(w.ws.storage().pool())
@@ -853,7 +847,7 @@ async fn a_repo_in_use_stays_and_a_lost_one_keeps_its_id() {
         .unwrap();
 }
 
-/// Re-review R8: a repo path is compared in its canonical form, so a
+/// A repo path is compared in its canonical form, so a
 /// project stored with a trailing slash (or through a symlink) still finds
 /// its repo row: no second registration, its repo's sync includes it, and
 /// the repo can't be removed while it links to it.
@@ -923,7 +917,7 @@ async fn repo_paths_compare_in_canonical_form() {
     assert_eq!(preview.projects[0].linked_project_ids, ["p3"]);
 }
 
-/// Probe fix 8: a symlinked project directory isn't offered for import,
+/// A symlinked project directory isn't offered for import,
 /// and the scan's answer names it as skipped.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_symlinked_project_dir_is_named_as_skipped() {
@@ -944,7 +938,7 @@ async fn a_symlinked_project_dir_is_named_as_skipped() {
     assert_eq!(preview.skipped_dirs[0].why, SkipReason::Symlink);
 }
 
-/// Probe fix 4: a large sync plans outside the storage's write lock, so an
+/// A large sync plans outside the storage's write lock, so an
 /// unrelated library write isn't held for the sync's whole duration.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unrelated_write_isnt_held_by_a_large_sync() {
@@ -999,9 +993,9 @@ async fn an_unrelated_write_isnt_held_by_a_large_sync() {
     );
 }
 
-/// Probe fix 4: an edit that lands between a sync's plan and its write is
+/// An edit that lands between a sync's plan and its write is
 /// never overwritten by the stale plan. The sync plans again and sees it:
-/// the file still wins (Q20), but as a named conflict with the edit in the
+/// the file still wins, but as a named conflict with the edit in the
 /// history, not as a silent update.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_racing_edit_is_never_overwritten_by_a_stale_plan() {
@@ -1078,7 +1072,7 @@ async fn a_racing_edit_is_never_overwritten_by_a_stale_plan() {
     );
 }
 
-// ── Decision 38: the repo lock and the storage lock ──
+// ── The repo lock and the storage lock ──
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_pull_waits_for_a_publish() {
@@ -1132,7 +1126,7 @@ async fn a_pull_waits_for_a_publish() {
     pull.await.unwrap().unwrap();
 }
 
-/// Review M1: the repo lock is keyed by the canonical path, so a symlink
+/// The repo lock is keyed by the canonical path, so a symlink
 /// to the repo (and on macOS another letter case) shares its lock.
 #[tokio::test(flavor = "multi_thread")]
 async fn two_spellings_of_a_repo_share_its_lock() {
@@ -1250,8 +1244,6 @@ async fn no_file_io_inside_a_write_tx() {
     assert_eq!(syncing.await.unwrap().files_written, 1);
 }
 
-// ── Decision 40, Q25 ──
-
 #[tokio::test(flavor = "multi_thread")]
 async fn link_exports_and_links_templates_without_duplicates() {
     let w = World::new().await;
@@ -1363,7 +1355,7 @@ async fn relinking_is_refused_elsewhere_and_shares_only_on_the_same_repo() {
     assert!(w.read(&format!("{C}/warehouse.yaml")).is_some());
 }
 
-/// Review M5: a repo's sync goes on past a project that fails, and says
+/// A repo's sync goes on past a project that fails, and says
 /// which; an import of several projects keeps the ones that worked and
 /// takes back the one whose sync failed, with whatever it stored.
 #[tokio::test(flavor = "multi_thread")]
@@ -1440,7 +1432,7 @@ async fn multi_project_calls_go_on_past_a_failure() {
     );
 }
 
-/// Re-review R3: an imported project is announced only once its sync
+/// An imported project is announced only once its sync
 /// succeeded; one whose import is taken back is never announced, so no
 /// other window learns of it and writes into a project about to go.
 #[tokio::test(flavor = "multi_thread")]
@@ -1499,7 +1491,7 @@ async fn an_import_announces_its_project_only_after_its_sync() {
     assert!(announced > last_row, "announced before its sync: {got:?}");
 }
 
-/// Re-review R5: the project's repo is read again once the repo lock is
+/// The project's repo is read again once the repo lock is
 /// held; a link that waited while the project was moved elsewhere is
 /// refused and writes nothing into the old repo.
 #[tokio::test(flavor = "multi_thread")]
@@ -1534,7 +1526,7 @@ async fn a_link_rechecks_the_project_under_the_lock() {
     assert!(w.read(&format!("{C}/warehouse.yaml")).is_none());
 }
 
-/// Probe fix 1: a relink adopts the user's own templates already in the
+/// A relink adopts the user's own templates already in the
 /// directory (by file id, then by name) instead of writing `<name>-2.yaml`,
 /// so no file is added, nothing is `unpaired`, and a second install
 /// imports each connection once.
@@ -1633,7 +1625,7 @@ async fn a_relink_adopts_the_users_own_templates() {
     assert_eq!(sorted, ["Billing", "Warehouse"], "{names:?}");
 }
 
-/// Probe fix 8: importing a directory a local project already links is a
+/// Importing a directory a local project already links is a
 /// per-directory failure (`PROJECT_ALREADY_LINKED`), nothing stored; the
 /// other directories asked for are still imported.
 #[tokio::test(flavor = "multi_thread")]
@@ -1674,9 +1666,8 @@ async fn importing_an_already_linked_directory_is_refused() {
     );
 }
 
-/// Probe-fix review A1: a ticked connection adopted by name from a
-/// teammate's template with other values takes no base, so Q27 applies:
-/// the template wins, the notice lists the replaced values, and nothing of
+/// A ticked connection adopted by name from a teammate's template with
+/// other values takes no base, so the template wins: the notice lists the replaced values, and nothing of
 /// the user's is pushed into the file.
 #[tokio::test(flavor = "multi_thread")]
 async fn adopting_a_teammates_template_by_name_pushes_nothing() {
@@ -1873,8 +1864,6 @@ async fn rename_keeps_the_directory() {
     assert_eq!(row(&w, "q1").await["shared"], 1);
 }
 
-// ── Q23 ──
-
 #[tokio::test(flavor = "multi_thread")]
 async fn template_changes_reach_the_connection_and_keep_local_fields() {
     let w = World::new().await;
@@ -1936,8 +1925,6 @@ async fn template_changes_reach_the_connection_and_keep_local_fields() {
     assert!(tpl.contains("host: db3.internal"), "{tpl}");
     assert!(!tpl.contains("alice") && !tpl.contains("mallory") && !tpl.contains("hunter2"));
 }
-
-// ── Decision 31 ──
 
 #[tokio::test(flavor = "multi_thread")]
 async fn local_files_denied_refuses_every_call_and_publishes_nothing() {
@@ -2058,7 +2045,7 @@ async fn local_files_denied_refuses_every_call_and_publishes_nothing() {
     assert_eq!(git(Path::new(&repo), &["status", "--porcelain"]).trim(), "");
 }
 
-// ── Events (Decision 44) ──
+// ── Events ──
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sync_emits_one_event_per_kind_and_scope() {
@@ -2104,7 +2091,7 @@ async fn a_sync_emits_one_event_per_kind_and_scope() {
     assert!(got.iter().all(|c| c.origin.as_deref() == Some("main")));
 }
 
-/// Review I1: the rows a sync committed are announced at once, before its
+/// The rows a sync committed are announced at once, before its
 /// file writes, so a file task that fails after the commit loses no event,
 /// and the published sequence isn't held while files are written.
 #[tokio::test(flavor = "multi_thread")]
@@ -2197,7 +2184,7 @@ async fn a_syncs_row_events_survive_a_failed_file_task() {
         .contains(&latency["id"].as_str().unwrap().to_string()));
 }
 
-/// Re-review R2: a link the sync stores after its file write (a query
+/// A link the sync stores after its file write (a query
 /// whose share's write failed, now written) is announced for that row, even
 /// when the row's kind already went out with the first transaction.
 #[tokio::test(flavor = "multi_thread")]
@@ -2304,7 +2291,7 @@ async fn a_publish_emits_shared_repo() {
     assert_eq!(kinds, [StoredKind::SavedQuery]);
 }
 
-// ── Logs (Decision 50) ──
+// ── Logs ──
 
 #[tokio::test(flavor = "multi_thread")]
 async fn no_paths_names_hosts_or_contents_in_logs() {
@@ -2361,7 +2348,7 @@ async fn no_paths_names_hosts_or_contents_in_logs() {
     assert!(log.contains("shared.sync"), "the sync logged nothing");
 }
 
-/// Task 6 review: `lastSyncAt` is best effort. A pull or push that worked
+/// `lastSyncAt` is best effort. A pull or push that worked
 /// answers its result even when the repo row can't be written (here, the
 /// CLI's read-only storage); the failure is logged by code, no path.
 #[tokio::test(flavor = "multi_thread")]
@@ -2405,7 +2392,7 @@ async fn a_push_or_pull_succeeds_when_last_sync_cant_be_written() {
     assert!(!records.contains(&path), "{records}");
 }
 
-// ── Q31: unlink keeps the user's own connections ──
+// ── Unlink keeps the user's own connections ──
 
 /// `p1` linked to `/repos/a` with "Warehouse" (`c1`, the user's own)
 /// exported at link time, and "Billing" a teammate's template the sync
@@ -2420,7 +2407,7 @@ async fn linked_with_own_and_imported(w: &World) -> String {
         &[connection_row("c1", "Warehouse", None)],
     )
     .await;
-    // The same path again only shares the ticked connections (review I4).
+    // The same path again only shares the ticked connections.
     w.ws.shared_link_project(&w.core, &origin(), "p1", &path, &["c1".to_string()])
         .await
         .unwrap();
@@ -2520,7 +2507,7 @@ async fn a_failed_relink_after_an_unlink_keeps_the_users_connections() {
     );
 }
 
-// ── Re-review I1: a ticked connection is shared even when it's local-only ──
+// ── A ticked connection is shared even when it's local-only ──
 
 #[tokio::test(flavor = "multi_thread")]
 async fn linking_shares_a_ticked_local_only_connection() {

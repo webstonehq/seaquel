@@ -1,4 +1,4 @@
-//! The browser's open (phase 8 Decision 4): the metadata file lives in
+//! The browser's open: the metadata file lives in
 //! SQLite's memory database, starting from the snapshot the page kept, and
 //! goes through the same baseline, numbered migrations and data steps as a
 //! file on desktop. There is no file system here: no legacy-JSON check, no
@@ -83,7 +83,7 @@ impl Storage {
     }
 
     /// The whole file as it stands (`sqlite3_serialize`), for the page to
-    /// keep (phase 8 Decision 6). Refused while a call holds the
+    /// keep. Refused while a call holds the
     /// connection or a write is open, so it never holds uncommitted rows:
     /// the page takes it between calls.
     pub fn snapshot(&self) -> Result<Vec<u8>, StorageError> {

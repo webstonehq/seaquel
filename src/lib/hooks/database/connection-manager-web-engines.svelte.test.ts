@@ -1,5 +1,5 @@
 /**
- * Decision 11b: on web, a SQLite or DuckDB connection (saved on desktop, or
+ * On web, a SQLite or DuckDB connection (saved on desktop, or
  * typed in) fails in `ConnectionManager` with the reason, before anything
  * reaches the server.
  */

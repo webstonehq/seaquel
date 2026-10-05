@@ -12,8 +12,8 @@ test-hooks = []
 [dependencies]
 seaquel-runtime = { path = "../seaquel-runtime" }
 seaquel-types = { path = "../seaquel-types" }
-# The write turn's wait races the executor's sleep (`futures::future::select`,
-# phase 8 Decision 5); on wasm32 also the turn's and the pool's mutex
+# The write turn's wait races the executor's sleep (`futures::future::select`);
+# on wasm32 also the turn's and the pool's mutex
 # (`futures::lock`).
 futures = { workspace = true }
 log = { workspace = true }
@@ -35,17 +35,17 @@ sqlx = { workspace = true }
 # `sync`: the write mutex (`src/lock.rs`). `time`: the write mutex's wait
 # gives up (`Storage::write`). `rt`: a dropped `WriteTx` runs its `ROLLBACK`
 # on a task (`Handle::spawn`). Not the workspace tokio, whose `net` this
-# crate doesn't need. wasm32 links no tokio (phase 8 Decision 5).
+# crate doesn't need. wasm32 links no tokio.
 tokio = { version = "1", default-features = false, features = ["sync", "time", "rt"] }
 
-# wasm32 (the demo, phase 8 Decision 3): SQLite compiled to wasm, called
+# wasm32 (the demo): SQLite compiled to wasm, called
 # through `src/db/mem/`. It `links = "wsqlite3"`, so it resolves next to
 # sqlx's libsqlite3-sys. Building it needs a clang with the wasm32 backend
-# (`CC_wasm32_unknown_unknown`; Q9 of the phase 8 plan).
+# (`CC_wasm32_unknown_unknown`).
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 sqlite-wasm-rs = "=0.5.5"
 # sqlx's migration checksum (SHA-384 of the file's text), which the wasm32
-# migrator writes itself (phase 8 Decision 4).
+# migrator writes itself.
 sha2 = "0.10"
 # Saved workflow ids are v4 UUIDs; in the browser their randomness comes
 # from crypto.getRandomValues, as Core's do.

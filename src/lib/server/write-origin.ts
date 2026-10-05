@@ -1,5 +1,5 @@
 /**
- * `X-Seaquel-Origin` (phase 5d, Decision 18): the browser tab a `/api/rpc`
+ * `X-Seaquel-Origin` (phase 5d): the browser tab a `/api/rpc`
  * call comes from, which Rust puts on the `storageChanged` event of each
  * write so that tab can skip its own change. Not the CORS `Origin`, which
  * `origin.ts` checks.

@@ -1,5 +1,5 @@
-//! The TUI's Core (Decisions 3, 4, 20 and 22): built by `seaquel-terminal`
-//! with the AI client the desktop's has (Ask AI, Task 7), and one workspace
+//! The TUI's Core: built by `seaquel-terminal`
+//! with the AI client the desktop's has (Ask AI), and one workspace
 //! on the app's data dir opened as a **second process**: writable, no
 //! schema work (anything pending is `STORAGE_NEEDS_UPGRADE`), no
 //! maintenance writes, and external changes polled every second. Secrets
@@ -49,7 +49,7 @@ use crate::state::query::{ExplainCall, PageRunCall, RunCall, RunMsg, SaveKind, S
 use crate::state::secrets::SecretKind;
 use seaquel_types::ExplainResult;
 
-/// How often the workspace looks for another process's writes (Decision 6).
+/// How often the workspace looks for another process's writes.
 pub const EXTERNAL_POLL: Duration = Duration::from_secs(1);
 
 /// What [`open`] needs.
@@ -82,7 +82,7 @@ impl std::fmt::Debug for Session {
 
 /// The TUI's Core: `seaquel-terminal`'s, plus the native AI client with
 /// `AiEgress::Any`, as `src-tauri`'s `desktop_core` (Task 7 uses it).
-/// DuckDB runs in the helper process (the DuckDB helper plan), which the
+/// DuckDB runs in the helper process, which the
 /// TUI can download (`seaquel-terminal`'s `duckdb-helper-install`).
 pub fn build_core(options: seaquel_terminal::CoreOptions) -> Core {
     use seaquel_core::ai::native::{NativeHttp, NativeHttpOptions};
@@ -91,7 +91,7 @@ pub fn build_core(options: seaquel_terminal::CoreOptions) -> Core {
     let egress = AiEgress::Any;
     let http = NativeHttp::new(NativeHttpOptions::new(egress.into()));
     // Every test build calls models through a client that panics on any
-    // host but loopback (Task 7): no test can reach a real provider.
+    // host but loopback: no test can reach a real provider.
     #[cfg(test)]
     let http = seaquel_ai::testing::LoopbackOnly(http);
     seaquel_terminal::core_builder(seaquel_terminal::CoreOptions {
@@ -138,8 +138,7 @@ pub async fn open(options: OpenOptions) -> Result<Session, CoreError> {
 
 /// A startup refusal as `seaquel-tui` prints it (after the terminal is
 /// restored, or before it was ever taken). Core's message says what's
-/// wrong; a file that needs an upgrade also says which app version (the TUI
-/// may be newer than the app, Q13 A).
+/// wrong; a file that needs an upgrade also says which app version (the TUI may be newer than the app).
 pub fn startup_message(error: &CoreError) -> String {
     match error.code.as_str() {
         "STORAGE_NEEDS_UPGRADE" => format!(
@@ -244,7 +243,7 @@ impl Session {
     pub async fn library(&self) -> Result<Library, CallError> {
         let projects = self.ws.list_projects().await.map_err(call_error)?.value;
         let connections = self.ws.list_connections().await.map_err(call_error)?.value;
-        // Ask AI's title (Task 7): the app's AI settings, read as Core
+        // Ask AI's title: the app's AI settings, read as Core
         // reads them for a model call.
         let settings = self.ws.get_ai_settings().await.map_err(call_error)?.value;
         let raw = settings.get();
@@ -323,7 +322,7 @@ impl Session {
         self.ws.connect(&self.core, req).await.map_err(call_error)
     }
 
-    /// DuckDB support's download (the DuckDB helper plan, Task 7): its
+    /// DuckDB support's download: its
     /// size from the release metadata (one request), and whether the
     /// helper already there sits in a folder that isn't private.
     pub async fn duckdb_offer(&self) -> Result<Offer, CallError> {
@@ -356,7 +355,7 @@ impl Session {
         }
     }
 
-    /// "Save password" (Decision 23): `connectionUpdate` with the save
+    /// "Save password": `connectionUpdate` with the save
     /// flags and the secrets together, so Core writes the keychain before
     /// the row and refuses a secret whose flag would end up off.
     pub async fn save_password(&self, call: &SaveCall) -> Result<(), CallError> {
@@ -437,7 +436,7 @@ impl Session {
     }
 
     /// A table's columns, names and types (`table_metadata`), for
-    /// completion (probe F1: `schema_tables` lists none).
+    /// completion (`schema_tables` lists none).
     pub async fn table_columns(
         &self,
         core_id: &str,
@@ -452,7 +451,7 @@ impl Session {
     }
 
     /// A table's metadata, and the approximate DDL Core's dialect builds
-    /// from it (Decision 10: the DDL tab is headed "approximate").
+    /// from it (the DDL tab is headed "approximate").
     pub async fn table_meta(
         &self,
         core_id: &str,
@@ -668,7 +667,7 @@ impl Session {
         Ok(saved_item(row))
     }
 
-    /// Ask AI (Task 7): Core's `ai_generate` for the saved connection, the
+    /// Ask AI: Core's `ai_generate` for the saved connection, the
     /// request as typed and the existing query. Core reads the provider,
     /// model, sharing and key (the keychain through `SecretWait`); dropping
     /// the future drops the HTTP request.
@@ -809,8 +808,8 @@ fn run_msg(event: seaquel_core::domain::run::RunEvent) -> RunMsg {
             elapsed_ms,
             sql,
         },
-        // Pending changes aren't on in the TUI (edits are always staged,
-        // Decision 11): `deferWrites` is never sent, so this can't come.
+        // Pending changes aren't on in the TUI (edits are always staged):
+        // `deferWrites` is never sent, so this can't come.
         RunEvent::StatementDeferred { index, sql, .. } => RunMsg::Failed {
             index,
             error: CallError::new("DEFERRED", "The statement was deferred and didn't run."),
@@ -979,8 +978,8 @@ mod tests {
         }
     }
 
-    /// The TUI's Core runs DuckDB in the helper (the DuckDB helper plan,
-    /// Task 6), looked for in the folder it's given; with none there a
+    /// The TUI's Core runs DuckDB in the helper,
+    /// looked for in the folder it's given; with none there a
     /// connect is `ENGINE_NOT_INSTALLED` (what Task 7's dialog opens on),
     /// and the download calls are compiled in.
     #[tokio::test]
@@ -1205,7 +1204,7 @@ mod tests {
             (t.host.as_str(), t.port, t.auth),
             ("bastion", 22, crate::state::panels::TunnelAuth::Key)
         );
-        // Task 5: the project's own labels, for the history snapshot.
+        // The project's own labels, for the history snapshot.
         assert_eq!(lib.labels.len(), 1);
         let label = &lib.labels[0];
         assert_eq!(

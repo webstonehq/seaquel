@@ -1,5 +1,5 @@
-//! What the model is told: the system prompt with the schema context
-//! (Decision 13), `@mention` expansion ([`mentions`]) and the chat's
+//! What the model is told: the system prompt with the schema context,
+//! `@mention` expansion ([`mentions`]) and the chat's
 //! history ([`history`]).
 //!
 //! The prompt is the TypeScript's (`services/ai/context.ts` before phase 6)

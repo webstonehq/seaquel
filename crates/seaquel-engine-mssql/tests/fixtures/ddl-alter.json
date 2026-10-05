@@ -1368,13 +1368,7 @@
               "unique": false,
               "type": "btree"
             },
-            {
-              "id": "i2",
-              "name": "",
-              "columns": ["status"],
-              "unique": false,
-              "type": "btree"
-            }
+            { "id": "i2", "name": "", "columns": ["status"], "unique": false, "type": "btree" }
           ],
           "foreignKeys": [
             {
@@ -2801,13 +2795,7 @@
             }
           ],
           "indexes": [
-            {
-              "id": "i1",
-              "name": "idx]1",
-              "columns": ["a]b"],
-              "unique": false,
-              "type": "btree"
-            }
+            { "id": "i1", "name": "idx]1", "columns": ["a]b"], "unique": false, "type": "btree" }
           ],
           "foreignKeys": [
             {
@@ -2863,13 +2851,7 @@
             }
           ],
           "indexes": [
-            {
-              "id": "i2",
-              "name": "idx]2",
-              "columns": ["c]d"],
-              "unique": false,
-              "type": "btree"
-            }
+            { "id": "i2", "name": "idx]2", "columns": ["c]d"], "unique": false, "type": "btree" }
           ],
           "foreignKeys": [
             {

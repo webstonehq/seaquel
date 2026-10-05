@@ -115,7 +115,7 @@ FROM node:22-bookworm-slim AS runtime
 #                   verify certs against the Debian trust store. Not present
 #                   in node:22-bookworm-slim by default.
 # No libssl3: seaquel-server uses rustls throughout (sqlx, tiberius,
-# reqwest) and has no russh, libgit2 or DuckDB (Decisions 11 and 11b), so it
+# reqwest) and has no russh, libgit2 or DuckDB, so it
 # links only libc, libm and libgcc_s. CI's "Web server dependencies" step
 # keeps OpenSSL out of its dependency tree.
 RUN apt-get update && apt-get install -y --no-install-recommends \

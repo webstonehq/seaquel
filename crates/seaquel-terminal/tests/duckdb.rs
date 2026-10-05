@@ -1,4 +1,4 @@
-//! The terminal binaries' DuckDB (the DuckDB helper plan, Task 6): their
+//! The terminal binaries' DuckDB: their
 //! Core registers the remote engine under `duckdb`, once, even in a build
 //! where Cargo unified the native driver in (the workspace line, or this
 //! crate's tests next to `seaquel-mcp`'s); the helper is looked for under
@@ -93,7 +93,7 @@ fn the_default_helper_dir_is_the_data_local_dir_s() {
 }
 
 /// No helper: a DuckDB connect fails at once with the code the TUI's
-/// install dialog (Task 7) and the CLI (Task 8) look for, not after the
+/// install dialog and the CLI look for, not after the
 /// connect's timeout.
 #[tokio::test]
 async fn a_duckdb_connect_without_the_helper_is_not_installed_at_once() {

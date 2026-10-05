@@ -456,7 +456,7 @@ pub struct SecretInString {
 
 /// The connections whose stored `connection_string` still holds a secret
 /// ([`split_connection_string_secret`] finds one, movable or not),
-/// in rowid order: the rows the one-time upgrade of phase 5d Decision 12a
+/// in rowid order: the rows Core's one-time string-secrets upgrade
 /// moves to the keychain and strips. Rows written before phase 5a and not
 /// saved since can hold one.
 ///

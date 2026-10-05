@@ -1,5 +1,5 @@
-//! Whether a connection shares its schema and its data with AI tools
-//! (Decision 5): one rule for the assistant and the MCP server, moved from
+//! Whether a connection shares its schema and its data with AI tools:
+//! one rule for the assistant and the MCP server, moved from
 //! `seaquel-mcp`'s `exposed.rs`. Core re-reads the connection row and the
 //! global `aiSettings` before each tool call and passes them here.
 

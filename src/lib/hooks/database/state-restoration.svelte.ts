@@ -182,7 +182,7 @@ export class StateRestorationManager {
   }
 
   /**
-   * Show a chat's stored messages (Decision 24), and whether Core says the
+   * Show a chat's stored messages, and whether Core says the
    * chat is full (it opens with sending off; a flag a refusal set is never
    * cleared here). Messages this page shows that Core hasn't stored (a
    * turn in flight, a message waiting for a model, a turn Core refused)
@@ -246,7 +246,7 @@ export class StateRestorationManager {
   /**
    * A connection's chats, and the messages of its active one. A failed
    * read leaves what the page shows (nothing is replaced whole any more,
-   * so there is no save to block: Decision 24).
+   * so there is no save to block).
    */
   async loadAIChats(connectionId: string): Promise<void> {
     try {
@@ -308,7 +308,7 @@ export class StateRestorationManager {
 
   /**
    * Load a project's saved queries and their versions from the library, and
-   * apply them by the `seq` rule (Decision 17). A failed read leaves the
+   * apply them by the `seq` rule. A failed read leaves the
    * page's copy as it is: nothing replaces the stored list any more, so a
    * failed load can't lose queries (the next activation reads them again).
    */

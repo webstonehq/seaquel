@@ -1,6 +1,6 @@
 /**
  * The tutorial's database in the browser is its own DuckDB-WASM instance,
- * apart from the demo's (Task 6 review, I1): Learn's tables never show in
+ * apart from the demo's: Learn's tables never show in
  * the demo connection, and the demo's never in the tutorial, so neither
  * can break or drop the other's. DuckDB-WASM's Node build stands in for
  * the page's (`startDuckDb` gives a new instance each time, as in the page);

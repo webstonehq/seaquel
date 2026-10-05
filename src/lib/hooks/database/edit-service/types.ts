@@ -1,7 +1,7 @@
 /**
  * The seam between the grid's view models (`QueryCrudManager`,
  * `PendingChangesManager`, `DataTabManager`) and whatever builds and runs
- * their edits (phase 5c, Decision 16), like 5b's `QueryRunner`.
+ * their edits (phase 5c), like 5b's `QueryRunner`.
  *
  * `CoreEditService` (every build; the demo's Core runs in the page since
  * phase 8): `db.planEdits`, `db.applyChanges`, `db.tablePage` and
@@ -48,7 +48,7 @@ export type {
 export interface EditService {
   /** The queue entries' display fields for `edits`, in order. Runs nothing. */
   plan(params: PlanEditsParams): Promise<PlannedChange[]>;
-  /** Apply the queue (or one immediate change) as Decision 5 says. */
+  /** Apply the queue (or one immediate change): one change alone, all-DML batches atomically, anything else in order. */
   apply(params: ApplyChangesParams): Promise<ApplyOutcome>;
   /** One page of a data tab: a one-statement run's events. */
   tablePage(params: TablePageParams, signal: AbortSignal): AsyncIterable<RunEvent>;
@@ -62,9 +62,9 @@ export interface EditService {
   ): Promise<Record<string, unknown>[] | null>;
 }
 
-/** A keyed edit matched no row (Decision 4): the GUI words it from the change's target. */
+/** A keyed edit matched no row: the GUI words it from the change's target. */
 export const NO_ROWS_AFFECTED = "NO_ROWS_AFFECTED";
-/** The key isn't the table's primary key, or the table has none (Decision 4). */
+/** The key isn't the table's primary key, or the table has none. */
 export const NOT_EDITABLE = "NOT_EDITABLE";
 /**
  * The connection has a transaction the user opened by hand: an atomic

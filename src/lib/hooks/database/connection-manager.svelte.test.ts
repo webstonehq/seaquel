@@ -716,7 +716,7 @@ describe("connectionClosed events", () => {
     expect(errorToast.mock.calls[0][0]).toContain('"Local"');
   });
 
-  // Phase 6 probe F4: the web server closes a closed tab's connections
+  // The web server closes a closed tab's connections
   // (WINDOW_CLOSED) and a tab's older connection when it connects the same
   // saved connection again (CONNECTION_REPLACED). Neither normally reaches a
   // page that holds the connection; if one does, it's marked disconnected
@@ -754,7 +754,7 @@ describe("connectionClosed events", () => {
   });
 });
 
-// Phase 6 probe F4 review I1: a page back from a sleep past the web's
+// A page back from a sleep past the web's
 // window grace finds its connections gone. It asks Core (`db.alive`) on
 // every event-channel restart, and any call that answers
 // CONNECTION_NOT_FOUND tells it too: either way the connection is marked
@@ -853,7 +853,7 @@ describe("connections Core no longer holds", () => {
   });
 });
 
-// F4 re-review R1, M-b, M-c: a quiet (background) reconnect never moves
+// A quiet (background) reconnect never moves
 // the project's active connection, keeps the connection's schema tabs
 // unless it fails, and gives way to the user's own disconnect.
 describe("background reconnects", () => {
@@ -1008,7 +1008,7 @@ describe("background reconnects", () => {
   });
 });
 
-// Review M1: a second auto-reconnect of one connection while the first runs
+// A second auto-reconnect of one connection while the first runs
 // gets the first's promise; nothing connects twice.
 describe("single flight", () => {
   it("autoReconnect of one connection runs once at a time", async () => {
@@ -1066,7 +1066,7 @@ describe("auto-reconnect without the saved password", () => {
     expect(connect).not.toHaveBeenCalled();
   });
 
-  // F4 re-review M-a: a stored password the vault can't decrypt isn't "no
+  // A stored password the vault can't decrypt isn't "no
   // password": auto-reconnect reads it strictly and doesn't dial.
   it("doesn't connect when the stored password can't be decrypted", async () => {
     env.web = true;
@@ -1365,7 +1365,7 @@ describe("markDisconnected", () => {
 
 describe("importConnections", () => {
   /**
-   * Core imports (phase 5e, Decision 47): it reads the file again, checks
+   * Core imports (phase 5e): it reads the file again, checks
    * duplicates inside its transaction, stores the new connections local-only
    * and appends them to the order. The page sends the ticked keys and shows
    * what Core stored.

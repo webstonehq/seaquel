@@ -1,6 +1,6 @@
 /**
- * Other windows' library changes reaching this page (phase 5d-1, Decision
- * 18): `LibrarySync` + `ChangeFeed` + the view models, over a recording
+ * Other windows' library changes reaching this page (phase 5d-1):
+ * `LibrarySync` + `ChangeFeed` + the view models, over a recording
  * library and a Core client whose event channel the test drives.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -83,7 +83,7 @@ let library: InstanceType<typeof RecordingLibrary>;
 async function openPage() {
   const channel = fakeClient();
   const state = new DatabaseState();
-  // The view state is per window and not synced (Decision 22): off here.
+  // The view state is per window and not synced: off here.
   const windowState = new WindowStateManager(state, { enabled: false });
   const restoration = new StateRestorationManager(state);
   const projects = new ProjectManager(state, windowState, restoration);

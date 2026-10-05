@@ -1,5 +1,5 @@
 //! `tree`: scanning a project's `.seaquel` directory and applying file
-//! writes, on real temp directories with real symlinks (Decision 32).
+//! writes, on real temp directories with real symlinks.
 
 #![cfg(unix)]
 
@@ -372,7 +372,7 @@ async fn project_dirs_read_their_names_and_skip_symlinks() {
         ]
     );
     assert_eq!(dirs[2].description.as_deref(), Some("d"));
-    // Probe fix 8: the symlinked directory is named as skipped.
+    // The symlinked directory is named as skipped.
     let listing = tree::project_dirs_listing(root).await.unwrap();
     assert_eq!(listing.dirs.len(), 3);
     let skipped: Vec<(String, SkipReason)> = listing
@@ -451,7 +451,7 @@ async fn conflicts_are_read_from_the_index() {
     assert!(tree::conflicted(tmp.path()).await.unwrap());
 }
 
-/// Review M4: a rewrite keeps the file's mode, and a temp file a crash left
+/// A rewrite keeps the file's mode, and a temp file a crash left
 /// behind is removed at the next scan, so a commit never stages it.
 #[tokio::test]
 async fn a_rewrite_keeps_the_mode_and_a_scan_clears_stale_temp_files() {

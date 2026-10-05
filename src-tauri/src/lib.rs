@@ -29,12 +29,11 @@ mod helper_pin;
 mod logging;
 
 /// How often the desktop's workspace polls for commits another process made
-/// to `seaquel.db` (phase 7a Decision 6; the S4 spike: about 0.6 s p50,
-/// 0.9 s max, 13 µs a poll).
+/// to `seaquel.db` (about 0.6 s p50, 0.9 s max, 13 µs a poll).
 const EXTERNAL_CHANGES_POLL: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// How long a reloaded or closed webview's connections may take to close
-/// (Task 4 review I2): a backstop past which the closes are dropped, which
+/// How long a reloaded or closed webview's connections may take to close:
+/// a backstop past which the closes are dropped, which
 /// drops their drivers. The remote DuckDB driver's own close lets a
 /// checkpointing helper go after about 2 s, so it normally never applies.
 const CLOSE_WINDOW_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -62,7 +61,7 @@ impl std::error::Error for CommandError {}
 
 /// The desktop's Core: every engine, file and tunnel (the desktop connects
 /// wherever its user asks, so no config check), and the user's own files
-/// (phase 5e, Decision 31): shared repos, and TablePlus's and DBeaver's
+/// (phase 5e): shared repos, and TablePlus's and DBeaver's
 /// files under `import_paths` (the user's home; `None` when there is none,
 /// and then the imports find nothing at the default locations).
 ///
@@ -70,8 +69,8 @@ impl std::error::Error for CommandError {}
 /// the user's provider is (`AiEgress::Any`: a local Ollama included), with
 /// the OS proxy settings (`ai-system-proxy`).
 ///
-/// **DuckDB runs in the helper** (the desktop DuckDB helper plan, Decision
-/// 2): each connection is a `seaquel-duckdb` process of this app version,
+/// **DuckDB runs in the helper**:
+/// each connection is a `seaquel-duckdb` process of this app version,
 /// found under `<data_local_dir>/<identifier>/bin/duckdb` (the folder the
 /// terminal binaries and the CLI's install use; `SEAQUEL_DATA_DIR/bin/duckdb`
 /// when that is set). The app links no DuckDB. A connect with no helper
@@ -81,7 +80,7 @@ impl std::error::Error for CommandError {}
 ///
 /// It runs before `tauri-plugin-log` attaches its logger (in the plugin's
 /// setup), so it logs nothing itself: it answers the WARN for [`run`]'s
-/// `setup` to log (Task 1 review I1).
+/// `setup` to log.
 fn desktop_core(
     identifier: &str,
     import_paths: Option<seaquel_core::ImportPaths>,
@@ -132,8 +131,8 @@ fn desktop_core_pinned(
             version: cli_download::VERSION.to_string(),
         });
     }
-    // The release build's size and digest of the helper's `.gz` (Decision
-    // 4): the install then skips the release metadata and accepts only that
+    // The release build's size and digest of the helper's `.gz`:
+    // the install then skips the release metadata and accepts only that
     // file, and "Install from a file…" is checked against it.
     if let Some(pin) = pin {
         builder = builder.duckdb_helper_pinned(pin.size, &pin.sha256);
@@ -355,8 +354,8 @@ impl DesktopWorkspace {
     /// cancelled, and the connections it opened, which the reloaded page
     /// can't name (it starts with every connection disconnected), are
     /// closed and announced as `WINDOW_CLOSED` to every sink, the new one
-    /// included (the desktop DuckDB helper plan, Decision 8: a DuckDB
-    /// connection holds its file, so a reconnect would meet it). Returns
+    /// included (a DuckDB connection holds its file, so a reconnect would meet it).
+    /// Returns
     /// how many it closed.
     async fn set_event_sink(&self, core: &Core, label: &str, sink: EventSink) -> usize {
         let (reload, stale) = {
@@ -374,7 +373,7 @@ impl DesktopWorkspace {
     }
 
     /// Webview `label` is gone: drop its sink, cancel its streams and close
-    /// the connections it opened (Decision 8). Returns how many it closed.
+    /// the connections it opened. Returns how many it closed.
     async fn forget_webview(&self, core: &Core, label: &str) -> usize {
         let stale = {
             let mut webviews = Webviews::lock(&self.webviews);
@@ -425,7 +424,7 @@ impl DesktopWorkspace {
         let opened = self
             .workspace
             .get_or_try_init(|| async {
-                // Phase 7a Decision 6: hear what another process (the TUI)
+                // Hear what another process (the TUI)
                 // commits to the file. The stand-in workspace doesn't poll:
                 // nothing else writes its scratch file.
                 let spec = WorkspaceSpec::new(data_dir)
@@ -469,7 +468,7 @@ impl DesktopWorkspace {
                 .await
                 .map(Response::License),
             // Pull, push, commit and conflict resolution run under the repo
-            // lock (Decision 38) through the storage workspace, which also
+            // lock through the storage workspace, which also
             // records a pull's or push's `lastSyncAt` (best effort). Getting
             // the workspace may open storage, or retry a failure worth
             // retrying, like any storage call; any error is dropped here, so
@@ -560,7 +559,7 @@ fn core_call_body(body: &InvokeBody) -> Result<Cow<'_, [u8]>, RpcError> {
 /// JSON as bytes; see [`core_call_body`].
 ///
 /// The write origin is the calling webview's label, read here from the
-/// webview itself and never from the payload (phase 5d, Decision 18): a
+/// webview itself and never from the payload (phase 5d): a
 /// window's writes come back to it as events it can recognise and skip.
 #[tauri::command]
 async fn core_call(
@@ -700,7 +699,7 @@ async fn stop_turn(
 /// [`CLOSE_WINDOW_WAIT`]) and resolves once they are closed. Those
 /// connections are out of Core before it resolves; a reconnect to a DuckDB
 /// file one of them held is protected by the engine's wait for a closing
-/// helper (Decision 6 and Task 2's review I1 a), not by this close.
+/// helper, not by this close.
 /// Closing the window drops the sink and closes its connections too.
 #[tauri::command]
 async fn core_events(
@@ -1078,7 +1077,7 @@ pub fn run() {
         // tokens it parses, literals included, at DEBUG.
         .level_for("sqlparser", log::LevelFilter::Off)
         // russh names the SSH bastion's host and port and prints its host
-        // keys below WARN (phase 7a probe F6).
+        // keys below WARN.
         .level_for("russh", log::LevelFilter::Warn)
         .level_for("russh_keys", log::LevelFilter::Warn)
         .max_file_size(5_000_000)
@@ -2100,7 +2099,7 @@ mod workspace_tests {
         .unwrap();
         let id = provider["value"]["id"].as_str().unwrap();
         // Read from the keychain itself: the `secret` group refuses AI keys
-        // (phase 6, Decision 7).
+        // (phase 6).
         assert_eq!(
             tauri::async_runtime::block_on(ws.secrets.get(&format!("ai-api-key:{id}")))
                 .unwrap()
@@ -2148,7 +2147,7 @@ mod workspace_tests {
         assert!(loaded["value"]["copiedFrom"].is_null(), "{loaded}");
     }
 
-    /// Phase 5d review, M1: a run's history event carries the label of the
+    /// A run's history event carries the label of the
     /// webview that started it through `core_stream`.
     #[test]
     fn a_runs_history_event_carries_the_webview_label() {
@@ -2284,7 +2283,7 @@ mod workspace_tests {
     /// Only batches until the stream's task ends, cancelled, or ended by its
     /// connection's close (`CONNECTION_CLOSED`): what a closed webview's
     /// stream may see, since its connections close right after its streams
-    /// are cancelled (Decision 8). Its channel is gone either way.
+    /// are cancelled. Its channel is gone either way.
     fn ends_cancelled_or_closed(rx: &mpsc::Receiver<Json>) {
         loop {
             match rx.recv_timeout(WAIT) {
@@ -2384,7 +2383,7 @@ mod workspace_tests {
         }
     }
 
-    /// Decision 8 of the desktop DuckDB helper plan: a reload (`core_events`
+    /// A reload (`core_events`
     /// again from one webview) closes the connections that webview opened,
     /// which the reloaded page can't name any more, announced as
     /// `WINDOW_CLOSED` to the new sink; another webview's connections stay.
@@ -2420,7 +2419,7 @@ mod workspace_tests {
         assert_eq!(alive(&core, &ws, &[&editor_id]), json!([editor_id]));
     }
 
-    /// Task 4 review M3: a reload with a stream running on the reloaded
+    /// A reload with a stream running on the reloaded
     /// webview's own connection: the stream ends (cancelled, or ended by its
     /// connection's close; the two race) and the new sink gets
     /// `WINDOW_CLOSED` for the connection.
@@ -2450,7 +2449,7 @@ mod workspace_tests {
         assert!(Webviews::lock(&ws.webviews).streams.is_empty());
     }
 
-    /// Decision 8: a destroyed webview's connections close too, and only
+    /// A destroyed webview's connections close too, and only
     /// its own.
     #[test]
     fn a_destroyed_webview_closes_its_connections() {
@@ -2717,7 +2716,7 @@ mod workspace_tests {
         assert_eq!(kinds, ["connection", "project"]);
     }
 
-    /// Decision 38: a pull through `core_call` waits for the repo's lock,
+    /// A pull through `core_call` waits for the repo's lock,
     /// which the shared projection's syncs and publishes hold, with storage
     /// open and with no storage at all.
     #[test]
@@ -2764,7 +2763,7 @@ mod workspace_tests {
         }
     }
 
-    // ── The desktop DuckDB helper plan, Task 1: DuckDB through the helper ──
+    // ── DuckDB through the helper ──
 
     /// `<tmp>/app.seaquel.desktop/bin/duckdb`, the folders 0700 as an
     /// install makes them: where [`desktop_core_with`] looks in these
@@ -2808,7 +2807,7 @@ mod workspace_tests {
         assert!(core.duckdb_helper().is_none());
     }
 
-    /// The helper asset's pin (Decision 4) reaches Core as the build script's
+    /// The helper asset's pin reaches Core as the build script's
     /// parser read it, and only a pin compiled in by `build.rs` is used: a
     /// build without one has none.
     #[test]
@@ -3136,7 +3135,7 @@ mod workspace_tests {
     }
 }
 
-/// The assistant over the desktop's transports (phase 6 Task 5): `ai.chat`
+/// The assistant over the desktop's transports: `ai.chat`
 /// through `core_stream`, a turn stopped by a reload or a gone channel
 /// still storing its reply, and the `secret` group refusing AI keys. Model
 /// calls go to a local mock through a loopback-only client.
@@ -3434,7 +3433,7 @@ mod ai_tests {
             .expect("the stream didn't end")
     }
 
-    /// Decision 7: Core reads AI keys itself, so the webview can't read,
+    /// Core reads AI keys itself, so the webview can't read,
     /// set or delete one through the `secret` group; other keys work.
     #[test]
     fn the_secret_group_refuses_ai_keys() {

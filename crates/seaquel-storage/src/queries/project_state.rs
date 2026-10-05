@@ -7,7 +7,7 @@
 //! definition, in `source_query`; `active_visualize_tab_id` is always
 //! written NULL; tabs of other types load as nothing.
 //!
-//! From phase 5d-2 (Decision 22) a window's view state lives in
+//! From phase 5d-2 a window's view state lives in
 //! `window_state`, and every view-state save writes this module's rows as a
 //! legacy mirror ([`write_legacy_mirror`]) so older releases see the most
 //! recently saved window's tabs. The connection order stays here, shared
@@ -80,8 +80,7 @@ fn or_empty(v: &Option<String>) -> String {
 /// the rows that don't parse or hold `null`.
 ///
 /// It reads on the pool (`&storage`) or inside a write (`&mut tx`): Core's
-/// first load of a project in a window with no view state falls back to it
-/// (Decision 22).
+/// first load of a project in a window with no view state falls back to it.
 pub async fn load(
     r: impl Into<Reader<'_>>,
     project_id: &str,
@@ -298,7 +297,7 @@ pub async fn save(st: &Storage, s: &PersistedProjectState) -> Result<()> {
 /// The project's connection order, as its stored JSON (`[]` for NULL or
 /// text that isn't JSON, as [`load`] reads it), or `None` when the project
 /// has no `project_state` row. Shared by the project's windows: it's how
-/// the sidebar looks, not what a window has open (Decision 22).
+/// the sidebar looks, not what a window has open.
 pub async fn sidebar(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Option<Box<RawValue>>> {
     let mut conn = r.into().conn().await?;
     let row = db::query("SELECT connection_order FROM project_state WHERE project_id = ?")
@@ -329,7 +328,7 @@ pub async fn set_connection_order(
     Ok(())
 }
 
-/// The legacy mirror of one window's view-state save (Decision 22): the
+/// The legacy mirror of one window's view-state save: the
 /// `project_state` row and the `tabs` rows today's [`save`] writes for
 /// `s`, so an older release opening the file sees the most recently saved
 /// window's tabs. Unlike [`save`]:
@@ -341,7 +340,7 @@ pub async fn set_connection_order(
 ///   save (`tabs`' key is `(id, project_id)`), and the count of skipped
 ///   tabs is returned.
 ///
-/// `active_connection_id` is `s`'s, the saving window's (Q14). DuckDB
+/// `active_connection_id` is `s`'s, the saving window's. DuckDB
 /// extensions tabs have no column and aren't mirrored.
 pub async fn write_legacy_mirror(tx: &mut WriteTx, s: &PersistedProjectState) -> Result<u32> {
     let conn = tx.conn();

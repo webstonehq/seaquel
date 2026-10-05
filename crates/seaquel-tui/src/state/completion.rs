@@ -1,4 +1,4 @@
-//! The editor's completion popup (Decision 14): table names after `FROM`
+//! The editor's completion popup: table names after `FROM`
 //! and `JOIN`, `alias.` columns, then keywords from a short fixed list,
 //! from the `schema_tables` panel 2 already read. Which alias names which
 //! table comes from a scan of the statement's `FROM`/`JOIN` words with
@@ -21,7 +21,7 @@ pub const MAX_ITEMS: usize = 50;
 /// The most rows it shows at once.
 pub const POPUP_ROWS: usize = 8;
 
-/// Keywords the popup offers (Decision 14's short list).
+/// Keywords the popup offers (a short list).
 pub const COMPLETION_KEYWORDS: &[&str] = &[
     "SELECT",
     "FROM",
@@ -69,7 +69,7 @@ pub enum ItemKind {
     Table,
     Column,
     Keyword,
-    /// Ask AI's `@` list (Task 7).
+    /// Ask AI's `@` list.
     SavedQuery,
     Dashboard,
 }
@@ -193,7 +193,7 @@ pub fn candidates(
 
 /// The table an `alias.` right before the cursor names (its index in
 /// `schema`), when it's one panel 2 lists: completion then needs its
-/// columns (probe F1). `None` inside a string or a comment, or when the
+/// columns. `None` inside a string or a comment, or when the
 /// qualifier names no table.
 pub fn alias_target(
     text: &str,

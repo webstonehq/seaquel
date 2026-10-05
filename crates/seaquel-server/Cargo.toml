@@ -13,16 +13,16 @@ name = "seaquel-server"
 path = "src/main.rs"
 
 [dependencies]
-# `storage` (Decision 11): each user's workspace opens their meta.db. No
+# `storage`: each user's workspace opens their meta.db. No
 # `secrets`: the web workspace has no store, so secret calls answer
 # NOT_SUPPORTED. `license-server`: /internal/license/* over auth.db.
-# Engines (Decision 11b): no SQLite and no DuckDB. Both open files on the
+# Engines: no SQLite and no DuckDB. Both open files on the
 # server (auth.db, other users' meta.db, anything DuckDB's read_* or COPY TO
 # reaches), so they're off on web. Feature unification can still compile them
 # in (a workspace test build), so `AppState` also registers only
 # `WEB_ENGINES`. storage and license-server keep sqlx's own SQLite for
 # meta.db and auth.db; that isn't the engine.
-# `ai-native` (phase 6, Q1): the server calls the user's model provider
+# `ai-native` (phase 6): the server calls the user's model provider
 # with the key the page sends per call, through seaquel-http's client under
 # the egress guard (`SEAQUEL_AI_EGRESS`).
 seaquel-core = { path = "../seaquel-core", default-features = false, features = [

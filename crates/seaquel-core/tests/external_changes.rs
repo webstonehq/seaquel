@@ -1,4 +1,4 @@
-//! External changes (phase 7a Decisions 3 and 6): a workspace with
+//! External changes: a workspace with
 //! `with_external_changes` polls its storage's `external_version` on the
 //! executor and turns a change committed by any other connection into one
 //! `StorageChanged { kind: External }`, after taking a change-sequence

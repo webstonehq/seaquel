@@ -1,5 +1,5 @@
-//! The async mutex behind the write turn and the in-memory pool (phase 8
-//! Decision 5): tokio's natively, as before, and `futures::lock`'s on
+//! The async mutex behind the write turn and the in-memory pool:
+//! tokio's natively, as before, and `futures::lock`'s on
 //! wasm32, so the browser module links no tokio. Both are fair enough for
 //! one process's writers; the helpers paper over their `try_lock` shapes.
 

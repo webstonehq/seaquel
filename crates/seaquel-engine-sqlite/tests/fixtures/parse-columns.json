@@ -7,30 +7,9 @@
         "table": "customers",
         "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
         "rows": [
-          {
-            "cid": 0,
-            "name": "id",
-            "type": "INTEGER",
-            "notnull": 0,
-            "dflt_value": null,
-            "pk": 1
-          },
-          {
-            "cid": 1,
-            "name": "name",
-            "type": "TEXT",
-            "notnull": 1,
-            "dflt_value": null,
-            "pk": 0
-          },
-          {
-            "cid": 2,
-            "name": "email",
-            "type": "TEXT",
-            "notnull": 0,
-            "dflt_value": null,
-            "pk": 0
-          },
+          { "cid": 0, "name": "id", "type": "INTEGER", "notnull": 0, "dflt_value": null, "pk": 1 },
+          { "cid": 1, "name": "name", "type": "TEXT", "notnull": 1, "dflt_value": null, "pk": 0 },
+          { "cid": 2, "name": "email", "type": "TEXT", "notnull": 0, "dflt_value": null, "pk": 0 },
           {
             "cid": 3,
             "name": "status",
@@ -39,14 +18,7 @@
             "dflt_value": "'active'",
             "pk": 0
           },
-          {
-            "cid": 4,
-            "name": "score",
-            "type": "REAL",
-            "notnull": 1,
-            "dflt_value": "0",
-            "pk": 0
-          },
+          { "cid": 4, "name": "score", "type": "REAL", "notnull": 1, "dflt_value": "0", "pk": 0 },
           {
             "cid": 5,
             "name": "created_at",
@@ -55,14 +27,7 @@
             "dflt_value": "CURRENT_TIMESTAMP",
             "pk": 0
           },
-          {
-            "cid": 6,
-            "name": "note",
-            "type": "TEXT",
-            "notnull": 0,
-            "dflt_value": null,
-            "pk": 0
-          }
+          { "cid": 6, "name": "note", "type": "TEXT", "notnull": 0, "dflt_value": null, "pk": 0 }
         ],
         "foreignKeyColumns": [],
         "foreignKeys": []
@@ -129,14 +94,7 @@
         "table": "orders",
         "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
         "rows": [
-          {
-            "cid": 0,
-            "name": "id",
-            "type": "INTEGER",
-            "notnull": 0,
-            "dflt_value": null,
-            "pk": 1
-          },
+          { "cid": 0, "name": "id", "type": "INTEGER", "notnull": 0, "dflt_value": null, "pk": 1 },
           {
             "cid": 1,
             "name": "customer_id",
@@ -145,14 +103,7 @@
             "dflt_value": null,
             "pk": 0
           },
-          {
-            "cid": 2,
-            "name": "kind",
-            "type": "TEXT",
-            "notnull": 1,
-            "dflt_value": null,
-            "pk": 0
-          },
+          { "cid": 2, "name": "kind", "type": "TEXT", "notnull": 1, "dflt_value": null, "pk": 0 },
           {
             "cid": 3,
             "name": "total",
@@ -169,14 +120,7 @@
             "dflt_value": null,
             "pk": 0
           },
-          {
-            "cid": 5,
-            "name": "memo",
-            "type": "BLOB",
-            "notnull": 0,
-            "dflt_value": null,
-            "pk": 0
-          }
+          { "cid": 5, "name": "memo", "type": "BLOB", "notnull": 0, "dflt_value": null, "pk": 0 }
         ],
         "foreignKeyColumns": [
           "id",
@@ -266,22 +210,8 @@
             "dflt_value": null,
             "pk": 1
           },
-          {
-            "cid": 1,
-            "name": "region",
-            "type": "TEXT",
-            "notnull": 1,
-            "dflt_value": null,
-            "pk": 2
-          },
-          {
-            "cid": 2,
-            "name": "balance",
-            "type": "REAL",
-            "notnull": 0,
-            "dflt_value": null,
-            "pk": 0
-          }
+          { "cid": 1, "name": "region", "type": "TEXT", "notnull": 1, "dflt_value": null, "pk": 2 },
+          { "cid": 2, "name": "balance", "type": "REAL", "notnull": 0, "dflt_value": null, "pk": 0 }
         ],
         "foreignKeyColumns": [
           "id",
@@ -342,22 +272,8 @@
         "table": "kv",
         "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
         "rows": [
-          {
-            "cid": 0,
-            "name": "k",
-            "type": "TEXT",
-            "notnull": 1,
-            "dflt_value": null,
-            "pk": 1
-          },
-          {
-            "cid": 1,
-            "name": "v",
-            "type": "",
-            "notnull": 0,
-            "dflt_value": null,
-            "pk": 0
-          }
+          { "cid": 0, "name": "k", "type": "TEXT", "notnull": 1, "dflt_value": null, "pk": 1 },
+          { "cid": 1, "name": "v", "type": "", "notnull": 0, "dflt_value": null, "pk": 0 }
         ],
         "foreignKeyColumns": [],
         "foreignKeys": []
@@ -386,22 +302,8 @@
         "table": "café",
         "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
         "rows": [
-          {
-            "cid": 0,
-            "name": "naïve",
-            "type": "TEXT",
-            "notnull": 0,
-            "dflt_value": "'é'",
-            "pk": 0
-          },
-          {
-            "cid": 1,
-            "name": "v",
-            "type": "INTEGER",
-            "notnull": 0,
-            "dflt_value": null,
-            "pk": 0
-          }
+          { "cid": 0, "name": "naïve", "type": "TEXT", "notnull": 0, "dflt_value": "'é'", "pk": 0 },
+          { "cid": 1, "name": "v", "type": "INTEGER", "notnull": 0, "dflt_value": null, "pk": 0 }
         ],
         "foreignKeyColumns": [],
         "foreignKeys": []
@@ -447,14 +349,7 @@
             "dflt_value": null,
             "pk": 0
           },
-          {
-            "cid": 2,
-            "name": "amount",
-            "type": "REAL",
-            "notnull": 0,
-            "dflt_value": null,
-            "pk": 0
-          }
+          { "cid": 2, "name": "amount", "type": "REAL", "notnull": 0, "dflt_value": null, "pk": 0 }
         ],
         "foreignKeyColumns": [
           "id",
@@ -550,14 +445,7 @@
         "table": "sqlitex",
         "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
         "rows": [
-          {
-            "cid": 0,
-            "name": "id",
-            "type": "INTEGER",
-            "notnull": 0,
-            "dflt_value": null,
-            "pk": 0
-          }
+          { "cid": 0, "name": "id", "type": "INTEGER", "notnull": 0, "dflt_value": null, "pk": 0 }
         ],
         "foreignKeyColumns": [],
         "foreignKeys": []

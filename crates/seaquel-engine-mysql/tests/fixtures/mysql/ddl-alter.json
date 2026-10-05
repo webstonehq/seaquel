@@ -1825,13 +1825,7 @@
               "unique": false,
               "type": "btree"
             },
-            {
-              "id": "i2",
-              "name": "",
-              "columns": ["status"],
-              "unique": false,
-              "type": "btree"
-            }
+            { "id": "i2", "name": "", "columns": ["status"], "unique": false, "type": "btree" }
           ],
           "foreignKeys": [
             {
@@ -2979,13 +2973,7 @@
             }
           ],
           "indexes": [
-            {
-              "id": "i0",
-              "name": "PRIMARY",
-              "columns": ["id"],
-              "unique": true,
-              "type": "btree"
-            },
+            { "id": "i0", "name": "PRIMARY", "columns": ["id"], "unique": true, "type": "btree" },
             {
               "id": "i1",
               "name": "customers_name_idx",

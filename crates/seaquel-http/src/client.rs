@@ -42,8 +42,8 @@ pub struct ClientOptions {
     /// empty, as before the move.
     pub activity: &'static str,
     /// Take proxies from the `HTTP(S)_PROXY`/`ALL_PROXY`/`NO_PROXY`
-    /// environment only, never from the OS settings (`Egress::Public`,
-    /// review M2): with reqwest's `system-proxy` feature on, which Cargo's
+    /// environment only, never from the OS settings (`Egress::Public`):
+    /// with reqwest's `system-proxy` feature on, which Cargo's
     /// feature unification can do in any build, its automatic proxies
     /// include the macOS/Windows system proxy, which the egress guard
     /// can't see. See [`proxy_plan`].
@@ -127,7 +127,7 @@ impl ClientOptions {
 
 /// Whether [`load_extra_roots_with`]'s warnings name the file. The server
 /// and the license client name it (the operator set it); the terminal
-/// binaries don't (review M6: a path under the user's home stays out of
+/// binaries don't (a path under the user's home stays out of
 /// their logs), and say only the error's kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShowPath {
@@ -348,7 +348,7 @@ mod tests {
         move |k| vars.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone())
     }
 
-    /// Review M2: under `Public` the OS proxy can never be picked, whatever
+    /// Under `Public` the OS proxy can never be picked, whatever
     /// features Cargo unified: the plan is never `Auto`.
     #[test]
     fn env_only_never_leaves_proxies_to_reqwest() {

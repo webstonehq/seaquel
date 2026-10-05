@@ -1,5 +1,5 @@
-//! `Storage::external_version` and the writer connection (phase 7a
-//! Decisions 5 and 6): every write of a `Storage` goes through one
+//! `Storage::external_version` and the writer connection:
+//! every write of a `Storage` goes through one
 //! connection, so `PRAGMA data_version` on it changes only when another
 //! connection, in this process or another, committed.
 
@@ -379,8 +379,6 @@ async fn another_process_s_commits_are_seen() {
     assert_eq!(all.len(), CHILD_COMMITS);
     a.close().await;
 }
-
-// ── Task 1 review fixes ──
 
 /// The web's writer (with `idle_timeout`) stays open between writes and
 /// closes only once it has been idle that long, so a burst of writes costs

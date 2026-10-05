@@ -1,5 +1,5 @@
 /**
- * The editor's inline prompt on Core (phase 6 Task 7, Q9 and Decision 18):
+ * The editor's inline prompt on Core:
  * `ai.generate` with the active saved connection, the SQL inserted at the
  * cursor and never run, and the box saying how to run it. Replays
  * `generate.json`'s page-view values (`inserted`, `executed`, `notice`,
@@ -64,7 +64,7 @@ function setup(input: GenerateCase["input"], existing: string) {
     getMonacoRef: () => ({ getCursorOffset: () => 0, insertText: (t: string) => inserted.push(t) }),
     getActiveTab: () => ({ query: existing }),
   } as unknown as QueryEditorContext;
-  // The editor's Run isn't the prompt's to call any more (Q9): nothing can
+  // The editor's Run isn't the prompt's to call any more: nothing can
   // run the tab from here, so `executed` stays 0.
   const prompt = createAIInlinePrompt(ctx);
   return { prompt, inserted, opened, executed: () => executed };

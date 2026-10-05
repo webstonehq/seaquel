@@ -1,6 +1,6 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)] // the interrupted install runs on a task of its own; stale files are aged by `SystemTime`
-//! `release_asset` against a release server on 127.0.0.1 (the DuckDB
-//! helper plan, Task 4): the metadata, the download's size, digest and
+//! `release_asset` against a release server on 127.0.0.1:
+//! the metadata, the download's size, digest and
 //! gzip checks, the install's folders and atomic rename, progress,
 //! interruption and concurrency. Nothing here reaches a real host: every
 //! source is the mock's loopback address. Installs go into temp folders.
@@ -295,7 +295,7 @@ async fn a_download_that_does_not_match_is_refused() {
     let (err, ..) = refused(Route::chunked(long), n, &gz).await;
     assert_eq!(err.kind, InstallErrorKind::SizeMismatch, "{err}");
 
-    // The asset's own URL missing (Task 10's P2): the asset isn't there,
+    // The asset's own URL missing: the asset isn't there,
     // as the metadata says of an asset it doesn't list, not an unusable
     // answer. Under a pin this is the only request, so it is the only way
     // to learn that.
@@ -321,7 +321,7 @@ async fn a_download_that_does_not_match_is_refused() {
 }
 
 /// Without the metadata (a pinned install asks only for the download), a
-/// 404 is `ASSET_NOT_FOUND` too (Task 10's P2).
+/// 404 is `ASSET_NOT_FOUND` too.
 #[tokio::test]
 async fn a_missing_download_without_metadata_is_asset_not_found() {
     let gz = gzip(&payload());
@@ -800,7 +800,7 @@ fn a_cancelled_file_install_leaves_nothing() {
     nothing_left(&t, &[]);
 }
 
-/// Task 4 review I1: a FIFO (or any file that isn't a regular file) given
+/// A FIFO (or any file that isn't a regular file) given
 /// as the copied asset is refused at once, without blocking on its open or
 /// its reads, and nothing is left.
 #[cfg(unix)]
@@ -873,7 +873,7 @@ fn debug_names_no_path() {
     assert!(!format!("{i:?}").contains("secret-place"));
 }
 
-/// Review M7: a metadata redirect to another origin (here another port on
+/// A metadata redirect to another origin (here another port on
 /// 127.0.0.1) is refused; one on the API's own origin is followed.
 #[tokio::test]
 async fn metadata_redirects_stay_on_the_api_origin() {
@@ -913,7 +913,7 @@ async fn metadata_redirects_stay_on_the_api_origin() {
     assert_eq!(asset.name, NAME);
 }
 
-/// Review M1: the metadata has an overall limit, so a server that trickles
+/// The metadata has an overall limit, so a server that trickles
 /// (or stalls) doesn't hold the dialog forever.
 #[tokio::test]
 async fn the_metadata_has_an_overall_limit() {
@@ -942,7 +942,7 @@ async fn the_metadata_has_an_overall_limit() {
     assert!(started.elapsed() < Duration::from_secs(5));
 }
 
-/// Task 10's O3: a failed install removes the folders it made, deepest
+/// A failed install removes the folders it made, deepest
 /// first, as long as they are empty; a folder that was already there, or
 /// that holds anything, stays.
 #[tokio::test]

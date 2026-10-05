@@ -1,5 +1,5 @@
 /**
- * Dashboards through Core (phase 5d-2, Decision 21): Core makes the id,
+ * Dashboards through Core (phase 5d-2): Core makes the id,
  * each edit is a patch of what it changed, and the GUI says which edits
  * are versioned (`captureVersion`); Core numbers and prunes the versions,
  * and the page shows the version and the prune from the answer. A save

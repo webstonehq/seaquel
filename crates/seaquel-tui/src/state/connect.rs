@@ -1,14 +1,14 @@
-//! Startup, connecting and panels 1–3 in `update` (Task 3): the picker, the
+//! Startup, connecting and panels 1–3 in `update`: the picker, the
 //! connect sequence (password prompts, the keychain wait, host-key trust,
 //! "Save password"), and the lists Core's answers fill. Pure, like the rest
 //! of the model: every Core call is an [`Effect`], every answer a [`Msg`].
 //!
-//! **The connect sequence** (Decision 16): a saved connection whose
+//! **The connect sequence**: a saved connection whose
 //! database password isn't saved asks for it first (SQLite and DuckDB
 //! never do), then an SSH password the row doesn't save. The typed secrets
 //! go to Core as `SuppliedSecrets`; nothing is saved before the connect
 //! succeeds, and then only the ones whose box was ticked, through Core's
-//! `connectionUpdate` (Decision 23). An unknown SSH host opens the trust
+//! `connectionUpdate`. An unknown SSH host opens the trust
 //! dialog, a refused password offers a retry, and a keychain call pending
 //! for a while shows the wait box, where Esc gives the connect up. Typed
 //! secrets are kept while the connection is up and dropped when it goes.
@@ -118,8 +118,8 @@ pub fn on_msg(model: &mut Model, msg: Msg) -> Vec<Effect> {
             if *ours != core_id {
                 return Vec::new();
             }
-            // Its DuckDB helper died (the desktop DuckDB helper plan,
-            // Decision 7): as when a call meets it first ([`lost_by`]).
+            // Its DuckDB helper died:
+            // as when a call meets it first ([`lost_by`]).
             if code == "CONNECTION_CLOSED" {
                 return lost(model, CallError::new(code, message));
             }
@@ -203,7 +203,7 @@ fn drop_connection(model: &mut Model) -> Vec<Effect> {
 /// Connects saved connection `id` (the picker, `--connection`, and a
 /// switch the staged changes' question let through).
 pub(crate) fn start_connect(model: &mut Model, id: &str) -> Vec<Effect> {
-    // Not while an apply runs on the connection it would drop (review I1).
+    // Not while an apply runs on the connection it would drop.
     if let Err(effects) = super::commit::idle(model) {
         return effects;
     }
@@ -254,7 +254,7 @@ pub(crate) fn proceed(model: &mut Model, pending: Pending) -> Vec<Effect> {
 
 /// The connection a connect was for is gone (removed elsewhere while its
 /// helper downloaded, or before `r` reconnected it): the picker opens and
-/// the command log says why (review M1 of the DuckDB helper plan's Task 7).
+/// the command log says why.
 fn removed(model: &mut Model) -> Vec<Effect> {
     model.modal = Some(Modal::Picker(picker::open_picker(
         &model.library,
@@ -269,7 +269,7 @@ fn removed(model: &mut Model) -> Vec<Effect> {
 
 /// The secret to ask for before connecting, if any: one the row doesn't
 /// save and nothing typed covers; and, once the store is known to be
-/// unavailable (probe F4), one it would have read from there too.
+/// unavailable, one it would have read from there too.
 fn to_ask(model: &Model, row: &ConnItem, pending: &Pending) -> Option<SecretKind> {
     let no_store = model.store_unavailable;
     if !row.is_file() && (!row.save_password || no_store) && pending.typed.db.is_none() {
@@ -293,7 +293,7 @@ fn to_ask(model: &Model, row: &ConnItem, pending: &Pending) -> Option<SecretKind
 
 fn prompt(model: &mut Model, pending: Pending, kind: SecretKind, reason: Option<&'static str>) {
     // With no store in this session nothing can be saved, and the prompt
-    // says why it asks for a saved password (probe F4).
+    // says why it asks for a saved password.
     let can_save = !model.store_unavailable;
     let save = can_save && pending.save.contains(&kind);
     let reason = match reason {
@@ -411,20 +411,20 @@ fn failed(model: &mut Model, row: &ConnItem, pending: Pending, e: &CallError) ->
         Some((kind, pending))
     };
     match e.code.as_str() {
-        // DuckDB support isn't installed: offer its download (Q5 A), unless
+        // DuckDB support isn't installed: offer its download, unless
         // it was just installed (then a download wouldn't help).
         "ENGINE_NOT_INSTALLED" if !pending.after_install => {
             return super::install::open(model, pending);
         }
-        // The helper is there and checked but didn't answer in time (Task
-        // 3's M5): connecting again may work; a download wouldn't.
+        // The helper is there and checked but didn't answer in time:
+        // connecting again may work; a download wouldn't.
         "ENGINE_UNAVAILABLE" => {
             let mut problem = dialogs::problem(e, None);
             problem.reconnect = Some(pending);
             model.modal = Some(Modal::Problem(problem));
         }
         // No store in this session: what it would hold is asked for
-        // instead, as for a row that doesn't save it (probe F4).
+        // instead, as for a row that doesn't save it.
         "SECRET_STORE_UNAVAILABLE" => {
             model.store_unavailable = true;
             match to_ask(model, row, &pending) {
@@ -489,7 +489,7 @@ fn on_schema(
         Ok(tables) => {
             // A list read again (`r`, a commit's DDL, another process's
             // change) may follow DDL: the columns read before go with the
-            // old list and are read again when next needed (review I2).
+            // old list and are read again when next needed.
             model.column_loads.clear();
             model.schema = tables;
             model.schema_load = Load::Loaded;
@@ -641,7 +641,7 @@ pub fn picker_choose(model: &mut Model) -> Vec<Effect> {
     let id = conn.id.clone();
     model.modal = None;
     // Changes staged on another connection: keep them, discard them, or
-    // stay (Task 5).
+    // stay.
     match model.queue.connection().map(str::to_string) {
         Some(from) if from != id && !model.queue.is_empty() => {
             return super::commit::ask_switch(model, &from, Some(id));
@@ -767,9 +767,9 @@ pub fn reconnect(model: &mut Model) -> Vec<Effect> {
 }
 
 /// The `CONNECTION_CLOSED` error in `msg`, when it answers a call on the
-/// connected connection: the DuckDB helper behind it stopped (the DuckDB
-/// helper plan, Decision 8). Core also announces that as `ConnectionClosed`
-/// (the desktop DuckDB helper plan, Decision 7), which `Msg::Closed` takes
+/// connected connection: the DuckDB helper behind it stopped.
+/// Core also announces that as `ConnectionClosed`,
+/// which `Msg::Closed` takes
 /// to [`lost`] too; whichever arrives first wins. Only answers about the
 /// connection panel 1 has now count, by Core's id.
 pub(crate) fn lost_by(model: &Model, msg: &Msg) -> Option<CallError> {
@@ -802,7 +802,7 @@ pub(crate) fn lost_by(model: &Model, msg: &Msg) -> Option<CallError> {
                     .is_some_and(|o| o.core_id == core_id),
             e,
         ),
-        // An apply's own outcome can carry it too (probe F1): Core answers
+        // An apply's own outcome can carry it too: Core answers
         // a lost connection mid-apply as a failed change.
         Msg::Applied {
             op,
@@ -1223,7 +1223,7 @@ mod tests {
         assert!(call.attempt > attempt);
     }
 
-    /// Probe F4: a store that isn't there (a headless Linux host over SSH)
+    /// A store that isn't there (a headless Linux host over SSH)
     /// counts as no saved password: the TUI asks, with Save password off
     /// and disabled, says why, and connects with what was typed. It asks
     /// first from then on, for every connection whose password the store
@@ -1601,7 +1601,7 @@ mod tests {
     }
 
     /// Core announces a connection whose DuckDB helper died
-    /// (`CONNECTION_CLOSED`, the desktop DuckDB helper plan, Decision 7),
+    /// (`CONNECTION_CLOSED`),
     /// possibly before the call that met it answers: the same "connection
     /// was lost" dialog with Reconnect as a failed call gives, typed
     /// secrets kept for the reconnect.
@@ -2025,7 +2025,7 @@ mod tests {
         update_(&mut m, ctrl('c'));
         assert_eq!(m.modal, Some(Modal::ConfirmQuit));
     }
-    // ── The DuckDB helper (Task 7 of the DuckDB helper plan) ──
+    // ── The DuckDB helper ──
 
     /// The fixture library plus a DuckDB file connection in project-b.
     fn with_duckdb() -> Model {
@@ -2050,7 +2050,7 @@ mod tests {
         }
     }
 
-    /// Task 3's M5: a helper that didn't answer in time is there and
+    /// A helper that didn't answer in time is there and
     /// checked, so a download wouldn't help. The problem offers the same
     /// connect again instead.
     #[test]

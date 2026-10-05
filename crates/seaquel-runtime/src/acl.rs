@@ -1,5 +1,5 @@
-//! Windows file security for the DuckDB helper (the desktop DuckDB helper
-//! plan, Task 7; Q9 A, Decision 13): the rule that says whether a file or
+//! Windows file security for the DuckDB helper:
+//! the rule that says whether a file or
 //! folder is safe to start a program from, and on Windows the calls that
 //! read and set it.
 //!
@@ -414,7 +414,7 @@ mod tests {
         assert_eq!(private().problem(USER), None);
     }
 
-    /// Q9 A's test: a folder given `Everyone:(M)`. Modify is read, write,
+    /// A folder given `Everyone:(M)`. Modify is read, write,
     /// append, execute and delete.
     #[test]
     fn everyone_modify_is_refused() {
@@ -424,7 +424,7 @@ mod tests {
         assert_eq!(sec(USER, aces).problem(USER), Some(Problem::OthersCanWrite));
     }
 
-    /// Each right Q9 A names, alone, granted to another principal.
+    /// Each right that counts as writing, alone, granted to another principal.
     #[test]
     fn every_write_right_to_another_principal_is_refused() {
         for right in [
@@ -820,7 +820,7 @@ mod tests {
         assert_eq!(expand_generic(0x1F), 0x1F);
     }
 
-    /// Decision 8: only name surrogates (symlinks, junctions) are links.
+    /// Only name surrogates (symlinks, junctions) are links.
     #[test]
     fn only_name_surrogate_reparse_points_are_links() {
         const REPARSE: u32 = FILE_ATTRIBUTE_REPARSE_POINT;

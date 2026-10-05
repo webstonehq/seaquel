@@ -1,5 +1,9 @@
 # SQLite dialect fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`. The same day, the `about` text of `bugfixes.json` (no test reads it) gained ", now in git history at ae7f269" after the plan it names; nothing else in the file changed.
+
 > **Frozen.** These fixtures were recorded from the TypeScript `SqliteAdapter`
 > (`src/lib/db/sqlite.ts`), which was deleted in phase 2 (Task 19). They can
 > no longer be re-recorded or checked against it; the Rust parity tests still
@@ -7,9 +11,9 @@
 > change, and say why in the same change.
 
 They were recorded by the phase 2 recorder from a fresh temp-file database.
-The corpus is kept at `docs/plans/artifacts/2026-09-27-sqlite-fixture-corpus.ts.txt`.
+The corpus was kept at `docs/plans/artifacts/2026-09-27-sqlite-fixture-corpus.ts.txt`.
 
-A reference copy of the recorder is in `docs/plans/artifacts/`, renamed to
+A reference copy of the recorder was in `docs/plans/artifacts/`, renamed to
 `.txt` so no tooling runs it: `2026-09-27-recorder-dialect-fixtures.test.ts.txt`
 is the vitest entry point, and the other `2026-09-27-recorder-*` files are its
 helpers, npm wrapper and tsconfig.

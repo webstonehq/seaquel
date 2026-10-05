@@ -1,12 +1,12 @@
-//! The five `.seaquel` file formats (Decision 45): ports of today's
+//! The five `.seaquel` file formats: ports of today's
 //! readers and writers, with CRLF and a leading BOM accepted, the quoting
 //! fixed so every value reads back, a `,` quoted in lists, a description's
-//! newline written as `\n`, and the stable file id (Q22) read as `file_id`
+//! newline written as `\n`, and the stable file id read as `file_id`
 //! and written as the first line or key.
 //!
 //! Each kind's `*_content` is its canonical text without the id (and for a
 //! dashboard without the viewport, for a template without its labels):
-//! the text Decision 34's hash is taken over.
+//! the text the sync's hash is taken over.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -138,8 +138,8 @@ pub fn parse_query(text: &str, rel_path: &str, queries_dir: &str) -> QueryFile {
 }
 
 /// Whether `yaml` (a file's YAML, or a query's frontmatter) carries Core's
-/// `id:` line with a value (Q22): then Core wrote it, and its double quotes
-/// hold Core's escapes (probe fix 2).
+/// `id:` line with a value: then Core wrote it, and its double quotes
+/// hold Core's escapes.
 fn quoting_of(yaml: &str) -> Quoting {
     let has_id = yaml
         .split('\n')
@@ -286,7 +286,7 @@ pub struct DashboardFile {
     pub description: Option<String>,
     /// A JSON array, run state stripped.
     pub widgets: String,
-    /// `None` leaves it out of the file (and of the content, Q24).
+    /// `None` leaves it out of the file (and of the content).
     pub viewport: Option<String>,
     pub date_filter: Option<String>,
     pub file_id: Option<String>,
@@ -406,7 +406,7 @@ pub fn write_dashboard(d: &DashboardFile) -> String {
     dashboard_text(d, true, true)
 }
 
-/// `d`'s canonical text: no id, no viewport (Q24).
+/// `d`'s canonical text: no id, no viewport.
 pub fn dashboard_content(d: &DashboardFile) -> String {
     dashboard_text(d, false, false)
 }
@@ -439,7 +439,7 @@ pub struct TemplateFile {
     pub database_name: String,
     pub ssl_mode: Option<String>,
     pub ssh_tunnel: Option<TemplateSsh>,
-    /// Read and kept, never applied (Decision 46).
+    /// Read and kept, never applied.
     pub labels: Vec<String>,
     pub file_id: Option<String>,
 }
@@ -594,7 +594,7 @@ pub fn write_template(t: &TemplateFile) -> String {
     template_text(t, true, true)
 }
 
-/// `t`'s canonical text: no id, no labels (Decision 41's fields).
+/// `t`'s canonical text: no id, no labels.
 pub fn template_content(t: &TemplateFile) -> String {
     template_text(t, false, false)
 }
@@ -629,7 +629,7 @@ pub fn parse_project(text: &str, dir: &str) -> ProjectFile {
             continue;
         }
         if let Some((key, value)) = key_line(line) {
-            // `project.yaml` never has an id, and Core rewrites it (Q25),
+            // `project.yaml` never has an id, and Core rewrites it,
             // so its own escapes are read (probe fix 2's known limit: a
             // 2026.9.x name with `\` before `"`, `\` or `n` reads as Core's
             // escape there).
@@ -652,7 +652,7 @@ pub fn write_project(p: &ProjectFile) -> String {
     out
 }
 
-/// A label from `labels.yaml` (read, never applied: Decision 46).
+/// A label from `labels.yaml` (read, never applied).
 #[derive(Clone, PartialEq, Default)]
 pub struct LabelFile {
     /// `shared-<name in lower case, whitespace runs as ->`.

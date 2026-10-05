@@ -1,5 +1,5 @@
-//! The terminal binaries' log filter (moved from `seaquel-cli`'s `mcp.rs`,
-//! Decision 17). sqlx's `sqlx::query` target (any statement slower than 1 s
+//! The terminal binaries' log filter (moved from `seaquel-cli`'s `mcp.rs`).
+//! sqlx's `sqlx::query` target (any statement slower than 1 s
 //! at WARN, with its full SQL) and `sqlx::postgres::notice` (a `RAISE`'s
 //! text) are dropped at every level, and so are tiberius's token stream
 //! (SQL Server errors and `PRINT` text) and `sqlparser`; the rest of
@@ -41,7 +41,7 @@ impl LogLevel {
 const SQLX_QUERY_TARGET: &str = "sqlx::query";
 
 /// sqlx's Postgres notice target: a `RAISE WARNING`'s text, which the query
-/// chooses and can fill with values (probe M5). Dropped at every level.
+/// chooses and can fill with values. Dropped at every level.
 const SQLX_NOTICE_TARGET: &str = "sqlx::postgres::notice";
 
 /// tiberius's token stream: every SQL Server error (ERROR) and `PRINT`
@@ -64,7 +64,7 @@ pub fn log_filter(level: LogLevel) -> Targets {
         .with_target("tiberius", filter.min(LevelFilter::WARN))
         .with_target("sqlparser", LevelFilter::OFF)
         // russh names the SSH bastion's host and port and prints its host
-        // keys at DEBUG and TRACE (probe F6).
+        // keys at DEBUG and TRACE.
         .with_target("russh", filter.min(LevelFilter::WARN))
         .with_target("russh_keys", filter.min(LevelFilter::WARN))
 }
@@ -153,7 +153,7 @@ mod tests {
         }
     }
 
-    /// Probe F6: at DEBUG and TRACE russh names the SSH bastion's host and
+    /// At DEBUG and TRACE russh names the SSH bastion's host and
     /// port (`russh_keys::known_hosts`) and prints its host keys
     /// (`russh::client`). Both are held at WARN in the shared filter, so
     /// both binaries get it.

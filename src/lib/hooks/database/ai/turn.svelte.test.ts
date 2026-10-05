@@ -1,5 +1,5 @@
 /**
- * The assistant's view model on Core's `ai` events (phase 6 Task 7): the
+ * The assistant's view model on Core's `ai` events: the
  * page sends a turn (`ai.chat`), shows what the events say and answers the
  * approval card and the dashboard tools through `respond`. It decides
  * nothing: not what the model is sent, which tools it gets, or when the
@@ -191,7 +191,7 @@ describe("a turn on Core's events", () => {
       providerId: "prov-1",
       approval: "ask",
       clientTools: true,
-      // The page sends what was typed: Core resolves mentions (Decision 13).
+      // The page sends what was typed: Core resolves mentions.
       userMessage: { content: "Hi @public.users" },
     });
     expect(req).not.toHaveProperty("apiKey");
@@ -485,7 +485,7 @@ describe("the approval card answers through respond", () => {
       expect(ui.isAllowAll("conn-1")).toBe(false);
       await grant();
     }
-    // Reading never writes (review): only a connection change clears it.
+    // Reading never writes: only a connection change clears it.
     const snapshot = { ...ui.aiAllowAllByConnection };
     state.connections = [OTHER] as never;
     expect(ui.isAllowAll("conn-1")).toBe(false);

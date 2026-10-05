@@ -1,5 +1,5 @@
-//! `seaquel_workspace::shared::plan`: Decision 34's rule table, pairing,
-//! skips, Decision 36's publish, and the replay of
+//! `seaquel_workspace::shared::plan`: the sync's rule table, pairing,
+//! skips, the publish, and the replay of
 //! `fixtures/shared/projection.json` through the pure planner (see
 //! `replay` below for exactly what it checks).
 
@@ -860,7 +860,7 @@ fn publish_writes_moves_and_deletes() {
         }
     }
 
-    // A folder that fails Decision 32 is refused.
+    // A folder that fails the path rules is refused.
     let mut bad = row.clone();
     bad.folder = Some("../outside".into());
     assert!(plan_publish(

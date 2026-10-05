@@ -45,7 +45,7 @@ pub(crate) const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageOptions {
     /// The most connections the storage opens at once, its writer
-    /// connection included (phase 7a Decision 5): a writable storage's pool
+    /// connection included: a writable storage's pool
     /// gets one fewer, at least 1, and every write runs on the one writer
     /// connection outside it. A read-only storage's pool gets them all.
     pub max_connections: u32,
@@ -66,7 +66,7 @@ pub struct StorageOptions {
     /// - a missing file fails with [`StorageError::NotFound`]
     ///   (`STORAGE_NOT_FOUND`), and nothing is created.
     pub read_only: bool,
-    /// The most bytes the file may grow to (phase 5d-2 review: the web's
+    /// The most bytes the file may grow to (the web's
     /// per-user backstop). Every connection runs `PRAGMA max_page_count`
     /// for it, at [`CAP_PAGE_SIZE`]-byte pages, and a write past it fails
     /// with [`StorageError::code`] `STORAGE_FULL`. `None` (the default, and
@@ -75,13 +75,13 @@ pub struct StorageOptions {
     /// uncapped, so a file at or over the cap still opens; it stays
     /// readable, and deletes still work so its user can make room.
     pub max_bytes: Option<u64>,
-    /// Whether a writable open may change the schema (phase 7a Decision 3).
+    /// Whether a writable open may change the schema.
     /// [`SchemaPolicy::Upgrade`] (the default) is the app's open.
     /// [`SchemaPolicy::RequireCurrent`] is a second process's (the TUI):
     /// writable, but it does no schema work. Ignored with `read_only`, which
     /// never does any, and on wasm32.
     pub schema: SchemaPolicy,
-    /// wasm32 only (phase 8 Decision 4): the file to start from, a
+    /// wasm32 only: the file to start from, a
     /// snapshot the page kept ([`Storage::snapshot`]). `None` starts an
     /// empty file. Set it with [`StorageOptions::in_memory`].
     #[cfg(target_arch = "wasm32")]
@@ -103,7 +103,7 @@ impl std::fmt::Debug for Image {
 
 #[cfg(target_arch = "wasm32")]
 impl StorageOptions {
-    /// The browser's open (phase 8 Decision 4): SQLite's memory database,
+    /// The browser's open: SQLite's memory database,
     /// starting from `image` when there is one. [`Storage::open`] then runs
     /// the baseline, the migrations and the data steps as it does on a
     /// file. The path it's given only names the file in errors.
@@ -115,8 +115,7 @@ impl StorageOptions {
     }
 }
 
-/// What a writable [`Storage::open`] may do to the file's schema (phase 7a
-/// Decision 3).
+/// What a writable [`Storage::open`] may do to the file's schema.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SchemaPolicy {
     /// Create the file if it's missing, set WAL, and run the baseline, the
@@ -170,8 +169,8 @@ pub struct Storage {
     closed: Arc<std::sync::atomic::AtomicBool>,
     /// How long [`Storage::write`] waits for this process's earlier writers.
     write_wait: Duration,
-    /// The executor whose `sleep` times that wait ([`Storage::with_executor`];
-    /// phase 8 Decision 5). `None`: tokio's timer natively, the page's
+    /// The executor whose `sleep` times that wait ([`Storage::with_executor`]).
+    /// `None`: tokio's timer natively, the page's
     /// `setTimeout` through `WasmExecutor` on wasm32.
     clock: Option<Clock>,
 }
@@ -321,7 +320,7 @@ impl Storage {
     }
 
     /// Times the write turn's wait ([`WRITE_WAIT`]) with `executor`'s
-    /// `sleep` instead of the default timer (phase 8 Decision 5). Core
+    /// `sleep` instead of the default timer. Core
     /// passes its own when it opens a workspace, so the browser's waits run
     /// on the page's clock and a test's on its own.
     #[must_use]
@@ -499,7 +498,7 @@ async fn prepare(pool: &SqlitePool, migrator: &Migrator) -> Result<(), StorageEr
     // write lock (another pool's migration can hold it that long). A file
     // that is up to date, which is every open but the first after an
     // upgrade, fails after one, as before, so a lock held by another
-    // process doesn't stall startup for a minute (5d-2 Task 7 re-review).
+    // process doesn't stall startup for a minute.
     let pending = {
         let mut conn = pool.acquire().await?;
         !schema::is_current(&mut conn).await?
@@ -560,7 +559,7 @@ async fn migrate(pool: &SqlitePool, migrator: &Migrator) -> Result<(), StorageEr
 /// migration can hold it longer than one (`0003`'s
 /// fill runs about 3 s per GB, ~6.5 s on a 2 GiB web file), so an open
 /// racing it (the web server's evicted workspace next to a fresh one)
-/// waits up to about a minute (5d-2 Task 7 review).
+/// waits up to about a minute.
 const MIGRATION_WAIT_ATTEMPTS: u32 = 12;
 
 #[cfg(not(target_arch = "wasm32"))]

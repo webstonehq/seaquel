@@ -1,5 +1,4 @@
-//! Finding the helper, checking its folder, starting it, and the handshake
-//! (the DuckDB helper plan, Decisions 2, 7, 8 and 9).
+//! Finding the helper, checking its folder, starting it, and the handshake.
 //!
 //! What can go wrong before the database opens is `ENGINE_NOT_INSTALLED`,
 //! at once, so the interface offers the download: no file, a file or folder
@@ -93,7 +92,7 @@ pub(super) fn helper_file_name() -> String {
 /// symlink on the way from `<identifier>` (the parent of `bin`, the parent
 /// of `dir`) down, and every one of them owned by this user and writable by
 /// nobody else. On Unix that is the owner's uid and no group or world
-/// write, and the file must be executable by its owner; on Windows (the desktop plan's Q9 A) the owner is the user,
+/// write, and the file must be executable by its owner; on Windows the owner is the user,
 /// Administrators or SYSTEM, no entry of the DACL lets anyone but the user,
 /// SYSTEM or Administrators write, append, delete or change the DACL or
 /// owner (on `<identifier>` only delete, delete a child or change the DACL
@@ -105,7 +104,7 @@ pub(super) fn helper_file_name() -> String {
 /// file: anyone who can write that folder can already replace the terminal
 /// binary itself. Folders above `<identifier>` aren't checked, and the
 /// helper is then started by path, so a folder above it that someone else
-/// can write is a gap (Decision 9).
+/// can write is a gap.
 pub(super) fn check(locator: &HelperLocator) -> Result<PathBuf, DbError> {
     let path = helper_path(locator);
     let unsafe_permissions =
@@ -158,7 +157,7 @@ fn owned_and_private(_path: &Path, meta: &std::fs::Metadata, _dir: bool, _root: 
     meta.uid() == me && meta.mode() & 0o022 == 0
 }
 
-/// The owner may execute the file (Task 10's P1): a helper that lost the
+/// The owner may execute the file: a helper that lost the
 /// bit (a restore, a copy tool) is refused as unsafe, so the status says
 /// `Unsafe` and an install replaces it instead of keeping a file no start
 /// can run. Windows has no execute bit.
@@ -173,7 +172,7 @@ fn runnable(_meta: &std::fs::Metadata) -> bool {
     true
 }
 
-/// Windows (Q9 A): read through a handle that doesn't follow a reparse
+/// Windows: read through a handle that doesn't follow a reparse
 /// point, so what is judged is what is there. Anything that can't be read
 /// counts as unsafe.
 #[cfg(windows)]
@@ -193,8 +192,8 @@ fn owned_and_private(_path: &Path, _meta: &std::fs::Metadata, _dir: bool, _root:
 
 /// The helper's process. Dropping it kills the helper (what tokio's
 /// `kill_on_drop` does, kept by hand), unless it was [`detached`]: a helper
-/// that took `close` and is still closing its database is left to finish
-/// (the DuckDB helper plan's probe F3). tokio reaps a dropped child that
+/// that took `close` and is still closing its database is left to finish.
+/// tokio reaps a dropped child that
 /// exits later.
 ///
 /// [`detached`]: HelperChild::detach
@@ -263,7 +262,7 @@ pub(super) async fn start(
 /// [`identity`]. A silent start of one of them isn't retried.
 static ANSWERED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// Serializes the spawns of helpers in this process (the review's M2). On
+/// Serializes the spawns of helpers in this process. On
 /// macOS std creates a child's pipes with `pipe()` and only then marks them
 /// close-on-exec, so a helper spawned on another thread in between would
 /// inherit this helper's pipe ends, and this helper would never see EOF on
@@ -403,7 +402,7 @@ async fn greet(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     // Seaquel's test hooks (`SEAQUEL_TEST_*`, `SEAQUEL_CLI_TEST_*`, …) stay
-    // out of the helper; everything else is inherited (Decision 2).
+    // out of the helper; everything else is inherited.
     for (key, _) in std::env::vars_os() {
         if let Some(name) = key.to_str() {
             if name.starts_with("SEAQUEL_") && name.contains("_TEST_") {
@@ -412,7 +411,7 @@ async fn greet(
         }
     }
     // Started from an AppImage, the helper gets none of its mount's
-    // libraries (spike S3); logged by name only.
+    // libraries; logged by name only.
     #[cfg(unix)]
     for (name, value) in appimage_env(&|name| std::env::var_os(name)) {
         info!(activity = "duckdb.helper", event = "spawn", env = name, removed = value.is_none(); "kept the AppImage's libraries from the DuckDB helper");
@@ -471,7 +470,7 @@ async fn greet(
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// What to change in the helper's environment when this process runs from
-/// an AppImage (`APPIMAGE` set; the desktop plan's spike S3): the entries
+/// an AppImage (`APPIMAGE` set): the entries
 /// of `LD_LIBRARY_PATH` and `LD_PRELOAD` under `$APPDIR`, the AppImage's
 /// mount, are dropped. The helper links the system's libraries, not the
 /// AppImage's, and it can outlive the mount by up to a minute while it
@@ -675,7 +674,7 @@ mod tests {
         );
     }
 
-    /// Spike S3 (the desktop plan, Task 2): from an AppImage, library
+    /// Spike S3: from an AppImage, library
     /// paths that point into the AppImage's mount (`$APPDIR`) are dropped
     /// from the helper's environment, since the helper links the system's
     /// libraries and outlives the mount by up to a minute. Everything else
@@ -839,7 +838,7 @@ greet() { recv; send 0 "{\"type\":\"helloOk\",\"protocol\":2,\"version\":\"$1\",
     /// A helper that never answers `hello`: a file this process hasn't
     /// started gets one retry with the longer bound, then
     /// `ENGINE_UNAVAILABLE` (not `ENGINE_NOT_INSTALLED`: downloading again
-    /// wouldn't help), and both processes are killed (the review's M5).
+    /// wouldn't help), and both processes are killed.
     #[cfg(unix)]
     #[tokio::test]
     async fn a_silent_helper_is_unavailable_after_one_retry() {
@@ -886,8 +885,8 @@ greet() { recv; send 0 "{\"type\":\"helloOk\",\"protocol\":2,\"version\":\"$1\",
         assert_eq!(script.pids().len(), 3, "no second retry");
     }
 
-    /// What the helper says goes into an error cut to 64 characters (the
-    /// review's M7): a version, a refusal's code.
+    /// What the helper says goes into an error cut to 64 characters:
+    /// a version, a refusal's code.
     #[cfg(unix)]
     #[tokio::test]
     async fn helper_strings_in_errors_are_capped() {
@@ -906,7 +905,7 @@ greet() { recv; send 0 "{\"type\":\"helloOk\",\"protocol\":2,\"version\":\"$1\",
         assert!(!e.message.contains(&"C".repeat(65)), "{e}");
     }
 
-    /// Windows (the desktop plan's Q9 A, Task 7): what every start checks,
+    /// Windows: what every start checks,
     /// on a layout like an install's under `%TEMP%` (whose inherited DACL
     /// is the profile's: the user, SYSTEM and Administrators).
     #[cfg(windows)]
@@ -983,7 +982,7 @@ greet() { recv; send 0 "{\"type\":\"helloOk\",\"protocol\":2,\"version\":\"$1\",
             check(&layout.locator).expect("as an install leaves it");
         }
 
-        /// Q9 A's case at every level: `Everyone:(M)` refuses, and the
+        /// `Everyone:(M)` at every level refuses, and the
         /// private DACL an install sets repairs it.
         #[test]
         fn everyone_modify_at_any_level_is_refused_until_repaired() {

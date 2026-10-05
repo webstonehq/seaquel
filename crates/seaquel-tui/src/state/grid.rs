@@ -1,4 +1,4 @@
-//! The data grid's pure parts (Decisions 11 and 15): a page as `table_page`
+//! The data grid's pure parts: a page as `table_page`
 //! answered it, cells as the app shows them (`cellText`), the `/` filter
 //! over the loaded page, column widths, which columns fit, and the footer's
 //! counts. No terminal and no Core.

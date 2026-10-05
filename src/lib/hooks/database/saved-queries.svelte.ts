@@ -28,7 +28,7 @@ import { reportProjection } from "./shared/projection.js";
  * Queries are per-project. The library (Core on desktop and web) is the
  * source of truth: every change is one targeted call, written at once, and
  * Core numbers and prunes the versions. In a linked project Core keeps a
- * shared query's `.sql` file in step inside the same call (Decision 36), and
+ * shared query's `.sql` file in step inside the same call, and
  * what it did to the file is said (`reportProjection`).
  */
 export class SavedQueryManager {
@@ -50,8 +50,8 @@ export class SavedQueryManager {
 
   /**
    * Save the query a tab holds: a tab linked to a saved query updates it
-   * with what changed (Core appends a keyframe of the previous text when
-   * the text changed, and prunes; Decision 11); otherwise, or with
+   * with what changed (Core appends a keyframe of the previous text when the text changed, and prunes);
+   * otherwise, or with
    * `forceNew`, a new saved query is created with Core's id and the tab is
    * linked to it. Returns the query's id; a refusal (`NAME_TAKEN`, a query
    * deleted elsewhere) throws, worded for the user, and changes nothing.
@@ -194,8 +194,8 @@ export class SavedQueryManager {
 
   /**
    * Delete a saved query (its versions go with it) and close the tabs
-   * linked to it. Core deletes a shared query's `.sql` file first
-   * (Decision 37). A refusal throws, worded for the user, and changes
+   * linked to it. Core deletes a shared query's `.sql` file first.
+   * A refusal throws, worded for the user, and changes
    * nothing.
    */
   async deleteQuery(id: string): Promise<void> {
@@ -260,7 +260,7 @@ export class SavedQueryManager {
     return this.deleteQuery(id);
   }
 
-  /** Star or unstar a saved query (its `updatedAt` stays; Decision 11). */
+  /** Star or unstar a saved query (its `updatedAt` stays). */
   async toggleQueryStarred(id: string): Promise<void> {
     if (!this.state.activeProjectId) return;
 
@@ -298,7 +298,7 @@ export class SavedQueryManager {
 
   /**
    * Unshare a query: one call; Core deletes its file before storing the
-   * row (Decision 37).
+   * row.
    */
   async unshareQuery(queryId: string): Promise<void> {
     if (!this.state.activeProjectId) return;
@@ -315,8 +315,8 @@ export class SavedQueryManager {
 
   /**
    * Apply a `savedQueriesList` of `projectId` taken at `seq` to the queries
-   * `ids` names (all when `null`), each only if `seq` is newer (Decision
-   * 17). A query the list lacks was deleted: it goes, and a tab linked to
+   * `ids` names (all when `null`), each only if `seq` is newer.
+   * A query the list lacks was deleted: it goes, and a tab linked to
    * it keeps its text but loses the link.
    */
   applySavedQueries(

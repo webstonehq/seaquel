@@ -1,5 +1,5 @@
 /**
- * The GUI's side of the change sequence (phase 5d-1, Decision 17).
+ * The GUI's side of the change sequence (phase 5d-1).
  *
  * Every write answer and every list carries a `ChangeSeq { epoch, n }`.
  * For each row (and each per-project version list) this keeps the `n` it
@@ -13,7 +13,7 @@
  * recorded one is dropped and the listeners reload every list they hold.
  *
  * It also tracks this page's writes in flight, per row, so a refetch of a
- * row waits for them before it is applied (Decision 18); the higher `n`
+ * row waits for them before it is applied; the higher `n`
  * then wins.
  */
 import type { ChangeSeq } from "./types";

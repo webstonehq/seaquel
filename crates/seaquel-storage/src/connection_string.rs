@@ -1,5 +1,5 @@
-//! Removing passwords from connection strings before they're stored
-//! (Decision 13.1 of the phase 3 plan). Passwords live in the keychain or
+//! Removing passwords from connection strings before they're stored.
+//! Passwords live in the keychain or
 //! the web vault, never in `connections.connection_string`.
 
 use url::Url;
@@ -187,7 +187,7 @@ fn is_password_pair(pair: &str) -> bool {
         .is_some_and(|(key, _)| is_password_key(key))
 }
 
-// ── Strings the old builder made (phase 5a Decision 12) ──
+// ── Strings the old builder made ──
 
 /// The fields a connection string can stand for, as a stored row holds them
 /// (`connections.type`, `host`, `port`, `database_name`, `username`,
@@ -681,7 +681,7 @@ pub fn strip_connection_string_secrets(s: &str) -> Option<String> {
     })
 }
 
-// ── Taking the secrets out (phase 5d Decision 12a) ──
+// ── Taking the secrets out ──
 
 /// The secrets a stored string holds, for the one-time upgrade that moves
 /// them to the keychain and strips the string. Its `Debug` says which parts
@@ -844,7 +844,7 @@ fn one(mut passwords: Vec<String>, unmovable: &mut bool) -> Option<String> {
 }
 
 /// Takes the secrets out of a stored string, for the upgrade that moves
-/// them to the keychain (phase 5d Decision 12a): `None` when it holds none,
+/// them to the keychain: `None` when it holds none,
 /// so the row is left as it is. Otherwise the database and SSH passwords to
 /// store, whether something else is lost by stripping, and the stripped
 /// string, which is always what the app stores

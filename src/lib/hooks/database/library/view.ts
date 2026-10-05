@@ -132,7 +132,7 @@ export async function refreshQueryVersions(state: DatabaseState, projectId: stri
 
 /**
  * Show a project's connection order taken at `seq`, if it is newer than the
- * one shown (the order is shared by the project's windows, Decision 22).
+ * one shown (the order is shared by the project's windows).
  */
 export function applyConnectionOrder(
   state: DatabaseState,

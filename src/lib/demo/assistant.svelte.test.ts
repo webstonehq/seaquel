@@ -1,5 +1,5 @@
 /**
- * The demo's assistant (phase 6 Task 8, Q2 B), the whole page over the
+ * The demo's assistant, the whole page over the
  * browser module (its test build) and DuckDB-WASM's Node build, as
  * `start.svelte.test.ts` loads it: the visitor's key lives in this page's
  * memory for the session, goes with each turn through the page's fetch

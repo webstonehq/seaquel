@@ -1,7 +1,6 @@
-//! `parse_create_table` against the frozen `create-table.json` (Task 5). The
+//! `parse_create_table` against the frozen `create-table.json`. The
 //! fixture already holds the output of fixes 16 and 17 (from the recorder's
-//! `create-table-fixed.ts`, kept as
-//! `docs/plans/artifacts/2026-09-27-sql-recorder-create-table-fixed.ts.txt`);
+//! `create-table-fixed.ts`, in git history);
 //! a `bugfixes.json` case with `replaces: "create-table.json: <name>"` would
 //! supersede a case, and there are none today. Ids are compared without their values: the TS made random
 //! UUIDs, the port gives placeholders the TS wrapper replaces.

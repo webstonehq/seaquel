@@ -1,7 +1,7 @@
 /**
- * Saved workflows through Core (phase 5d-2, Decision 23): a save is
+ * Saved workflows through Core (phase 5d-2): a save is
  * `workflowCreate` (Core's id) or `workflowUpdate`, rename and delete are
- * their own calls, and a workflow the web refuses as too large (Q16) says
+ * their own calls, and a workflow the web refuses as too large says
  * so once and stays open.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";

@@ -7,8 +7,8 @@ description = "What the terminal binaries (`seaquel-cli`, `seaquel-tui`) share: 
 [dependencies]
 # The union of what both binaries need through this crate. `imports` (the
 # CLI) and `ai-native` (the TUI) stay on each binary's own `seaquel-core`
-# dependency, so neither links the other's extras (Decision 22). Every
-# engine but native DuckDB (the DuckDB helper plan, Decision 11): DuckDB
+# dependency, so neither links the other's extras. Every
+# engine but native DuckDB: DuckDB
 # runs in the `seaquel-duckdb` helper process (`engine-duckdb-remote`), so
 # neither binary links duckdb-rs or libduckdb-sys.
 seaquel-core = { path = "../seaquel-core", default-features = false, features = [
@@ -35,8 +35,8 @@ tracing-subscriber = { workspace = true }
 # `duckdb_helper_install`, and the debug builds' `_DUCKDB_RELEASES` hook).
 # It brings `seaquel-http` and so reqwest: the TUI turns it on (it has
 # reqwest already, for Ask AI); the CLI doesn't until its `duckdb install`
-# subcommand (the DuckDB helper plan, Task 8), so it still links no
-# reqwest (Task 6's note).
+# subcommand, so it still links no
+# reqwest.
 duckdb-helper-install = ["seaquel-core/duckdb-helper-install"]
 
 [dev-dependencies]

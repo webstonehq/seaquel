@@ -1,5 +1,4 @@
-//! Helpers still closing a file database (the DuckDB helper plan's probe
-//! F3 and its review's I1).
+//! Helpers still closing a file database.
 //!
 //! `close` lets a helper that took it go after 2 s, so its close
 //! checkpoint can finish (the helper bounds it at 60 s). Until that helper
@@ -15,13 +14,13 @@
 //!   again for up to [`LOCK_RETRY`], then refused in words that name no
 //!   process id or path ([`locked`]).
 //!
-//! And a file a live helper of this process holds (the desktop DuckDB
-//! helper plan, Decision 6) isn't opened a second time: [`claim`] refuses
+//! And a file a live helper of this process holds
+//! isn't opened a second time: [`claim`] refuses
 //! it at once ([`already_open`]), instead of the lock retry's 10 s and its
 //! "another process" wording. The claim is the connection's until its
 //! helper is gone or, closing, kept in the list above. Once its
 //! connection's `close` begins the claim is marked closing, and an open
-//! waits for it like for a detached helper (review I1: a disconnect and a
+//! waits for it like for a detached helper (a disconnect and a
 //! reconnect sent at once). Files are told apart by [`FileKey`].
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -180,7 +179,7 @@ pub(super) struct Claim {
 }
 
 impl Claim {
-    /// Its connection is closing (review I1): from now on an open of the
+    /// Its connection is closing: from now on an open of the
     /// file waits for the helper to go, as for a detached one, instead of
     /// being refused.
     pub(super) fn closing(&self) {
@@ -219,7 +218,7 @@ pub(super) fn claim(key: &FileKey) -> Result<Claim, DbError> {
 
 /// A second open of a file a live helper of this process holds. DuckDB
 /// would refuse it with its lock error; the in-process native driver (gone
-/// since) opened it and lost writes (the desktop plan's spike S1). Names no
+/// since) opened it and lost writes. Names no
 /// path.
 pub(super) fn already_open() -> DbError {
     DbError {

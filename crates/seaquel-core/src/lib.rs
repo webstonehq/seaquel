@@ -1,11 +1,10 @@
 //! Seaquel Core.
 //!
-//! Interfaces (the Tauri app, `seaquel-server`, and later the CLI, TUI and MCP
+//! Interfaces (the Tauri app, `seaquel-server`, the CLI, the TUI and the MCP
 //! server) do database work only through [`Core`]. It owns the engine
 //! registry, the open connections, and the cancellation tokens of running
-//! streams. It grows into the full Core from
-//! `docs/plans/2026-09-24-rust-core-plugin-architecture-design.md` over the
-//! following phases.
+//! streams. The design is in
+//! `docs/plans/2026-09-24-rust-core-plugin-architecture-design.md`.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -69,7 +68,7 @@ compile_error!(
 #[cfg(feature = "ai")]
 pub mod ai;
 mod changes;
-// The demo's connection (phase 8 Decision 19): the browser build only, and
+// The demo's connection: the browser build only, and
 // this crate's own tests.
 #[cfg(all(feature = "storage", any(feature = "browser", test)))]
 mod demo;
@@ -93,7 +92,7 @@ mod state;
 #[cfg(feature = "storage")]
 mod upgrade;
 mod workspace;
-/// `StorageChanged` and the change sequence (phase 5d, Decisions 16–17).
+/// `StorageChanged` and the change sequence (phase 5d).
 pub use changes::{
     is_origin, ChangeSeq, Seqd, StorageChange, StoredKind, WriteOrigin, MAX_EVENT_IDS,
     MAX_EVENT_IDS_BYTES, MAX_EVENT_ID_BYTES,
@@ -102,7 +101,7 @@ pub use changes::{
 pub use demo::DEMO_CONNECTION_ID;
 #[cfg(feature = "duckdb-helper-install")]
 pub use duckdb_helper::DuckdbHelperPin;
-/// The helper's status and install (the DuckDB helper plan, Task 4).
+/// The helper's status and install.
 #[cfg(feature = "engine-duckdb-remote")]
 pub use duckdb_helper::{DuckdbHelperAsset, DuckdbHelperInstalled, DuckdbHelperStatus};
 #[cfg(feature = "duckdb-helper-install")]
@@ -179,12 +178,12 @@ pub use shared::{
     REPO_NOT_FOUND,
 };
 
-/// Imports from TablePlus and DBeaver (phase 5e, Decision 47).
+/// Imports from TablePlus and DBeaver (phase 5e).
 #[cfg(feature = "imports")]
 pub use imports::{ImportKeyOutcome, ImportOutcome, ImportPaths, IMPORT_SOURCE_UNREADABLE};
 
 /// Whether this Core may read and write the user's files: shared repos and
-/// other tools' connection files (phase 5e, Decision 31). There is no
+/// other tools' connection files (phase 5e). There is no
 /// default: a Core built without [`CoreBuilder::local_files`] answers
 /// `NOT_SUPPORTED` to every `shared` and `imports` call and publishes
 /// nothing from the library calls, whatever features Cargo unified. The
@@ -310,13 +309,13 @@ struct Connection {
     /// The workspace that opened it ([`Workspace::connect`]), or `None` for
     /// [`Core::connect`]. A workspace reaches only its own connections.
     owner: Option<WorkspaceId>,
-    /// The saved connection it was opened for (phase 6, Decision 6): a
+    /// The saved connection it was opened for (phase 6): a
     /// saved target's id, or the `savedConnectionId` a form connect named.
     /// An assistant turn runs only on a connection of its chat's saved
     /// connection.
     #[cfg_attr(not(feature = "ai"), allow(dead_code))]
     saved_connection_id: Option<String>,
-    /// The window (write origin) whose call opened it (phase 6 probe F4),
+    /// The window (write origin) whose call opened it,
     /// or `None`. [`Workspace::close_owned_by`] closes a window's
     /// connections, and a window's new connection for a saved connection
     /// replaces its older ones.
@@ -371,7 +370,7 @@ pub struct Core {
     connect_timeout: Duration,
     /// [`CoreBuilder::local_files`]; `None` refuses the user's files.
     local_files: Option<LocalFiles>,
-    /// One async mutex per repo (phase 5e, Decision 38), by its
+    /// One async mutex per repo (phase 5e), by its
     /// canonical path: sync, publish, pull, commit and conflict resolution
     /// take it.
     #[cfg(feature = "git")]
@@ -440,7 +439,7 @@ pub struct ConnectionLimits {
 /// [`ConnectionLimits::per_workspace`].
 pub const TOO_MANY_CONNECTIONS: &str = "TOO_MANY_CONNECTIONS";
 
-/// How long opening a connection may take (phase 6 probe F4): an engine's
+/// How long opening a connection may take: an engine's
 /// connect, and an SSH tunnel's, that hasn't finished by then fails with
 /// `TIMEOUT` instead of hanging (a database out of connection slots, a
 /// host that accepts and never answers). Raced against the
@@ -462,7 +461,7 @@ pub enum ConnectPolicy {
     /// Any engine this Core has, any config, SSH tunnels included. The
     /// desktop app, the CLI and MCP server, and tests.
     Unrestricted,
-    /// The web server's (Task 5). `allow_ssh: false` refuses a connection
+    /// The web server's. `allow_ssh: false` refuses a connection
     /// that needs an SSH tunnel before anything is opened (no SSH session,
     /// no key file read). `check` then runs on the finished config, right
     /// before the driver opens it; an `Err` is returned as it is.
@@ -609,8 +608,8 @@ impl CoreBuilder {
     /// Where [`Core::duckdb_helper_install`] downloads from instead of
     /// Seaquel's GitHub releases: tests, and debug builds' test hooks. A
     /// [`DuckdbHelperReleases`] is `https:`, or `http:` to a loopback
-    /// address only. Only in debug builds or with `duckdb-helper-testing`
-    /// (review I1): a release build always downloads from GitHub.
+    /// address only. Only in debug builds or with `duckdb-helper-testing`:
+    /// a release build always downloads from GitHub.
     #[cfg(all(
         feature = "duckdb-helper-install",
         any(debug_assertions, feature = "duckdb-helper-testing")
@@ -637,8 +636,8 @@ impl CoreBuilder {
     }
 
     /// The helper asset's compressed size and SHA-256, built into this
-    /// binary at release time (the desktop DuckDB helper plan, Q1 B,
-    /// Decision 4). With it, [`Core::duckdb_helper_asset`] answers from the
+    /// binary at release time.
+    /// With it, [`Core::duckdb_helper_asset`] answers from the
     /// pin with no request, [`Core::duckdb_helper_install`] fetches only the
     /// download (never the release metadata, so never GitHub's rate-limited
     /// API) and refuses any other file, and
@@ -698,7 +697,7 @@ impl CoreBuilder {
     /// name, field and query sizes, list lengths, and how many connections,
     /// projects and saved queries a workspace may hold. Without it, no
     /// limit (the desktop, the CLI, MCP); the web server sets all seven
-    /// (phase 5d, Decision 15).
+    /// (phase 5d).
     #[must_use]
     pub fn library_limits(mut self, limits: LibraryLimits) -> Self {
         self.library_limits = limits;
@@ -708,8 +707,7 @@ impl CoreBuilder {
     /// What a state call (dashboards, workflows, chats, settings, themes,
     /// window view state, …) may carry and what a workspace may hold.
     /// Without it, [`StateLimits::DESKTOP`]: no limit but the window counts
-    /// (the desktop, the CLI, MCP). The web server sets every one (phase
-    /// 5d-2, Decision 27).
+    /// (the desktop, the CLI, MCP). The web server sets every one (phase 5d-2).
     #[must_use]
     pub fn state_limits(mut self, limits: StateLimits) -> Self {
         self.state_limits = limits;
@@ -727,8 +725,8 @@ impl CoreBuilder {
         self
     }
 
-    /// The client the assistant's model calls go through (phase 6,
-    /// Decision 8): `seaquel_core::ai::native::NativeHttp` natively, the
+    /// The client the assistant's model calls go through (phase 6):
+    /// `seaquel_core::ai::native::NativeHttp` natively, the
     /// page's fetch bridge in the browser. There is no default: without
     /// one, `ai.chat`, `ai.generate`, `ai.models` and `ai.test` answer
     /// `NOT_SUPPORTED`.
@@ -739,7 +737,7 @@ impl CoreBuilder {
         self
     }
 
-    /// Where model calls may go (phase 6, Decision 9). No default: without
+    /// Where model calls may go (phase 6). No default: without
     /// one every model call answers `NOT_SUPPORTED`; with
     /// [`ai::AiEgress::Off`] it answers `AI_EGRESS_BLOCKED`. The client
     /// passed to [`CoreBuilder::ai_http`] must enforce the same rule (the
@@ -751,7 +749,7 @@ impl CoreBuilder {
         self
     }
 
-    /// The web's limits on turns (Decision 14). Without it, none.
+    /// The web's limits on turns. Without it, none.
     #[cfg(feature = "ai")]
     #[must_use]
     pub fn ai_limits(mut self, limits: ai::AiLimits) -> Self {
@@ -1030,17 +1028,17 @@ impl Core {
         #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
         let external_changes = spec.external_changes;
         let workspace = Workspace::open(spec, self.executor.as_ref()).await?;
-        // Phase 7a Decision 3: a second process beside the app (the TUI)
+        // A second process beside the app (the TUI)
         // runs none of the maintenance writes below; they stay the app's.
         #[cfg(feature = "storage")]
         if maintenance {
-            // Phase 5d Decision 12a: move secrets left in stored connection
+            // Move secrets left in stored connection
             // strings to the keychain, then strip them (once; a read-only
             // open never runs it).
             workspace
                 .upgrade_string_secrets(self.executor.as_deref())
                 .await;
-            // Phase 5d-1 probe fix: rows an older release wrote or renamed
+            // Rows an older release wrote or renamed
             // after the `backfill_name_keys` step (a downgrade, then this
             // release again) get their `name_key` back. Only a read when
             // there are none; a failure is logged and the lookups still fold
@@ -1048,7 +1046,7 @@ impl Core {
             if let Err(e) = storage::refill_name_keys(workspace.storage()).await {
                 log::warn!(activity = "workspace.open", code = e.code(); "Refilling name keys failed");
             }
-            // 5d-2 Task 7 review: workflows and versions an older release
+            // Workflows and versions an older release
             // wrote without their list metadata get it (the lists compute it
             // for such a row meanwhile).
             if let Err(e) = storage::refill_list_meta(workspace.storage()).await {
@@ -1056,7 +1054,7 @@ impl Core {
             }
         }
         let workspace = Arc::new(workspace);
-        // Phase 7a Decision 6: only after the open's own work (which runs on
+        // Only after the open's own work (which runs on
         // the writer connection anyway, so it never looks external).
         #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
         if let Some(interval) = external_changes {
@@ -1247,8 +1245,7 @@ impl Core {
     /// the engine (an engine this Core lacks is refused as such first),
     /// the connect policy's check, and `Engine::preflight`. Nothing is
     /// opened or closed. `Workspace::connect` closes the connections a
-    /// reconnect to an exclusively held file replaces only after it
-    /// (Decision 21 of the desktop DuckDB helper plan).
+    /// reconnect to an exclusively held file replaces only after it.
     pub(crate) fn prepare_connect(
         &self,
         config: &ConnectConfig,
@@ -1439,7 +1436,7 @@ impl Core {
     }
 
     /// Record that `owner`'s connection `connection_id` was opened for saved
-    /// connection `saved_id` (phase 6 Task 7, `db.bindSaved`): once, for a
+    /// connection `saved_id` (`db.bindSaved`): once, for a
     /// connection that has none yet; naming the one it has is a no-op, and
     /// any other is `INVALID_ARGUMENT`. Trusted as a form connect's
     /// `savedConnectionId` is.
@@ -1933,7 +1930,7 @@ impl Core {
     /// Registers a stream under `key`. A key an assistant turn holds
     /// (`connection_id: None`), and any taken key for a turn, is refused
     /// with `INVALID_ARGUMENT` and the map isn't touched, so a turn can't
-    /// lose its cancel to a reused id (phase 6 review I1). A query stream
+    /// lose its cancel to a reused id. A query stream
     /// reusing a query stream's id still replaces it, as before.
     fn register_stream(
         &self,

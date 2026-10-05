@@ -1,4 +1,4 @@
-//! The command log (Decision 13): what Core reports, newest last, each line
+//! The command log: what Core reports, newest last, each line
 //! with its time, an optional tag and how long it took. In memory only.
 
 use ratatui::layout::Rect;

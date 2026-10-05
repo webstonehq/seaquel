@@ -1,4 +1,4 @@
-//! `seaquel-duckdb`, the DuckDB helper (the DuckDB helper plan): DuckDB in a
+//! `seaquel-duckdb`, the DuckDB helper: DuckDB in a
 //! process of its own, so the terminal binaries don't link it. The client
 //! (`seaquel-engine-duckdb`'s remote driver) starts one per open DuckDB
 //! connection and speaks to it in frames over its stdin and stdout; the

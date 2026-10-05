@@ -3,7 +3,7 @@
 //! The desktop serves it with [`dispatch_git`]. The web server has no
 //! shared projects, so `dispatch_workspace` answers `NOT_SUPPORTED` for it.
 //!
-//! **The repo lock (phase 5e, Decision 38).** Pull, push, commit and
+//! **The repo lock (phase 5e).** Pull, push, commit and
 //! conflict resolution change the working tree or the branch, so they run
 //! under Core's per-repo lock, which the shared projection's syncs and
 //! publishes take too: a checkout never races a file write. With the
@@ -68,7 +68,7 @@ pub enum GitRequest {
         path: String,
         file_path: String,
         resolution: String,
-        /// Keep the side that deleted the file (phase 5e probe fix 5):
+        /// Keep the side that deleted the file:
         /// the file is deleted and the deletion staged; `resolution` is
         /// ignored.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]

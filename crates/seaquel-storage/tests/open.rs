@@ -289,7 +289,7 @@ async fn every_connection_gets_the_pragmas() {
     .await
     .unwrap();
     // Three connections: two in the pool for reads, and the writer
-    // connection outside it (phase 7a Decision 5).
+    // connection outside it.
     assert_eq!(storage.pool().options().get_max_connections(), 2);
     assert_eq!(
         storage.pool().options().get_idle_timeout(),
@@ -841,7 +841,7 @@ async fn a_failed_migration_rolls_back_everything_under_the_lock() {
     open_read_only(&path).await.unwrap().close().await;
 }
 
-/// 5d-2 Task 7 review: a migration can hold the lock past the 5 s busy
+/// A migration can hold the lock past the 5 s busy
 /// timeout (`0003`'s fill takes about 3 s per GB). A second pool opening the
 /// file meanwhile (the web server's evicted workspace next to a fresh one)
 /// keeps waiting for it, up to `MIGRATION_WAIT`, instead of failing with
@@ -877,7 +877,7 @@ async fn a_second_opener_waits_out_a_migration_longer_than_the_busy_timeout() {
     holder.close().await;
 }
 
-/// 5d-2 Task 7 re-review: the long wait is only for an open with work to
+/// The long wait is only for an open with work to
 /// do. An up-to-date file whose write lock another process holds (a second
 /// app instance, an outside tool) fails after about one busy timeout, as
 /// before, rather than waiting a minute at startup.

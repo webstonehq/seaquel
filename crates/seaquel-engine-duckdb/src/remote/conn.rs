@@ -1,5 +1,5 @@
-//! The client's half of the wire (the DuckDB helper plan, Decisions 4–6
-//! and 8): one helper process, its frames and its calls.
+//! The client's half of the wire:
+//! one helper process, its frames and its calls.
 //!
 //! Three tasks run per connection, on the runtime that opened it, owned by
 //! the driver's `JoinSet` (dropping the driver aborts them, which drops the
@@ -10,7 +10,7 @@
 //!   `credit` is queued synchronously, under the state lock, so a cancel
 //!   posted from a guard's `Drop` is on the wire before any later call's
 //!   request. A request finding nothing queued is written by its caller
-//!   instead, at once and without waiting (Checkpoint H-1: the hand-off to
+//!   instead, at once and without waiting (the hand-off to
 //!   the writer task was about 4 µs of a `SELECT 1`); what the pipe doesn't
 //!   take then is queued like any frame.
 //! - **The reader** reads the helper's frames and hands each to its call's
@@ -25,14 +25,14 @@
 //!   exit code. A helper that ended its output after `close` and hasn't
 //!   exited 2 s later is closing its database (a checkpoint can take
 //!   seconds): it is let go, not killed, and exits on its own within its
-//!   own bound (the DuckDB helper plan's probe F3).
+//!   own bound.
 //!
 //! **Call ids.** A call's id is live from its request until both its last
 //! control frame has arrived and its [`Call`] is dropped; ids are never
 //! reused while live, so a late `cancel` or `credit` can't reach another
 //! call.
 //!
-//! **Read-only slots** (the desktop DuckDB helper plan, Decision 5). The
+//! **Read-only slots**. The
 //! helper runs at most [`MAX_READ_ONLY_CALLS`] read-only calls at once and
 //! refuses more, so the client sends no more than that: a read-only call
 //! waits for a permit ([`Conn::start_read_only`]), and the permit is held
@@ -41,8 +41,7 @@
 //! before it sends that frame, so a freed permit always finds a free slot
 //! there.
 //!
-//! **How the connection ended** ([`Conn::closed`], Decision 7 of the same
-//! plan): the exit watcher says whether the helper was lost (it ended
+//! **How the connection ended** ([`Conn::closed`]): the exit watcher says whether the helper was lost (it ended
 //! without `close`: a signal, an exit of its own, a broken protocol) or
 //! ended as asked. A dropped driver aborts the watcher, which counts as
 //! asked.
@@ -717,7 +716,7 @@ async fn watch_exit(
             (Ended::Exited(status), None)
         }
         // The output ended: wait for the exit. A helper that took `close`
-        // and hasn't exited by then is closing its database (probe F3).
+        // and hasn't exited by then is closing its database.
         Err(Some(Signal::WireEnded)) => {
             let deadline = tokio::time::sleep(EXIT_WAIT);
             tokio::pin!(deadline);
@@ -831,7 +830,7 @@ mod tests {
 
     /// A frame for a call that isn't running breaks the wire, also once
     /// the connection is dead: `close` keeps the calls' slots, so their
-    /// last frames always find them (the review's I1).
+    /// last frames always find them.
     #[test]
     fn frames_for_no_call_break_the_wire() {
         let mut s = state();
@@ -891,7 +890,7 @@ mod tests {
         out
     }
 
-    /// Checkpoint H-1: a call's request goes on the wire from `start`
+    /// A call's request goes on the wire from `start`
     /// itself when nothing is queued ahead of it, without waiting for the
     /// writer task (that hand-off was about 4 µs of a `SELECT 1`). With a
     /// frame queued (a dropped call's `cancel`), the next request queues
@@ -971,7 +970,7 @@ mod tests {
 
     /// Credit is granted only to a call the helper is still sending to:
     /// once its last frame is in, a `credit` frame would only cost the
-    /// helper a wake-up (Checkpoint H-1: one per small query).
+    /// helper a wake-up (one per small query).
     #[test]
     fn only_a_call_still_answering_wants_credit() {
         let mut s = state();

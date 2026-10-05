@@ -5,13 +5,13 @@
 //! 1. checks its input against the entity's rules and the interface's
 //!    [`LibraryLimits`] (`seaquel_workspace::library`), before anything is
 //!    read;
-//! 2. on the desktop, writes the keychain first (Decision 8), outside any
+//! 2. on the desktop, writes the keychain first, outside any
 //!    write transaction, after the same checks ran on a pool read, so a
 //!    keychain prompt never holds the write lock and a refused call never
 //!    touches the keychain;
-//! 3. reads, checks and writes in one [`WriteTx`] (Decision 3), taking its
-//!    change number while it holds the lock (Decision 17), and commits;
-//! 4. emits one `StorageChanged` event (Decision 16), then deletes the
+//! 3. reads, checks and writes in one [`WriteTx`], taking its
+//!    change number while it holds the lock, and commits;
+//! 4. emits one `StorageChanged` event, then deletes the
 //!    secrets the call gave up (best effort, logged by code).
 //!
 //! Inside a write, every read goes through the transaction (`&mut tx`),
@@ -98,7 +98,7 @@ impl Src<'_> {
 
 /// `name`, or `NAME_TAKEN` naming the row of `rows` (other than `except`)
 /// with the same key; with `rename`, the first free `"<name> (n)"`
-/// instead (Decision 13).
+/// instead.
 fn resolve_name(
     what: &str,
     name: &str,
@@ -140,7 +140,7 @@ impl Names<'_> {
     }
 
     /// The rows whose name has `key`, in rowid order: an index search of
-    /// the stored `name_key` (phase 5d-1 probe fix), not a read of every
+    /// the stored `name_key`, not a read of every
     /// name in the scope.
     async fn with_key(&self, src: &mut Src<'_>, key: &str) -> Result<Vec<IdName>> {
         Ok(match self {
@@ -170,7 +170,7 @@ impl Names<'_> {
     }
 
     /// `name`, or `NAME_TAKEN` naming the first other row with its key;
-    /// with `rename`, the first free `"<name> (n)"` instead (Decision 13),
+    /// with `rename`, the first free `"<name> (n)"` instead,
     /// one lookup per candidate. As [`resolve_name`], without reading every
     /// name in the scope.
     async fn resolve(
@@ -248,8 +248,7 @@ async fn patched_connection_checks(
     Ok(())
 }
 
-/// `ENGINE_NOT_AVAILABLE` for a type this Core has no engine for (the web
-/// server's SQLite and DuckDB; Decision 7).
+/// `ENGINE_NOT_AVAILABLE` for a type this Core has no engine for (the web server's SQLite and DuckDB).
 pub(crate) fn check_engine(core: &Core, ty: &str) -> Result<()> {
     if core.engine_ids().contains(&lib::engine_of(ty)) {
         Ok(())
@@ -274,8 +273,7 @@ enum Undo {
 }
 
 impl Workspace {
-    /// `NOT_SUPPORTED` for secrets on a workspace without a store (the
-    /// web's vault stays in the browser; Decision 8).
+    /// `NOT_SUPPORTED` for secrets on a workspace without a store (the web's vault stays in the browser).
     fn check_secret_support(&self, secrets: &SecretChanges) -> Result<()> {
         if secrets.is_empty() || self.has_secret_store() {
             Ok(())
@@ -379,7 +377,7 @@ impl Workspace {
     }
 
     /// Save a new connection (`connectionCreate`) with a Core id, and its
-    /// secrets first on the desktop (Decision 8). The connection string is
+    /// secrets first on the desktop. The connection string is
     /// stored without secrets.
     ///
     /// Errors: `INVALID_ARGUMENT`, `ENGINE_NOT_AVAILABLE`,
@@ -447,7 +445,7 @@ impl Workspace {
     }
 
     /// Change a saved connection (`connectionUpdate`): only the patch's
-    /// fields (Decision 2). Secrets are set first; a secret whose save flag
+    /// fields. Secrets are set first; a secret whose save flag
     /// the patch turned off, or that `secrets` deletes, is deleted after the
     /// commit.
     ///
@@ -492,7 +490,7 @@ impl Workspace {
             self.set_secrets(id, &sets, Undo::Restore).await?;
         }
 
-        // Phase 5e, Decision 37: making a shared connection local-only
+        // Making a shared connection local-only
         // deletes its template first (keeping the bytes), then writes the
         // row; a failed row write puts the file back.
         let unsharing = patch.is_local_only == Some(true);
@@ -549,7 +547,7 @@ impl Workspace {
         let projection = if unsharing {
             unpublished
         } else if stored.shared_connection_id.is_some() || patch.is_local_only == Some(false) {
-            // Decision 53: only a connection linked to its template, or one
+            // Only a connection linked to its template, or one
             // the user shares now, reaches the repo.
             let renamed = name_key(&before.name) != name_key(&stored.name);
             let shared_now = patch.is_local_only == Some(false);
@@ -584,7 +582,7 @@ impl Workspace {
     /// Remove a saved connection (`connectionRemove`). Its history, chats
     /// and labels cascade, and its web vault rows go in the same
     /// transaction; its keychain entries are deleted after the commit. It
-    /// doesn't close a Core connection opened from it (Decision 9).
+    /// doesn't close a Core connection opened from it.
     pub async fn remove_connection(
         &self,
         core: &Core,
@@ -593,7 +591,7 @@ impl Workspace {
     ) -> Result<Seqd<()>> {
         debug!(activity = "library.connectionRemove", connection_id = id; "Remove a connection");
         lib::check_id(id, "connection id", &core.library_limits())?;
-        // Decision 37: a shared connection's template goes first, its bytes
+        // A shared connection's template goes first, its bytes
         // kept until the row is gone.
         let pending = self
             .unpublish_begin(core, Kind::Connection, id, false)
@@ -643,8 +641,8 @@ pub(crate) async fn connection_order_in(tx: &mut WriteTx, project_id: &str) -> R
     Ok(ids)
 }
 
-/// A shared-project import's new project inside `tx` (phase 5e, Decision
-/// 40): the count limit, its name (the first free `"<name> (n)"`), linked
+/// A shared-project import's new project inside `tx` (phase 5e):
+/// the count limit, its name (the first free `"<name> (n)"`), linked
 /// to `repo_path`. The stored row.
 #[cfg(feature = "git")]
 pub(crate) async fn insert_linked_project_in(
@@ -831,9 +829,8 @@ impl Workspace {
                 .resolve(&mut Src::Tx(&mut tx), &row.name, false, Some(id))
                 .await?;
         }
-        // Phase 5e, Q25: a linked project's directory is stored before a
-        // rename, so the slug of the new name never moves it (a NULL
-        // directory is the slug of the name, Decision 33).
+        // A linked project's directory is stored before a
+        // rename, so the slug of the new name never moves it (a NULL directory is the slug of the name).
         let renamed = row.name != before;
         if renamed && linked_before && projects::shared_dir(&mut tx, id).await?.is_none() {
             let dir = seaquel_workspace::shared::names::legacy_stem(&before);
@@ -848,7 +845,7 @@ impl Workspace {
             Some(vec![id.to_string()]),
             origin,
         );
-        // Q25: `project.yaml`'s name follows; the directory stays.
+        // `project.yaml`'s name follows; the directory stays.
         let projection = if renamed && row.git_repo_path.is_some() {
             self.publish_row(core, origin, id, Publish::Project).await
         } else {
@@ -861,7 +858,7 @@ impl Workspace {
         })
     }
 
-    /// Remove a project and everything in it (`projectRemove`, Decision 9),
+    /// Remove a project and everything in it (`projectRemove`),
     /// in one transaction, then its connections' keychain entries. The last
     /// project can't go (`LAST_PROJECT`).
     pub async fn remove_project(
@@ -913,7 +910,7 @@ impl Workspace {
 
 impl Workspace {
     /// Add a custom label to a project (`labelCreate`). Only its
-    /// `project_labels` row is written (Decision 10).
+    /// `project_labels` row is written.
     pub async fn create_label(
         &self,
         core: &Core,
@@ -1015,7 +1012,7 @@ impl Workspace {
     }
 
     /// Remove a custom label (`labelRemove`), and take it off every
-    /// connection that has it, in the same transaction (Decision 10). A
+    /// connection that has it, in the same transaction. A
     /// predefined id is refused before anything is read.
     pub async fn remove_label(
         &self,
@@ -1139,7 +1136,7 @@ impl Workspace {
         Ok(out)
     }
 
-    /// Change a saved query (`savedQueryUpdate`, Decision 11). A changed
+    /// Change a saved query (`savedQueryUpdate`). A changed
     /// text appends a keyframe of the previous text, numbered inside the
     /// transaction, then prunes to `query_version_limit` keeping back to the
     /// nearest keyframe. An unchanged text adds no version.
@@ -1155,7 +1152,7 @@ impl Workspace {
         lib::check_id(id, "saved query id", &limits)?;
         lib::check_saved_query_patch(&patch, &limits)?;
         let now = now(core)?;
-        // Phase 5e, Decision 37: unsharing deletes the file first (keeping
+        // Unsharing deletes the file first (keeping
         // its bytes), then writes the row; a failed write puts it back.
         let unsharing = patch.shared == Some(false);
         let pending = if unsharing {
@@ -1221,7 +1218,7 @@ impl Workspace {
     ) -> Result<Seqd<()>> {
         debug!(activity = "library.savedQueryRemove", saved_query_id = id; "Remove a saved query");
         lib::check_id(id, "saved query id", &core.library_limits())?;
-        // Decision 37: a shared query's file goes first, its bytes kept
+        // A shared query's file goes first, its bytes kept
         // until the row is gone.
         let pending = self
             .unpublish_begin(core, Kind::SavedQuery, id, false)
@@ -1264,7 +1261,7 @@ impl Workspace {
         }
     }
 
-    /// Decision 32 (Task 4b, M3): a shared query in a linked project must
+    /// A shared query in a linked project must
     /// have a folder that can be a path in the repo, so a publish never
     /// meets one it refuses. Checked inside the write, before the commit;
     /// only where the projection runs (`LocalFiles`).
@@ -1326,7 +1323,7 @@ pub(crate) async fn insert_saved_query_in(
         .ok_or_else(saved_query_not_found)
 }
 
-/// A saved query patch inside `tx` (Decision 11): a changed text appends a
+/// A saved query patch inside `tx`: a changed text appends a
 /// keyframe of the previous text and prunes. `check` runs on the patched
 /// row before it's written (the shared folder rule). The answer and whether
 /// the name or folder changed.

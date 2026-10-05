@@ -1,5 +1,5 @@
 /**
- * `QueryExecutionManager` as a view model over run events (phase 5b, Task 6):
+ * `QueryExecutionManager` as a view model over run events (phase 5b):
  * a scripted `QueryRunner` hands it Core's events, and the tab's results,
  * pending changes, history cache and confirmation follow. The tab state is
  * real `$state`, so a write that skipped the proxy wouldn't show.
@@ -873,7 +873,7 @@ describe("pending changes", () => {
       done(2),
     );
     await running;
-    // The typed SQL as Core sent it, binds in the wire format (phase 5c, Decision 2).
+    // The typed SQL as Core sent it, binds in the wire format (phase 5c).
     expect(pending.addSql).toHaveBeenCalledExactlyOnceWith(
       "conn-1",
       "INSERT INTO t VALUES ($1)",

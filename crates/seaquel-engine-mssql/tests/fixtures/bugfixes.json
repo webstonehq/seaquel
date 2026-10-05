@@ -1,5 +1,5 @@
 {
-  "about": "Hand-written expectations for the intended changes from the TypeScript MSSQL adapter (src/lib/db/mssql.ts); see 'Task 12' in docs/plans/2026-09-26-rust-core-phase-2-plan.md. The recorder never writes this file; its 'scratch' block is what record mode (and tests/smoke.rs, Task 13) builds in seaquel_test, in dbo and a fx_sales schema, every object named fx…, every constraint and index named (SQL Server's generated names change per run). CREATE SCHEMA and CREATE VIEW run as they are: since Task 13 the Rust driver sends a parameterless statement that must start a batch as a plain batch (until then they ran as EXEC (N'…'), since every statement went through sp_executesql with a parameter list, where such a statement is a syntax error). Fix 1: the catalog filters are bound (@P1 table, @P2 schema) instead of passed through validateIdentifier, which rejected names with a space or ']' ('columns'/'indexes' cases). Fix 2: the DDL quote doubles ']' (the adapter's quoteIdentifier already did; its DDL quote didn't). Fix 3: the columns query joins sys.objects (type U or V) instead of sys.tables, so views have columns. Fix 4: one row per column: a column in several foreign keys takes the reference of the foreign key whose name sorts first (OUTER APPLY … TOP (1) … ORDER BY the constraint name, as the MySQL port picks the first by constraint name); the TS listed the column once per foreign key. Fix 5: sys.indexes.is_unique is a BIT, which arrives as a bool, so the TS's '=== 1' marked every index non-unique; the recorded rows' 'replaces' cases read it. Fix 6: INCLUDE columns (sys.index_columns.is_included_column = 1) are not index columns; the TS listed them first (key_ordinal 0). Fix 7: ALTER TABLE is T-SQL: a rename is EXEC sp_rename N'[s].[t].[old]', N'new', N'COLUMN' (the new name unquoted, ' doubled in both literals); an added column is ADD without COLUMN, with an explicit NULL or NOT NULL (a bare column's nullability depends on the session's ANSI_NULL_DFLT settings), in generateAddColumnSql and CREATE TABLE too (checked live: under SET ANSI_NULL_DFLT_OFF ON, the TS's bare nullable column came out NOT NULL; every fixed CREATE gives the stated nullability under both settings); a type or nullability change is one ALTER COLUMN c <type> NULL|NOT NULL (T-SQL has no TYPE/SET NOT NULL/DROP NOT NULL, and an ALTER COLUMN without NULL/NOT NULL makes the column nullable); a dropped index names its table (the original one; the full form is fix 12); a default change is one statement piece (no ';\\n' inside, so splitDdlScript keeps it whole) that looks up the column's default constraint and drops it with dynamic SQL, then ADD DEFAULT <expr> FOR [c] unless the new default is empty or unsafe. EXEC() can't take a function call, so the looked-up statement is built into a variable first; the variables are numbered (@df1, @df2, …) so the whole script also runs as one batch. ADD FOREIGN KEY and CREATE INDEX are unchanged. Every ALTER output here (fixes 2, 7, 10, 12, 13) was run against real tables in rolled-back transactions: all run, except where a UNIQUE constraint or foreign key still uses the column (error 4922), which the definition can't name. Fix 8: paginate adds ORDER BY (SELECT NULL) unless the query has an ORDER BY at the top level: outside parentheses (OVER(), subqueries, CTEs), string literals ('' escaped, N'…'), [bracketed] and \"quoted\" names, and -- and /* */ comments; a comment between ORDER and BY still counts. Every fix 8 output parses under SET PARSEONLY ON; the replaced TS outputs don't ('Invalid usage of the option NEXT in the FETCH statement'). Fix 9: EXPLAIN runs on the held client as separate batches (simple_query): SET SHOWPLAN_XML ON, the query, SET SHOWPLAN_XML OFF (the TS sent them as one batch, which SQL Server rejects, and under SHOWPLAN_XML an sp_executesql call returns nothing, so the plain plan can't take parameters); ANALYZE runs SET STATISTICS XML ON, the query (bound, through sp_executesql, when it has parameters), SET STATISTICS XML OFF, and reads the plan from the result set whose column is 'Microsoft SQL Server 2005 XML Showplan': the second for a SELECT, the only one for DML, none for a trivial statement such as SELECT 1 (then the TS's 'No XML plan returned' node). The plan XML is parsed as convertMssqlRelOp does (parse-explain.json pins that parser on captured plans). The 'explain' cases are live: the plan reduced to nodeType, relationName, indexName and filter, plus actualRows and actualLoops with analyze (costs, estimates and times vary), with fix 11 applied; the UPDATE case executes, so run it in a transaction that is rolled back. Fix 10: SchemaColumn.type is the full type: nvarchar(100) (max_length / 2 for nchar/nvarchar), nvarchar(max), varchar(20), varbinary(max), binary(16), decimal(10,2) and numeric(18,0) (precision,scale), datetime2(3), time(0), datetimeoffset(7) (scale); other types, alias types included, stay TYPE_NAME. The table editor splits it into type and length/precision, so fix 7's ALTER COLUMN restates the real size; with the bare TYPE_NAME a nullability-only edit made nvarchar(400) an nvarchar(1) (checked live: the column shrinks when the data fits and the edit fails when it doesn't). Its 'parse-columns' replaces cases carry the fixed query's rows as their input (fix 4 shows in dbo.fx_ledger too); the 'ddl-alter' cases are definitions built the way create-table-tabs addFromTable builds them, and live the column keeps its size. Fix 11: plan relation and index names drop the brackets and un-escape ]] to ] (the TS stripBrackets only dropped the outer brackets, so fx]odd name showed as fx]]odd name). Fix 12: a dropped index may be a PRIMARY KEY or UNIQUE constraint's, which DROP INDEX refuses; the definition can't tell, so the statement asks the catalog: IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE parent_object_id = OBJECT_ID(N'[s].[t]') AND name = N'i') ALTER TABLE [s].[t] DROP CONSTRAINT [i] ELSE DROP INDEX [i] ON [s].[t]; one piece, no ';\\n' inside, the original table. Fix 13: SQL Server refuses to alter or drop a column an index uses, so dropped indexes come first, before the renames and column changes (an AlterTableOptions switch: Postgres, MySQL and SQLite keep their order); and every DROP COLUMN first drops the column's default constraint, with fix 7's lookup, in the same piece, whatever the definition says about a default (the lookup is guarded by IS NOT NULL; the variables share fix 7's numbering). Fix 14: paginate drops what trails the query's last token: whitespace, semicolons and -- or /* */ comments (the TS appended after them, so a trailing ';' was a syntax error and a trailing -- comment commented the pagination out, fetching every row); a ';' or '--' inside a string literal is part of the query. Fix 15: a column whose collation isn't the database default keeps it: the columns query returns collation_name only then (CASE WHEN c.collation_name COLLATE DATABASE_DEFAULT <> DATABASEPROPERTYEX(DB_NAME(), 'Collation') COLLATE DATABASE_DEFAULT: both sides in one collation, so the comparison can't fail with a collation conflict), SchemaColumn carries it as 'collation', the table editor copies it into CreateTableColumn.collation, and ALTER COLUMN emits <type> COLLATE <name> NULL|NOT NULL. Without it ALTER COLUMN resets the column to the database default (checked live: Latin1_General_BIN became SQL_Latin1_General_CP1_CI_AS). Task 13 added the optional field to SchemaColumn and CreateTableColumn (skipped when absent), and CREATE TABLE and ADD (generateAddColumnSql and ALTER's added columns) emit the COLLATE too, except for types without a collation (the hand-written 'fix 15: CREATE TABLE …' and 'ADD …' cases, run live by tests/smoke.rs). sql.json is superseded: its getColumnsQuery and getIndexesQuery cases are replaced by the fixed catalog queries ('sql' cases: the exact text, bound @P1 table and @P2 schema, which produced the fix 10 input rows), and its getExplainQuery cases by 'explain-batches' cases (the batches the driver runs, the query verbatim). getSchemaQuery and getSchemasQuery are unchanged. A case with 'replaces' supersedes the recorded case of that name (the parity tests assert the recorded TypeScript output differs); its 'input' is null, and the recorded case's input applies, except for fix 10, whose input holds the fixed query's rows.",
+  "about": "Hand-written expectations for the intended changes from the TypeScript MSSQL adapter (src/lib/db/mssql.ts); see 'Task 12' in docs/plans/2026-09-26-rust-core-phase-2-plan.md, now in git history at ae7f269. The recorder never writes this file; its 'scratch' block is what record mode (and tests/smoke.rs, Task 13) builds in seaquel_test, in dbo and a fx_sales schema, every object named fx…, every constraint and index named (SQL Server's generated names change per run). CREATE SCHEMA and CREATE VIEW run as they are: since Task 13 the Rust driver sends a parameterless statement that must start a batch as a plain batch (until then they ran as EXEC (N'…'), since every statement went through sp_executesql with a parameter list, where such a statement is a syntax error). Fix 1: the catalog filters are bound (@P1 table, @P2 schema) instead of passed through validateIdentifier, which rejected names with a space or ']' ('columns'/'indexes' cases). Fix 2: the DDL quote doubles ']' (the adapter's quoteIdentifier already did; its DDL quote didn't). Fix 3: the columns query joins sys.objects (type U or V) instead of sys.tables, so views have columns. Fix 4: one row per column: a column in several foreign keys takes the reference of the foreign key whose name sorts first (OUTER APPLY … TOP (1) … ORDER BY the constraint name, as the MySQL port picks the first by constraint name); the TS listed the column once per foreign key. Fix 5: sys.indexes.is_unique is a BIT, which arrives as a bool, so the TS's '=== 1' marked every index non-unique; the recorded rows' 'replaces' cases read it. Fix 6: INCLUDE columns (sys.index_columns.is_included_column = 1) are not index columns; the TS listed them first (key_ordinal 0). Fix 7: ALTER TABLE is T-SQL: a rename is EXEC sp_rename N'[s].[t].[old]', N'new', N'COLUMN' (the new name unquoted, ' doubled in both literals); an added column is ADD without COLUMN, with an explicit NULL or NOT NULL (a bare column's nullability depends on the session's ANSI_NULL_DFLT settings), in generateAddColumnSql and CREATE TABLE too (checked live: under SET ANSI_NULL_DFLT_OFF ON, the TS's bare nullable column came out NOT NULL; every fixed CREATE gives the stated nullability under both settings); a type or nullability change is one ALTER COLUMN c <type> NULL|NOT NULL (T-SQL has no TYPE/SET NOT NULL/DROP NOT NULL, and an ALTER COLUMN without NULL/NOT NULL makes the column nullable); a dropped index names its table (the original one; the full form is fix 12); a default change is one statement piece (no ';\\n' inside, so splitDdlScript keeps it whole) that looks up the column's default constraint and drops it with dynamic SQL, then ADD DEFAULT <expr> FOR [c] unless the new default is empty or unsafe. EXEC() can't take a function call, so the looked-up statement is built into a variable first; the variables are numbered (@df1, @df2, …) so the whole script also runs as one batch. ADD FOREIGN KEY and CREATE INDEX are unchanged. Every ALTER output here (fixes 2, 7, 10, 12, 13) was run against real tables in rolled-back transactions: all run, except where a UNIQUE constraint or foreign key still uses the column (error 4922), which the definition can't name. Fix 8: paginate adds ORDER BY (SELECT NULL) unless the query has an ORDER BY at the top level: outside parentheses (OVER(), subqueries, CTEs), string literals ('' escaped, N'…'), [bracketed] and \"quoted\" names, and -- and /* */ comments; a comment between ORDER and BY still counts. Every fix 8 output parses under SET PARSEONLY ON; the replaced TS outputs don't ('Invalid usage of the option NEXT in the FETCH statement'). Fix 9: EXPLAIN runs on the held client as separate batches (simple_query): SET SHOWPLAN_XML ON, the query, SET SHOWPLAN_XML OFF (the TS sent them as one batch, which SQL Server rejects, and under SHOWPLAN_XML an sp_executesql call returns nothing, so the plain plan can't take parameters); ANALYZE runs SET STATISTICS XML ON, the query (bound, through sp_executesql, when it has parameters), SET STATISTICS XML OFF, and reads the plan from the result set whose column is 'Microsoft SQL Server 2005 XML Showplan': the second for a SELECT, the only one for DML, none for a trivial statement such as SELECT 1 (then the TS's 'No XML plan returned' node). The plan XML is parsed as convertMssqlRelOp does (parse-explain.json pins that parser on captured plans). The 'explain' cases are live: the plan reduced to nodeType, relationName, indexName and filter, plus actualRows and actualLoops with analyze (costs, estimates and times vary), with fix 11 applied; the UPDATE case executes, so run it in a transaction that is rolled back. Fix 10: SchemaColumn.type is the full type: nvarchar(100) (max_length / 2 for nchar/nvarchar), nvarchar(max), varchar(20), varbinary(max), binary(16), decimal(10,2) and numeric(18,0) (precision,scale), datetime2(3), time(0), datetimeoffset(7) (scale); other types, alias types included, stay TYPE_NAME. The table editor splits it into type and length/precision, so fix 7's ALTER COLUMN restates the real size; with the bare TYPE_NAME a nullability-only edit made nvarchar(400) an nvarchar(1) (checked live: the column shrinks when the data fits and the edit fails when it doesn't). Its 'parse-columns' replaces cases carry the fixed query's rows as their input (fix 4 shows in dbo.fx_ledger too); the 'ddl-alter' cases are definitions built the way create-table-tabs addFromTable builds them, and live the column keeps its size. Fix 11: plan relation and index names drop the brackets and un-escape ]] to ] (the TS stripBrackets only dropped the outer brackets, so fx]odd name showed as fx]]odd name). Fix 12: a dropped index may be a PRIMARY KEY or UNIQUE constraint's, which DROP INDEX refuses; the definition can't tell, so the statement asks the catalog: IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE parent_object_id = OBJECT_ID(N'[s].[t]') AND name = N'i') ALTER TABLE [s].[t] DROP CONSTRAINT [i] ELSE DROP INDEX [i] ON [s].[t]; one piece, no ';\\n' inside, the original table. Fix 13: SQL Server refuses to alter or drop a column an index uses, so dropped indexes come first, before the renames and column changes (an AlterTableOptions switch: Postgres, MySQL and SQLite keep their order); and every DROP COLUMN first drops the column's default constraint, with fix 7's lookup, in the same piece, whatever the definition says about a default (the lookup is guarded by IS NOT NULL; the variables share fix 7's numbering). Fix 14: paginate drops what trails the query's last token: whitespace, semicolons and -- or /* */ comments (the TS appended after them, so a trailing ';' was a syntax error and a trailing -- comment commented the pagination out, fetching every row); a ';' or '--' inside a string literal is part of the query. Fix 15: a column whose collation isn't the database default keeps it: the columns query returns collation_name only then (CASE WHEN c.collation_name COLLATE DATABASE_DEFAULT <> DATABASEPROPERTYEX(DB_NAME(), 'Collation') COLLATE DATABASE_DEFAULT: both sides in one collation, so the comparison can't fail with a collation conflict), SchemaColumn carries it as 'collation', the table editor copies it into CreateTableColumn.collation, and ALTER COLUMN emits <type> COLLATE <name> NULL|NOT NULL. Without it ALTER COLUMN resets the column to the database default (checked live: Latin1_General_BIN became SQL_Latin1_General_CP1_CI_AS). Task 13 added the optional field to SchemaColumn and CreateTableColumn (skipped when absent), and CREATE TABLE and ADD (generateAddColumnSql and ALTER's added columns) emit the COLLATE too, except for types without a collation (the hand-written 'fix 15: CREATE TABLE …' and 'ADD …' cases, run live by tests/smoke.rs). sql.json is superseded: its getColumnsQuery and getIndexesQuery cases are replaced by the fixed catalog queries ('sql' cases: the exact text, bound @P1 table and @P2 schema, which produced the fix 10 input rows), and its getExplainQuery cases by 'explain-batches' cases (the batches the driver runs, the query verbatim). getSchemaQuery and getSchemasQuery are unchanged. A case with 'replaces' supersedes the recorded case of that name (the parity tests assert the recorded TypeScript output differs); its 'input' is null, and the recorded case's input applies, except for fix 10, whose input holds the fixed query's rows.",
   "scratch": {
     "setup": [
       "CREATE SCHEMA fx_sales",
@@ -63,10 +63,7 @@
       "name": "fix 1: columns of a table with spaces in the table and column names, a composite primary key, a foreign key and a default",
       "fix": 1,
       "kind": "columns",
-      "input": {
-        "schema": "dbo",
-        "table": "fx order items"
-      },
+      "input": { "schema": "dbo", "table": "fx order items" },
       "output": [
         {
           "name": "order id",
@@ -108,10 +105,7 @@
       "name": "fix 1: columns of a table with ] in the table and column names, a quote in a default",
       "fix": 1,
       "kind": "columns",
-      "input": {
-        "schema": "dbo",
-        "table": "fx]odd name"
-      },
+      "input": { "schema": "dbo", "table": "fx]odd name" },
       "output": [
         {
           "name": "col]1",
@@ -146,10 +140,7 @@
       "name": "fix 1 + 6: indexes of a table with spaces in its names (the INCLUDE column qty is left out)",
       "fix": 1,
       "kind": "indexes",
-      "input": {
-        "schema": "dbo",
-        "table": "fx order items"
-      },
+      "input": { "schema": "dbo", "table": "fx order items" },
       "output": [
         {
           "name": "fx order items pk",
@@ -169,17 +160,9 @@
       "name": "fix 1 + 5: indexes of a table with ] in its names",
       "fix": 1,
       "kind": "indexes",
-      "input": {
-        "schema": "dbo",
-        "table": "fx]odd name"
-      },
+      "input": { "schema": "dbo", "table": "fx]odd name" },
       "output": [
-        {
-          "name": "fx]odd pk",
-          "columns": ["col]1"],
-          "unique": true,
-          "type": "clustered"
-        },
+        { "name": "fx]odd pk", "columns": ["col]1"], "unique": true, "type": "clustered" },
         {
           "name": "fx]odd value uq",
           "columns": ["the value"],
@@ -216,10 +199,7 @@
       "name": "fix 3: columns of a view",
       "fix": 3,
       "kind": "columns",
-      "input": {
-        "schema": "dbo",
-        "table": "fx_customer_names"
-      },
+      "input": { "schema": "dbo", "table": "fx_customer_names" },
       "output": [
         {
           "name": "id",
@@ -248,10 +228,7 @@
       "name": "fix 3: columns of a view in another schema",
       "fix": 3,
       "kind": "columns",
-      "input": {
-        "schema": "fx_sales",
-        "table": "fx_invoice_totals"
-      },
+      "input": { "schema": "fx_sales", "table": "fx_invoice_totals" },
       "output": [
         {
           "name": "customer_id",
@@ -280,10 +257,7 @@
       "name": "fix 4: a column in two foreign keys is listed once, with the foreign key whose name sorts first (fx_ledger_account_fk, composite, before fx_ledger_customer_fk)",
       "fix": 4,
       "kind": "columns",
-      "input": {
-        "schema": "dbo",
-        "table": "fx_ledger"
-      },
+      "input": { "schema": "dbo", "table": "fx_ledger" },
       "output": [
         {
           "name": "id",
@@ -329,10 +303,7 @@
       "name": "fix 4: a primary key column that is also a foreign key",
       "fix": 4,
       "kind": "columns",
-      "input": {
-        "schema": "dbo",
-        "table": "fx_accounts"
-      },
+      "input": { "schema": "dbo", "table": "fx_accounts" },
       "output": [
         {
           "name": "customer_id",
@@ -387,12 +358,7 @@
           "unique": false,
           "type": "nonclustered"
         },
-        {
-          "name": "fx_customers_pk",
-          "columns": ["id"],
-          "unique": true,
-          "type": "clustered"
-        }
+        { "name": "fx_customers_pk", "columns": ["id"], "unique": true, "type": "clustered" }
       ]
     },
     {
@@ -408,12 +374,7 @@
           "unique": false,
           "type": "nonclustered"
         },
-        {
-          "name": "fx_orders_pk",
-          "columns": ["id"],
-          "unique": true,
-          "type": "clustered"
-        }
+        { "name": "fx_orders_pk", "columns": ["id"], "unique": true, "type": "clustered" }
       ]
     },
     {
@@ -437,14 +398,7 @@
       "kind": "parse-indexes",
       "replaces": "parse-indexes.json: dbo.fx_ledger",
       "input": null,
-      "output": [
-        {
-          "name": "fx_ledger_pk",
-          "columns": ["id"],
-          "unique": true,
-          "type": "clustered"
-        }
-      ]
+      "output": [{ "name": "fx_ledger_pk", "columns": ["id"], "unique": true, "type": "clustered" }]
     },
     {
       "name": "fix 5: is_unique arrives as a bool and is read (fx_sales.fx_invoices)",
@@ -459,12 +413,7 @@
           "unique": true,
           "type": "nonclustered"
         },
-        {
-          "name": "fx_invoices_pk",
-          "columns": ["id"],
-          "unique": true,
-          "type": "clustered"
-        }
+        { "name": "fx_invoices_pk", "columns": ["id"], "unique": true, "type": "clustered" }
       ]
     },
     {
@@ -480,22 +429,14 @@
           "unique": false,
           "type": "clustered"
         },
-        {
-          "name": "fx_events_pk",
-          "columns": ["id"],
-          "unique": true,
-          "type": "nonclustered"
-        }
+        { "name": "fx_events_pk", "columns": ["id"], "unique": true, "type": "nonclustered" }
       ]
     },
     {
       "name": "fix 6: index columns exclude INCLUDE columns (fx_customers_name_idx keys name, status; includes email, score)",
       "fix": 6,
       "kind": "indexes",
-      "input": {
-        "schema": "dbo",
-        "table": "fx_customers"
-      },
+      "input": { "schema": "dbo", "table": "fx_customers" },
       "output": [
         {
           "name": "fx_customers_email_uq",
@@ -515,12 +456,7 @@
           "unique": false,
           "type": "nonclustered"
         },
-        {
-          "name": "fx_customers_pk",
-          "columns": ["id"],
-          "unique": true,
-          "type": "clustered"
-        }
+        { "name": "fx_customers_pk", "columns": ["id"], "unique": true, "type": "clustered" }
       ]
     },
     {
@@ -1301,44 +1237,28 @@
       "name": "fix 8: an ORDER BY after a line comment's end",
       "fix": 8,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT id FROM t -- note\nORDER BY id",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT id FROM t -- note\nORDER BY id", "limit": 10, "offset": 0 },
       "output": "SELECT id FROM t -- note\nORDER BY id OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "fix 8: an ORDER BY inside a line comment",
       "fix": 8,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT id FROM t -- ORDER BY id\nWHERE id > 1",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT id FROM t -- ORDER BY id\nWHERE id > 1", "limit": 10, "offset": 0 },
       "output": "SELECT id FROM t -- ORDER BY id\nWHERE id > 1 ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "fix 8: an ORDER BY inside a double-quoted name",
       "fix": 8,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT \"order by\" FROM t",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT \"order by\" FROM t", "limit": 10, "offset": 0 },
       "output": "SELECT \"order by\" FROM t ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "fix 8: an ORDER BY split by a comment",
       "fix": 8,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT id FROM t ORDER /* x */ BY id",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT id FROM t ORDER /* x */ BY id", "limit": 10, "offset": 0 },
       "output": "SELECT id FROM t ORDER /* x */ BY id OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
@@ -1367,22 +1287,14 @@
       "name": "fix 8: an ORDER BY inside a bracketed name with ]]",
       "fix": 8,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT [a]]ORDER BY] FROM t",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT [a]]ORDER BY] FROM t", "limit": 10, "offset": 0 },
       "output": "SELECT [a]]ORDER BY] FROM t ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "fix 8: an ORDER BY inside a double-quoted name with \"\"",
       "fix": 8,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT \"a\"\"ORDER BY\" FROM t",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT \"a\"\"ORDER BY\" FROM t", "limit": 10, "offset": 0 },
       "output": "SELECT \"a\"\"ORDER BY\" FROM t ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
@@ -1453,10 +1365,7 @@
       "name": "fix 9: EXPLAIN runs through the driver (clustered index seek, trailing semicolon)",
       "fix": 9,
       "kind": "explain",
-      "input": {
-        "sql": "SELECT * FROM dbo.fx_customers WHERE id = 42;",
-        "analyze": false
-      },
+      "input": { "sql": "SELECT * FROM dbo.fx_customers WHERE id = 42;", "analyze": false },
       "output": {
         "isAnalyze": false,
         "plan": {
@@ -1635,10 +1544,7 @@
       "name": "fix 9: EXPLAIN ANALYZE runs through the driver (constant select)",
       "fix": 9,
       "kind": "explain",
-      "input": {
-        "sql": "SELECT 1 AS one",
-        "analyze": true
-      },
+      "input": { "sql": "SELECT 1 AS one", "analyze": true },
       "output": {
         "isAnalyze": true,
         "plan": {
@@ -2632,10 +2538,7 @@
       "name": "fix 10 + 15: columns of a table with every sized type, and collations that aren't the database default",
       "fix": 10,
       "kind": "columns",
-      "input": {
-        "schema": "dbo",
-        "table": "fx_types"
-      },
+      "input": { "schema": "dbo", "table": "fx_types" },
       "output": [
         {
           "name": "id",
@@ -4639,88 +4542,56 @@
       "name": "fix 14: a trailing line comment is dropped",
       "fix": 14,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT id FROM t -- note",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT id FROM t -- note", "limit": 10, "offset": 0 },
       "output": "SELECT id FROM t ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "fix 14: a trailing ORDER BY, semicolon and line comment",
       "fix": 14,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT id FROM t ORDER BY id; -- done",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT id FROM t ORDER BY id; -- done", "limit": 10, "offset": 0 },
       "output": "SELECT id FROM t ORDER BY id OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "fix 14: trailing semicolons, whitespace and a block comment",
       "fix": 14,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT 1;;\n /* end */ \n",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT 1;;\n /* end */ \n", "limit": 10, "offset": 0 },
       "output": "SELECT 1 ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "fix 14: a trailing nested block comment",
       "fix": 14,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT 1 /* a /* b */ c */",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT 1 /* a /* b */ c */", "limit": 10, "offset": 0 },
       "output": "SELECT 1 ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "fix 14: a quote in a trailing line comment doesn't open a string",
       "fix": 14,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT id FROM t -- don't",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT id FROM t -- don't", "limit": 10, "offset": 0 },
       "output": "SELECT id FROM t ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "fix 14: a semicolon inside a trailing string literal stays",
       "fix": 14,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT ';' AS s",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT ';' AS s", "limit": 10, "offset": 0 },
       "output": "SELECT ';' AS s ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "fix 14: a line comment inside a string literal stays",
       "fix": 14,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT id FROM t WHERE s = '--x'",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT id FROM t WHERE s = '--x'", "limit": 10, "offset": 0 },
       "output": "SELECT id FROM t WHERE s = '--x' ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "fix 14: a line comment inside a trailing bracketed name stays",
       "fix": 14,
       "kind": "paginate",
-      "input": {
-        "sql": "SELECT 1 AS [x -- y]",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT 1 AS [x -- y]", "limit": 10, "offset": 0 },
       "output": "SELECT 1 AS [x -- y] ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
@@ -4765,9 +4636,7 @@
       "kind": "explain-batches",
       "replaces": "sql.json: getExplainQuery strips one trailing semicolon",
       "input": null,
-      "output": {
-        "batches": ["SET SHOWPLAN_XML ON", "SELECT 1;;", "SET SHOWPLAN_XML OFF"]
-      }
+      "output": { "batches": ["SET SHOWPLAN_XML ON", "SELECT 1;;", "SET SHOWPLAN_XML OFF"] }
     },
     {
       "name": "fix 9: EXPLAIN runs as separate batches on the held client (getExplainQuery keeps a semicolon before whitespace)",
@@ -4775,9 +4644,7 @@
       "kind": "explain-batches",
       "replaces": "sql.json: getExplainQuery keeps a semicolon before whitespace",
       "input": null,
-      "output": {
-        "batches": ["SET STATISTICS XML ON", "SELECT 1;\n", "SET STATISTICS XML OFF"]
-      }
+      "output": { "batches": ["SET STATISTICS XML ON", "SELECT 1;\n", "SET STATISTICS XML OFF"] }
     },
     {
       "name": "fix 9: malformed plan XML becomes one Query Plan node with the parser's error as its filter",

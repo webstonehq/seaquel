@@ -1,9 +1,9 @@
-//! The remote driver (the DuckDB helper plan, Task 3): DuckDB in a
+//! The remote driver: DuckDB in a
 //! `seaquel-duckdb` process of its own, spoken to over its stdin and stdout
 //! in `wire.rs`'s frames. The terminal binaries use it so they don't link
 //! DuckDB; nothing in Core knows the driver is remote.
 //!
-//! - **One helper per open connection** (Q2 A): [`Engine::open`] checks the
+//! - **One helper per open connection**: [`Engine::open`] checks the
 //!   install ([`process::check`]), starts the helper, checks its `hello`
 //!   (protocol and app version) within 5 s and opens the database; until
 //!   `opened`, nothing else is sent. A missing, stale or unsafe helper, or
@@ -83,7 +83,7 @@ impl HelperLocator {
         process::helper_file_name()
     }
 
-    /// The check every start runs first (Decision 9): the file's path when
+    /// The check every start runs first: the file's path when
     /// it is there, a regular file, and it and its folders up to
     /// `<identifier>` are no symlinks and (Unix) this user's and writable by
     /// nobody else; else `ENGINE_NOT_INSTALLED`. Nothing is started.
@@ -143,7 +143,7 @@ impl Engine for RemoteEngine {
             let key = key.as_ref()?;
             closing::claim(key)
                 .map_err(|e| {
-                    // Another open of it raced this one (review M2).
+                    // Another open of it raced this one.
                     warn!(activity = "duckdb.helper", event = "claim", code = e.code.as_str(); "a DuckDB file created by this open was already claimed");
                 })
                 .ok()
@@ -154,7 +154,7 @@ impl Engine for RemoteEngine {
 
     /// The install check every start runs first ([`process::check`]), so
     /// Core hears `ENGINE_NOT_INSTALLED` before it closes anything a
-    /// reconnect would replace (Decision 21).
+    /// reconnect would replace.
     fn preflight(&self, _config: &ConnectConfig) -> Result<(), DbError> {
         process::check(&self.locator).map(|_| ())
     }

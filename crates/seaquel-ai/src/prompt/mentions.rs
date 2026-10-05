@@ -3,11 +3,11 @@
 //! adds a block to a "Referenced context" section after the message.
 //!
 //! Without schema sharing a mention resolves to its bare name: the message
-//! goes as typed (Decision 5, bug 8), since a table's columns, a saved
+//! goes as typed, since a table's columns, a saved
 //! query's SQL and a dashboard's queries all describe the schema.
 //!
-//! At most [`MAX_MENTIONS`] distinct mentions are resolved per message
-//! (Decision 33); the rest stay as typed. Names are looked up in maps built
+//! At most [`MAX_MENTIONS`] distinct mentions are resolved per message;
+//! the rest stay as typed. Names are looked up in maps built
 //! once per message, so a long message over a large schema stays linear.
 
 use std::collections::{HashMap, HashSet};

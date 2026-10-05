@@ -1,4 +1,4 @@
-//! Where model calls may go (phase 6 Decision 9).
+//! Where model calls may go.
 //!
 //! On web a user names an OpenAI-compatible base URL and `seaquel-server`
 //! calls it, so without a guard any user could make the server reach its
@@ -387,7 +387,7 @@ mod tests {
         }
     }
 
-    /// Review fix 4: SIIT `::ffff:0:a.b.c.d` (embedded IPv4 checked),
+    /// SIIT `::ffff:0:a.b.c.d` (embedded IPv4 checked),
     /// the IETF assignments `2001::/23` (benchmarking `2001:2::/48`,
     /// ORCHID) and the new documentation range `3fff::/20`.
     #[test]
@@ -416,7 +416,7 @@ mod tests {
         }
     }
 
-    /// S3: every spelling of a loopback or private literal that the URL
+    /// Every spelling of a loopback or private literal that the URL
     /// parser normalises is caught on the parsed host, without DNS.
     #[test]
     fn ip_literals_in_any_spelling_are_refused_under_public() {

@@ -1,7 +1,7 @@
 /**
  * Core in the demo's page (phase 8). `openBrowserCore` starts it:
  *
- * 1. deletes the old demo file's `localStorage` keys, unread (Q2 C);
+ * 1. deletes the old demo file's `localStorage` keys, unread;
  * 2. opens the IndexedDB snapshot store, or, if IndexedDB can't be used,
  *    runs in memory with a `STORAGE_UNAVAILABLE` notice;
  *    A snapshot it can't read is left alone, and Core runs in memory with
@@ -64,7 +64,7 @@ export interface OpenBrowserCoreOptions {
   module?: BrowserModule;
   bridge: DuckDbBridge & { closeAll?(): Promise<void> };
   /**
-   * The assistant's fetch bridge (phase 6 Task 8): the page's `fetch`
+   * The assistant's fetch bridge: the page's `fetch`
    * (`makeFetchBridge()`) when left out, `null` for none (every `ai` call
    * is then `NOT_SUPPORTED`). Tests pass one that reaches only a mock.
    */
@@ -169,7 +169,7 @@ export async function openBrowserCore(options: OpenBrowserCoreOptions): Promise<
     fetch: options.fetch === undefined ? makeFetchBridge() : (options.fetch ?? undefined),
   });
   notices.push(...core.notices);
-  // The view state the last page saved at `pagehide` (Task 7 probe, item 1),
+  // The view state the last page saved at `pagehide`,
   // before anything loads it. Core keeps it only if its `rev` is newer.
   await replayViewStateJournal(
     (body) => core.call(body),

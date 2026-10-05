@@ -17,7 +17,7 @@ export function helperNeeded(info: CliInfo | null): boolean {
 }
 
 /**
- * The helper warning (Decision 12): the helper is the app's own DuckDB
+ * The helper warning: the helper is the app's own DuckDB
  * support as well as the CLI's, so it is named "DuckDB support", not the
  * command line tool's.
  */

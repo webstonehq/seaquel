@@ -1,4 +1,4 @@
-//! The remote driver (the DuckDB helper plan, Task 3): a `Driver` over a
+//! The remote driver: a `Driver` over a
 //! `seaquel-duckdb` child process.
 //!
 //! The helper is `SEAQUEL_TEST_DUCKDB_HELPER`, else the `seaquel-duckdb`
@@ -329,7 +329,7 @@ async fn a_folder_others_can_write_is_refused() {
             install.locator.dir.join("2026.1.1"),
             install.locator.dir.clone(),
             install.locator.dir.parent().unwrap().to_path_buf(),
-            // `<identifier>`, the folder above `bin` (the review's M1).
+            // `<identifier>`, the folder above `bin`.
             install.dir.path().to_path_buf(),
         ] {
             for mode in [0o777, 0o720, 0o702] {
@@ -345,7 +345,7 @@ async fn a_folder_others_can_write_is_refused() {
     .await;
 }
 
-/// Task 10's P1: a helper file its owner can't execute (a restore or a
+/// A helper file its owner can't execute (a restore or a
 /// copy tool that dropped the mode) is refused before anything is spawned,
 /// as unsafe, so the status says so and an install replaces it.
 #[cfg(unix)]
@@ -482,8 +482,8 @@ async fn close_during_a_stream_closes_the_database_cleanly() {
     .await;
 }
 
-/// `close` refuses new calls only: a call in flight gets its real answer
-/// (the review's I1). The fake helper answers the `execute` after it has
+/// `close` refuses new calls only: a call in flight gets its real answer.
+/// The fake helper answers the `execute` after it has
 /// read `close`, then exits.
 #[cfg(unix)]
 #[tokio::test]
@@ -509,7 +509,7 @@ async fn close_lets_a_call_in_flight_finish() {
     .await;
 }
 
-/// Probe F3: a helper that took `close` (its output ended) but is still
+/// A helper that took `close` (its output ended) but is still
 /// checkpointing after 2 s is left to finish, not killed: `close` stops
 /// waiting and the helper exits on its own. The fake helper closes its
 /// output on `close`, then takes 4 s before it exits and leaves a marker.
@@ -669,7 +669,7 @@ fn own_copy(bin: &Path, dir: &Path) -> PathBuf {
     to
 }
 
-/// Review I1 of the probe fixes: a reconnect while this process's helper
+/// A reconnect while this process's helper
 /// for the same file is still closing it (left to finish after `close`)
 /// waits for that helper to exit, then starts once, instead of meeting
 /// DuckDB's lock on the file.
@@ -841,7 +841,7 @@ async fn a_file_held_past_the_retry_is_refused_in_plain_words() {
 }
 
 /// The helper inherits the environment, minus Seaquel's test hooks
-/// (`SEAQUEL_*_TEST_*`, the review's M3). This process has
+/// (`SEAQUEL_*_TEST_*`). This process has
 /// `SEAQUEL_TEST_DUCKDB_HELPER`; a script records what the helper gets,
 /// then runs the real one.
 #[cfg(unix)]
@@ -1233,7 +1233,7 @@ async fn results_in_pieces_arrive_whole() {
 }
 
 /// Cells decode the same whatever the session did to
-/// `arrow_lossless_conversion` (Checkpoint H-1): with it reset, DuckDB
+/// `arrow_lossless_conversion`: with it reset, DuckDB
 /// sends UHUGEINT as a bare `Decimal128(38, 0)` and BIT as its internal
 /// bytes, which the Arrow field alone can't tell from DECIMAL(38, 0) and
 /// BLOB. The helper sends the columns' kinds from DuckDB's logical types,
@@ -1319,8 +1319,8 @@ async fn a_read_only_call_answers_beside_a_paused_stream() {
     .await;
 }
 
-/// Read-only calls past the helper's 16 wait for a slot in the client
-/// (the desktop DuckDB helper plan, Decision 5): a dashboard runs every
+/// Read-only calls past the helper's 16 wait for a slot in the client:
+/// a dashboard runs every
 /// widget at once, and none of 40 is refused.
 #[tokio::test]
 async fn read_only_calls_past_sixteen_wait_for_a_slot() {
@@ -1425,7 +1425,7 @@ async fn each_connection_has_its_own_helper() {
     .await;
 }
 
-// ── A file open twice in this process (Decision 6 of the desktop plan) ───
+// ── A file open twice in this process ───
 
 /// The message a second open of a file this process has open gets.
 #[cfg(unix)]
@@ -1506,7 +1506,7 @@ async fn a_second_open_of_an_open_file_is_refused_at_once() {
     .await;
 }
 
-// ── A helper that dies unasked (Decision 7 of the desktop plan) ──────────
+// ── A helper that dies unasked ──────────
 
 /// `closed()` resolves with the calls' `CONNECTION_CLOSED` error when the
 /// helper is killed, also for a future taken afterwards.
@@ -1582,7 +1582,7 @@ async fn closed_ends_quietly_on_close() {
     .await;
 }
 
-/// A helper that took `close` and is let go to finish (probe F3) wasn't
+/// A helper that took `close` and is let go to finish wasn't
 /// lost either.
 #[cfg(unix)]
 #[tokio::test]
@@ -1624,7 +1624,7 @@ async fn closed_ends_quietly_when_the_driver_is_dropped() {
     .await;
 }
 
-// ── A client that exits (Decision 16 of the desktop plan, spike S4) ──────
+// ── A client that exits ──────
 
 /// Set in the child process of
 /// [`a_client_that_exits_leaves_its_helper_to_checkpoint`]: the locator's
@@ -1635,8 +1635,7 @@ const EXIT_CHILD: &str = "SEAQUEL_REMOTE_EXIT_CHILD";
 /// The child: opens `file` through the remote driver, writes past 32 MB of
 /// WAL with automatic checkpoints off, prints the WAL's size and the row
 /// count, and ends with `process::exit(0)` from inside its runtime, the
-/// driver never dropped (as the app's quit does: tao's event loop ends in
-/// `process::exit`, item 20 of the desktop plan).
+/// driver never dropped (as the app's quit does: tao's event loop ends in `process::exit`).
 #[cfg(unix)]
 fn exit_child(spec: &str) -> ! {
     let mut parts = spec.split('\n');
@@ -1825,7 +1824,7 @@ async fn a_connect_beside_a_closing_connection_of_the_same_file_waits_and_opens(
     .await;
 }
 
-/// Review M1: a hard link to an open file is the same file.
+/// A hard link to an open file is the same file.
 #[cfg(unix)]
 #[tokio::test]
 async fn a_hard_link_to_an_open_file_is_refused_at_once() {

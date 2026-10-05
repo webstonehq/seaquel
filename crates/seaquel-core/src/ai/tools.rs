@@ -1,6 +1,6 @@
 //! The tool registry (`seaquel_ai::tools`, re-exported whole) and Core's
-//! side of it: running a parsed call on the paths Core already has
-//! (Decision 4). Queries go through `Workspace::query_stream` with
+//! side of it: running a parsed call on the paths Core already has.
+//! Queries go through `Workspace::query_stream` with
 //! `read_only`, `max_rows`, `max_bytes` (8 MiB) and `timeout` (60 s);
 //! EXPLAIN through the read-only EXPLAIN; introspection through
 //! `schema_tables` and `table_metadata`; saved queries through storage and

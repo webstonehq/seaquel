@@ -154,7 +154,7 @@ pub fn cli_info(
         found_path: found.map(|p| p.display().to_string()),
         can_install: cli_install::available(),
         app_image,
-        // The app's own Core (Decision 3): the helper the app and the CLI
+        // The app's own Core: the helper the app and the CLI
         // both run.
         duckdb_helper: core.duckdb_helper_status().ok().into(),
     })

@@ -1,4 +1,4 @@
-//! The TUI's log (Decision 17): never stdout or stderr while the screen is
+//! The TUI's log: never stdout or stderr while the screen is
 //! up, but `<data_dir>/logs/tui.log` at `--log-level` (default `warn`),
 //! created 0600 in a 0700 directory, rotated at 5 MB with two old files
 //! kept (`tui.log.1`, `tui.log.2`). Only `logs/` is ever created; a missing

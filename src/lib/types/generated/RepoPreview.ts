@@ -7,6 +7,6 @@ import type { SkippedDir } from "./SkippedDir";
  */
 export type RepoPreview = { conflicted: boolean, projects: Array<PreviewProject>, 
 /**
- * Project directories the scan didn't offer (a symlink, probe fix 8).
+ * Project directories the scan didn't offer (a symlink).
  */
 skippedDirs?: Array<SkippedDir>, };

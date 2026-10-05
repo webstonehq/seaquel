@@ -1,7 +1,6 @@
 //! `seaquel_workspace::edits` against the edit fixtures
 //! (`tests/fixtures/edits`, recorded from today's TypeScript; see their
-//! README, "The Rust replay") and the rules of phase 5c's Decisions 3–5, 9,
-//! 12, 17 and 19.
+//! README, "The Rust replay") and phase 5c's rules on top of them.
 //!
 //! This file checks what planning decides on its own: each edit's SQL,
 //! binds, query type, DML flag and summary with the case's metadata, the
@@ -254,8 +253,8 @@ fn replay_all(files: &[&str], replay: impl Fn(&Json) -> Vec<String>) -> (usize, 
 fn replays_every_plan_fixture() {
     let (n, differ) = replay_all(&PLAN_FILES, replay_plan);
     assert_eq!(n, 49);
-    // The plan cases planning alone tells apart from the recording:
-    // Decisions 3, 4, 12 and 19. Dedupe and origins (Decision 6) are the
+    // The plan cases planning alone tells apart from the recording
+    // (keys, casts, Set default and JSON columns). Dedupe and origins are the
     // TypeScript replay's.
     let want: BTreeSet<String> = [
         "duckdb/attached-catalog-queued",
@@ -308,7 +307,7 @@ fn summaries_replay_the_fixture() {
     let (n, differ) = replay_all(&["summary"], replay_summary);
     assert_eq!(n, 52);
     // Every summary.json entry in changes.json is a misread the scanner
-    // fixes (Decision 12).
+    // fixes.
     let listed: BTreeSet<String> = changes()
         .keys()
         .filter(|k| k.starts_with("sum/"))
@@ -370,7 +369,7 @@ fn replay_select(case: &Json) -> Vec<String> {
 fn table_select_replays_every_table_page_fixture() {
     let (n, differ) = replay_all(&TABLE_PAGE_FILES, replay_select);
     assert_eq!(n, 40);
-    // Only the placeholder changes (Decision 9) are visible in the SELECT.
+    // Only the placeholder changes are visible in the SELECT.
     let want: BTreeSet<String> = [
         "tp/duckdb-attached-catalog",
         "tp/mssql-filters-at-p",
@@ -705,7 +704,7 @@ fn a_column_without_a_default_sets_null() {
 #[test]
 fn json_text_stays_text() {
     // The `*/json-typed-text` cases in the replay, and a JSON column's
-    // array, number and bool (Decision 19).
+    // array, number and bool.
     let e = real_engine("mysql");
     let col = |name: &str, ty: &str, pk: bool| -> SchemaColumn {
         serde_json::from_value(json!({"name": name, "type": ty, "nullable": true,

@@ -15,8 +15,8 @@ import {
   toStorable,
 } from "./values";
 
-// One entry per row of the "Value wire format" table in
-// docs/plans/2026-09-25-rust-core-phase-1-plan.md: [wire JSON, decoded JS value].
+// One entry per kind of the `Value` wire format (`seaquel-types`'
+// `src/value.rs`): [wire JSON, decoded JS value].
 const WIRE_ROWS: Array<[string, unknown, unknown]> = [
   ["null", null, null],
   ["bool", true, true],

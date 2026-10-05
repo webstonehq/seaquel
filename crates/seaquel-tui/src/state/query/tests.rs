@@ -1,4 +1,4 @@
-//! Query in `update` (Task 6): tabs, the editor's modes, completion, runs
+//! Query in `update`: tabs, the editor's modes, completion, runs
 //! (whole text, statement at the cursor, parameters, the destructive
 //! check, Core's `CONFIRM_REQUIRED`), their events, paging, cancel,
 //! Explain, saving and `$EDITOR`. The GUI's rules where it has them: one
@@ -129,7 +129,7 @@ fn q_and_plus_open_tabs_over_the_main_view() {
     assert_eq!(m.query.tabs.len(), 2);
 }
 
-// Decision 9: a text input takes every printable key; Task 5's `c` (global
+// A text input takes every printable key; Task 5's `c` (global
 // Commit) and `q` are text here.
 #[test]
 fn insert_mode_takes_every_printable_key() {
@@ -297,7 +297,7 @@ fn the_editor_s_destructive_check_asks_then_sends_confirmed() {
     assert!(!call.confirmed);
 }
 
-// Q11 A: on a connection tagged `prod`, the run waits for `prod` typed.
+// On a connection tagged `prod`, the run waits for `prod` typed.
 #[test]
 fn on_prod_a_destructive_run_needs_prod_typed() {
     let mut m = querying(148, 42, "TRUNCATE invoices", true);
@@ -593,7 +593,7 @@ fn stream_all_keeps_at_most_the_row_cap() {
     assert!(!m.running());
 }
 
-/// Probe F4: a stream stopped at the cap shows the time it ran, from its
+/// A stream stopped at the cap shows the time it ran, from its
 /// `statementStart` to the tick the cap was reached in, not "0 ms".
 #[test]
 fn a_capped_stream_shows_the_time_it_ran() {
@@ -924,7 +924,7 @@ fn ctrl_o_hands_the_text_to_the_external_editor() {
     assert!(matches!(&m.modal, Some(Modal::Notice(n)) if n.0.contains("vi: not found")));
 }
 
-// Review: the tab's operation is cancelled when the tab closes.
+// The tab's operation is cancelled when the tab closes.
 #[test]
 fn closing_a_tab_cancels_its_run() {
     let mut m = running(148, 42);
@@ -955,7 +955,7 @@ fn the_bar_s_mode_names_the_line_and_column() {
     assert_eq!(m.bar_context(), BarContext::Results);
 }
 
-// Q4 A: the open tabs and their text survive a restart through the state
+// The open tabs and their text survive a restart through the state
 // file; a saved query's tab takes its name (and, unchanged, its text) from
 // the library. Review M1: an unchanged saved tab keeps only a hash, a text
 // over 1 MiB isn't kept and the tab says so.
@@ -1031,7 +1031,7 @@ fn tabs_are_remembered_and_restored() {
     assert_eq!(text(&fresh), "SELECT 2");
 }
 
-// Review I1: a paste is inserted as received, never through completion.
+// A paste is inserted as received, never through completion.
 #[test]
 fn a_paste_goes_in_verbatim_and_closes_the_popup() {
     let mut m = querying(148, 42, "SELECT * FROM invoices i WHERE i", false);
@@ -1050,7 +1050,7 @@ fn a_paste_goes_in_verbatim_and_closes_the_popup() {
     assert!(text(&m).ends_with("LIMIT"));
 }
 
-// Review I1: typing after the popup opened doesn't rewrite what's typed.
+// Typing after the popup opened doesn't rewrite what's typed.
 #[test]
 fn an_empty_prefix_closes_the_popup_except_right_after_a_dot() {
     let mut m = querying(148, 42, "SELECT * FROM invoices i WHERE i", false);
@@ -1112,7 +1112,7 @@ fn no_popup_inside_a_string_or_comment() {
     assert!(m.query.active().unwrap().editor.completion.is_some());
 }
 
-// Review I2: results page only on the saved connection they came from, with
+// Results page only on the saved connection they came from, with
 // its Core id as it is now (a reconnect is followed).
 #[test]
 fn paging_follows_the_results_connection() {
@@ -1198,7 +1198,7 @@ fn analyze_asks_unless_a_plain_select() {
     }
 }
 
-// Review M5: a cancelled explain says the plan may still finish.
+// A cancelled explain says the plan may still finish.
 #[test]
 fn a_cancelled_explain_says_so() {
     let mut m = querying(148, 42, "SELECT 1", false);
@@ -1219,7 +1219,7 @@ fn a_cancelled_explain_says_so() {
     );
 }
 
-// Review M7: the cap applies whenever a statement streams (its own LIMIT,
+// The cap applies whenever a statement streams (its own LIMIT,
 // say), not only under `:all`; review M8: the cut says no history row was
 // recorded.
 #[test]
@@ -1268,7 +1268,7 @@ fn the_row_cap_applies_to_any_streamed_statement() {
         .any(|e| matches!(e, Effect::CancelRun { .. })));
 }
 
-/// Probe F2: Esc and the next key in one read. A legacy terminal (and tmux
+/// Esc and the next key in one read. A legacy terminal (and tmux
 /// within its `escape-time`) sends `ESC :`, which crossterm reads as
 /// Alt+`:`; with the kitty protocol Esc is `CSI 27 u`, a key of its own.
 /// Both must leave Insert mode and then take the key, as vim does in a
@@ -1431,7 +1431,7 @@ fn alias_columns_from_another_connection_or_a_failure_open_nothing() {
     assert!(load_columns(&update(&mut m, ctrl(' '))).is_empty());
 }
 
-/// Review I2: a schema read again (`r`, a commit's DDL, another process)
+/// A schema read again (`r`, a commit's DDL, another process)
 /// may follow DDL, so the columns read before are dropped with it and
 /// read again on the next `alias.`.
 #[test]
@@ -1474,7 +1474,7 @@ fn without_columns_in(tables: &mut [crate::state::panels::TableItem]) {
     }
 }
 
-/// Review M1: only a character is split. Alt+Left, Alt+Backspace and
+/// Only a character is split. Alt+Left, Alt+Backspace and
 /// Alt+Enter are keys a terminal sends as one (word moves, word deletes),
 /// never Esc and then a key, so they leave Insert mode alone. And with the
 /// kitty flags pushed, Esc is never merged, so nothing is split.

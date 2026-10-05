@@ -124,7 +124,7 @@ describe("editorQualifiedTable", () => {
     expect(edit("duckdb", '"a.b"', "t")).toBe('"a.b"."t"');
   });
 
-  // Each rejected bare by its engine, checked live (Task 18 review).
+  // Each rejected bare by its engine, checked live.
   it.each<[DatabaseType, string, string, string]>([
     ["sqlite", "main", "transaction", '"main"."transaction"'],
     ["sqlite", "main", "returning", '"main"."returning"'],

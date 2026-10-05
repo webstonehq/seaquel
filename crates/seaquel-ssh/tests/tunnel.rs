@@ -305,7 +305,7 @@ async fn trusting_the_right_fingerprint_records_it() {
     assert_select_one_through(&password_config(&env), &kh).await;
 }
 
-/// Decision 8: closing a tunnel ends the forwards already running through
+/// Closing a tunnel ends the forwards already running through
 /// it, not just the listener.
 #[tokio::test]
 async fn close_ends_a_live_forward() {

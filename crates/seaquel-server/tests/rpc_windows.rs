@@ -1,4 +1,4 @@
-//! Phase 6 probe F4: a closed tab's database connections don't stay open
+//! A closed tab's database connections don't stay open
 //! until eviction.
 //!
 //! - A window (the `X-Seaquel-Origin` of `/rpc` and `/rpc/stream`) that

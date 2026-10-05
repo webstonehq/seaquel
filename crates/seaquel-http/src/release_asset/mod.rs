@@ -1,5 +1,5 @@
-//! Downloading and installing a release asset (the DuckDB helper plan,
-//! Task 4, Decisions 9 and 10): what `src-tauri/src/cli_download.rs` does
+//! Downloading and installing a release asset:
+//! what `src-tauri/src/cli_download.rs` does
 //! for the app's CLI copy, made async and streaming.
 //!
 //! - **The metadata** ([`Fetcher::asset`]): the release `v<version>` from
@@ -63,11 +63,11 @@ const TEMP_SUFFIX: &str = ".part";
 const RECORD_SUFFIX: &str = ".installed";
 /// A `.seaquel-download-*.part` file older than this is a dead install's
 /// (a process killed mid-copy) and the next install into its folder
-/// removes it (review I2). A live install writes its file at least every
+/// removes it. A live install writes its file at least every
 /// [`IDLE_TIMEOUT`], so it is never this old.
 pub const STALE_PART_AGE: Duration = Duration::from_secs(10 * 60);
 const ACTIVITY: &str = "release.asset";
-/// The metadata request as a whole (review M1).
+/// The metadata request as a whole.
 pub const METADATA_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// What went wrong, as a code an interface can word.
@@ -243,8 +243,8 @@ impl ReleaseSource {
         }
     }
 
-    /// Another source: tests and debug builds' hooks only (review I1:
-    /// a release build, without the `testing` feature, has no way to point
+    /// Another source: tests and debug builds' hooks only (a release
+    /// build, without the `testing` feature, has no way to point
     /// the download elsewhere). Each base must be `https:`, or `http:` to a
     /// loopback IP address, with no credentials, query or fragment.
     #[cfg(any(test, debug_assertions, feature = "testing"))]
@@ -270,7 +270,7 @@ impl ReleaseSource {
         is_loopback(&self.api) && is_loopback(&self.download)
     }
 
-    /// Where a download may be sent on (review I1): `https:` anywhere, and
+    /// Where a download may be sent on: `https:` anywhere, and
     /// plain `http:` only to a loopback address when this source is itself
     /// loopback (a test's server). No credentials.
     fn allows_download_hop(&self, u: &url::Url) -> bool {
@@ -284,7 +284,7 @@ impl ReleaseSource {
         }
     }
 
-    /// Where the metadata request may be sent on (review M7): as a
+    /// Where the metadata request may be sent on: as a
     /// download, and only on the API's own origin (`api.github.com`).
     fn allows_metadata_hop(&self, u: &url::Url) -> bool {
         self.allows_download_hop(u) && u.origin() == self.api.origin()
@@ -330,10 +330,9 @@ pub struct Asset {
 /// tightened to 0700 when it exists, and must be a real folder owned by this
 /// user. Symlinks are refused at every level from `root` down
 /// (`O_NOFOLLOW`), and each folder is tightened before the one below it is
-/// looked at. Folders above `root` aren't checked (Decision 9's residual
-/// gap).
+/// looked at. Folders above `root` aren't checked (a known gap).
 ///
-/// Windows (the desktop plan's Q9 A): every level is opened without
+/// Windows: every level is opened without
 /// following a reparse point, and must be owned by the user or
 /// Administrators. Each of `folders`, and the file, gets a protected DACL
 /// of the user and SYSTEM (full control, inheritance from above off) unless
@@ -655,8 +654,8 @@ impl Fetcher {
             .await?;
         let status = resp.status().as_u16();
         if status == 404 {
-            // As the metadata says of an asset it doesn't list (Task 10's
-            // P2): a pinned install asks for nothing else, so this is where
+            // As the metadata says of an asset it doesn't list:
+            // a pinned install asks for nothing else, so this is where
             // it learns the release lacks the file.
             return Err(err(
                 K::AssetNotFound,
@@ -965,7 +964,7 @@ fn out_failure_ref(out: &mut Out) -> InstallError {
 
 /// Renames `temp` over `path`. On Windows a rename over a file another
 /// process has open (a helper starting, an antivirus scan) fails for a
-/// moment, so it is retried for about a second (review M3).
+/// moment, so it is retried for about a second.
 fn persist_retrying(
     temp: tempfile::TempPath,
     path: &Path,
@@ -1069,8 +1068,8 @@ pub fn install_file(
 
 const NOT_A_FILE: &str = "the file given isn't a regular file";
 
-/// Opens `path` for reading only if it is a regular file (Task 4 review
-/// I1): a FIFO, a device or a folder is `InvalidInput` without blocking.
+/// Opens `path` for reading only if it is a regular file:
+/// a FIFO, a device or a folder is `InvalidInput` without blocking.
 /// The path's metadata is read first, and on Unix the file is opened with
 /// `O_NONBLOCK` (so a FIFO swapped in since doesn't block the open either)
 /// and checked again through the handle. `O_NONBLOCK` changes nothing for
@@ -1095,7 +1094,7 @@ pub fn open_regular(path: &Path) -> io::Result<File> {
 }
 
 /// [`install_file`], stopping with `CANCELLED` between reads once `cancel`
-/// is set (review I2: a caller dropping its wait sets it, so the blocking
+/// is set (a caller dropping its wait sets it, so the blocking
 /// copy ends and its partial file goes). A read that blocks (a pipe) is
 /// only noticed once it returns.
 pub fn install_file_cancellable(
@@ -1172,7 +1171,7 @@ pub fn target_triple(os: &str, arch: &str) -> Option<&'static str> {
 
 /// The target's folders made (or tightened) as [`InstallTarget`] says,
 /// with no download: an intact install in a folder that went loose is
-/// fixed this way, offline (review M5). Returns the folder the file goes
+/// fixed this way, offline. Returns the folder the file goes
 /// in.
 pub fn prepare_target(target: &InstallTarget) -> Result<PathBuf, InstallError> {
     target.check_names()?;
@@ -1182,7 +1181,7 @@ pub fn prepare_target(target: &InstallTarget) -> Result<PathBuf, InstallError> {
 }
 
 /// The folders below the root an install made, removed again when it
-/// fails, is cancelled or is dropped (Task 10's O3), so a failure doesn't
+/// fails, is cancelled or is dropped, so a failure doesn't
 /// leave an empty version folder behind. Deepest first, and only while
 /// empty: [`std::fs::remove_dir`] refuses a folder holding anything (a
 /// concurrent install's partial file, another version), and the first
@@ -1239,7 +1238,7 @@ fn prepare(target: &InstallTarget) -> Result<(PathBuf, MadeFolders), InstallErro
 }
 
 /// Removes `.seaquel-download-*.part` files in `dir` last written more
-/// than `age` ago: what an install killed mid-copy left (review I2).
+/// than `age` ago: what an install killed mid-copy left.
 /// Fresh ones may be a concurrent install's and are kept; symlinks and
 /// other names are left alone. Best effort, logged by error kind only.
 fn sweep_stale_parts(dir: &Path, age: Duration) {
@@ -1294,7 +1293,7 @@ enum Level {
     Private,
 }
 
-/// What to do about it, in the message (review 10): the install never
+/// What to do about it, in the message: the install never
 /// changes another user's folder or follows a link, so the user must.
 #[cfg(windows)]
 const UNSAFE_FOLDER_MESSAGE: &str = "an install folder is a link, isn't a folder or belongs to \
@@ -1350,7 +1349,7 @@ fn secure(path: &Path, level: Level) -> Result<(), InstallError> {
     Ok(())
 }
 
-/// The file's DACL set to the user's and SYSTEM's (Windows, Q9 A).
+/// The file's DACL set to the user's and SYSTEM's (Windows).
 #[cfg(windows)]
 fn make_file_private(path: &Path) -> Result<(), InstallError> {
     seaquel_runtime::acl::make_private(path, false)
@@ -1368,7 +1367,7 @@ fn acl_error(e: seaquel_runtime::acl::AclError, what: &str) -> InstallError {
     }
 }
 
-/// Windows (Q9 A): one handle per folder, opened without following a
+/// Windows: one handle per folder, opened without following a
 /// link, so what is judged is what is set. A link, a file, or an owner
 /// other than the user, Administrators or SYSTEM is refused and left
 /// unchanged. `bin` and below get the protected DACL of the user and
@@ -1432,7 +1431,7 @@ fn secure(path: &Path, _level: Level) -> Result<(), InstallError> {
 mod tests {
     use super::*;
 
-    /// Review 10: the install never changes another user's folder or
+    /// The install never changes another user's folder or
     /// follows a link, so its refusal says what the user can do.
     #[test]
     fn an_unsafe_folder_says_what_to_do() {
@@ -1514,7 +1513,7 @@ mod tests {
         url::Url::parse(s).unwrap()
     }
 
-    /// Review I1: plain `http:` only when the source itself is loopback (a
+    /// Plain `http:` only when the source itself is loopback (a
     /// test's server); from GitHub every hop is `https:`.
     #[test]
     fn plain_http_hops_only_from_a_loopback_source() {
@@ -1534,7 +1533,7 @@ mod tests {
         assert!(!https.allows_download_hop(&u("http://127.0.0.1/x")));
     }
 
-    /// Review M7: the metadata's redirects stay on the API's origin.
+    /// The metadata's redirects stay on the API's origin.
     #[test]
     fn metadata_hops_stay_on_the_api_origin() {
         let github = ReleaseSource::github();
@@ -1547,7 +1546,7 @@ mod tests {
         assert!(!local.allows_metadata_hop(&u("http://127.0.0.1:10/api")));
     }
 
-    /// Review M6: the terminal binaries' extra-roots warnings carry the
+    /// The terminal binaries' extra-roots warnings carry the
     /// error's kind, not the file's path.
     #[test]
     fn extra_roots_warnings_can_leave_the_path_out() {

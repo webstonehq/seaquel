@@ -1,6 +1,5 @@
 /**
- * The DuckDB support install around a Core `connect` or `test` (desktop
- * DuckDB helper plan, Task 5, Q4 A, Decision 10).
+ * The DuckDB support install around a Core `connect` or `test`.
  *
  * On desktop DuckDB runs in a helper process that is downloaded on first
  * use. Core refuses a DuckDB connect at once with `ENGINE_NOT_INSTALLED`
@@ -199,8 +198,8 @@ function savesData(): boolean {
 }
 
 /**
- * The background prefetch at startup (desktop DuckDB helper plan, Task 6,
- * Q3 B, Decision 11): `PREFETCH_DELAY_MS` after the app is ready, when a
+ * The background prefetch at startup:
+ * `PREFETCH_DELAY_MS` after the app is ready, when a
  * saved connection is DuckDB, install this version's helper if it isn't,
  * without asking, as the app downloads its own updates. Desktop only, the
  * main window only, once per page (the store's rule). Never throws and
@@ -239,7 +238,7 @@ export async function prefetchDuckdbHelper(
 }
 
 /**
- * The MCP panel's helper-only install (Task 6 review): through the
+ * The MCP panel's helper-only install: through the
  * dialog's store, so a dialog opened meanwhile goes straight to this
  * download instead of asking. Desktop only; elsewhere `NOT_SUPPORTED`.
  */

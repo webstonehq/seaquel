@@ -1,5 +1,5 @@
-//! A window's connections close side by side (the desktop DuckDB helper
-//! plan, Task 4 review I2): `Workspace::close_owned_by` (a reloaded or
+//! A window's connections close side by side:
+//! `Workspace::close_owned_by` (a reloaded or
 //! closed webview) doesn't wait for one connection's close before starting
 //! the next, so one slow close (a DuckDB helper checkpointing) can't hold
 //! the others open. A mock engine whose drivers' `close` waits until the

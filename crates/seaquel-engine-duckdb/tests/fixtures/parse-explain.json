@@ -761,18 +761,8 @@
                   "id": "node-7",
                   "nodeType": "HASH_JOIN",
                   "children": [
-                    {
-                      "id": "node-8",
-                      "nodeType": "CTE_SCAN",
-                      "children": [],
-                      "planRows": 16
-                    },
-                    {
-                      "id": "node-9",
-                      "nodeType": "CTE_SCAN",
-                      "children": [],
-                      "planRows": 16
-                    }
+                    { "id": "node-8", "nodeType": "CTE_SCAN", "children": [], "planRows": 16 },
+                    { "id": "node-9", "nodeType": "CTE_SCAN", "children": [], "planRows": 16 }
                   ],
                   "planRows": 15,
                   "joinType": "INNER",
@@ -809,13 +799,7 @@
             {
               "id": "node-1",
               "nodeType": "PROJECTION",
-              "children": [
-                {
-                  "id": "node-2",
-                  "nodeType": "DUMMY_SCAN",
-                  "children": []
-                }
-              ],
+              "children": [{ "id": "node-2", "nodeType": "DUMMY_SCAN", "children": [] }],
               "planRows": 1
             },
             {
@@ -826,12 +810,7 @@
                   "id": "node-4",
                   "nodeType": "FILTER",
                   "children": [
-                    {
-                      "id": "node-5",
-                      "nodeType": "REC_CTE_SCAN",
-                      "children": [],
-                      "planRows": 1
-                    }
+                    { "id": "node-5", "nodeType": "REC_CTE_SCAN", "children": [], "planRows": 1 }
                   ],
                   "planRows": 1
                 }
@@ -862,14 +841,7 @@
         "plan": {
           "id": "node-0",
           "nodeType": "FILTER",
-          "children": [
-            {
-              "id": "node-1",
-              "nodeType": "RANGE",
-              "children": [],
-              "planRows": 1000
-            }
-          ],
+          "children": [{ "id": "node-1", "nodeType": "RANGE", "children": [], "planRows": 1000 }],
           "planRows": 200
         },
         "planningTime": 0,
@@ -894,12 +866,7 @@
           "id": "node-0",
           "nodeType": "PROJECTION",
           "children": [
-            {
-              "id": "node-1",
-              "nodeType": "DUCKDB_TABLES",
-              "children": [],
-              "planRows": 1
-            }
+            { "id": "node-1", "nodeType": "DUCKDB_TABLES", "children": [], "planRows": 1 }
           ],
           "planRows": 1
         },
@@ -924,13 +891,7 @@
         "plan": {
           "id": "node-0",
           "nodeType": "PROJECTION",
-          "children": [
-            {
-              "id": "node-1",
-              "nodeType": "DUMMY_SCAN",
-              "children": []
-            }
-          ],
+          "children": [{ "id": "node-1", "nodeType": "DUMMY_SCAN", "children": [] }],
           "planRows": 1
         },
         "planningTime": 0,
@@ -951,12 +912,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "COLUMN_DATA_SCAN",
-          "children": [],
-          "planRows": 1
-        },
+        "plan": { "id": "node-0", "nodeType": "COLUMN_DATA_SCAN", "children": [], "planRows": 1 },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -1369,12 +1325,7 @@
           "id": "node-0",
           "nodeType": "INSERT",
           "children": [
-            {
-              "id": "node-1",
-              "nodeType": "COLUMN_DATA_SCAN",
-              "children": [],
-              "planRows": 1
-            }
+            { "id": "node-1", "nodeType": "COLUMN_DATA_SCAN", "children": [], "planRows": 1 }
           ]
         },
         "planningTime": 0,
@@ -2037,12 +1988,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "SEQ_SCAN",
-          "children": [],
-          "relationName": "t"
-        },
+        "plan": { "id": "node-0", "nodeType": "SEQ_SCAN", "children": [], "relationName": "t" },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -2061,12 +2007,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "SEQ_SCAN",
-          "children": [],
-          "relationName": "t"
-        },
+        "plan": { "id": "node-0", "nodeType": "SEQ_SCAN", "children": [], "relationName": "t" },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -2085,12 +2026,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "SEQ_SCAN",
-          "children": [],
-          "relationName": "t"
-        },
+        "plan": { "id": "node-0", "nodeType": "SEQ_SCAN", "children": [], "relationName": "t" },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -2109,12 +2045,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "SEQ_SCAN",
-          "children": [],
-          "relationName": "t"
-        },
+        "plan": { "id": "node-0", "nodeType": "SEQ_SCAN", "children": [], "relationName": "t" },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -2266,12 +2197,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "SEQ_SCAN",
-          "children": [],
-          "filter": "a=1, b>3"
-        },
+        "plan": { "id": "node-0", "nodeType": "SEQ_SCAN", "children": [], "filter": "a=1, b>3" },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -2290,11 +2216,7 @@
         ]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Operator",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Operator", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -2305,20 +2227,10 @@
         "sql": "(synthetic)",
         "analyze": false,
         "columns": ["explain_key", "explain_value"],
-        "rows": [
-          {
-            "explain_key": "physical_plan",
-            "explain_value": "[]"
-          }
-        ]
+        "rows": [{ "explain_key": "physical_plan", "explain_value": "[]" }]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query Plan",
-          "filter": "[]",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query Plan", "filter": "[]", "children": [] },
         "planningTime": 0,
         "isAnalyze": false
       }
@@ -2329,12 +2241,7 @@
         "sql": "(synthetic)",
         "analyze": false,
         "columns": ["explain_key", "explain_value"],
-        "rows": [
-          {
-            "explain_key": "physical_plan",
-            "explain_value": "physical_plan: <text>"
-          }
-        ]
+        "rows": [{ "explain_key": "physical_plan", "explain_value": "physical_plan: <text>" }]
       },
       "output": {
         "plan": {
@@ -2367,12 +2274,7 @@
           "actualTotalTime": 2,
           "actualRows": 3,
           "children": [
-            {
-              "id": "node-0",
-              "nodeType": "SEQ_SCAN",
-              "actualTotalTime": 2,
-              "children": []
-            }
+            { "id": "node-0", "nodeType": "SEQ_SCAN", "actualTotalTime": 2, "children": [] }
           ]
         },
         "planningTime": 0,
@@ -2409,20 +2311,10 @@
         "sql": "(synthetic)",
         "analyze": true,
         "columns": ["explain_key", "explain_value"],
-        "rows": [
-          {
-            "explain_key": "analyzed_plan",
-            "explain_value": "not json"
-          }
-        ]
+        "rows": [{ "explain_key": "analyzed_plan", "explain_value": "not json" }]
       },
       "output": {
-        "plan": {
-          "id": "node-0",
-          "nodeType": "Query Plan",
-          "filter": "not json",
-          "children": []
-        },
+        "plan": { "id": "node-0", "nodeType": "Query Plan", "filter": "not json", "children": [] },
         "planningTime": 0,
         "isAnalyze": true
       }

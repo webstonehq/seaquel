@@ -1,4 +1,4 @@
-//! Bound values written into the SQL as literals (phase 8, Decision 9).
+//! Bound values written into the SQL as literals (phase 8).
 //!
 //! DuckDB-WASM sends a prepared statement's parameters as JSON, so it can't
 //! bind a `bigint` (or bytes) at all. The browser driver therefore runs every

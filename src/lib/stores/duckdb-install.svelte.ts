@@ -1,6 +1,5 @@
 /**
- * The DuckDB support install dialog's state (desktop DuckDB helper plan,
- * Task 5, Decision 10; the TUI's `state/install.rs` in the GUI's shape).
+ * The DuckDB support install dialog's state (the TUI's `state/install.rs` in the GUI's shape).
  *
  * `withDuckdbHelper` (`$lib/core/duckdb-helper`) calls `request()` when a
  * connect answers `ENGINE_NOT_INSTALLED`, and connects again with the same
@@ -12,7 +11,7 @@
  * and, for network failures, "Install from a file…" (a copy of the
  * release's `.gz`, which Core checks against the built-in digest).
  *
- * The prefetch (Task 6, Decision 11) lives here too, so the dialog knows
+ * The prefetch lives here too, so the dialog knows
  * about it: at startup, when a saved connection is DuckDB, `prefetch()`
  * installs a missing helper without asking, once per page. A dialog that
  * opens meanwhile joins that download (Core's one install) instead of
@@ -83,8 +82,7 @@ const DAMAGED_CODES = new Set(["DIGEST_MISMATCH", "SIZE_MISMATCH", "GZIP_ERROR"]
  * Failures a copy of the file from another computer gets past, so the file
  * picker is offered for them (when the build has the digest to check it
  * against): no network, and, under the pin, a release that lacks the file
- * (the download is the only request, so a 404 there is `ASSET_NOT_FOUND`;
- * Task 10's P2).
+ * (the download is the only request, so a 404 there is `ASSET_NOT_FOUND`).
  */
 const FILE_CODES = new Set(["NETWORK_ERROR", "ASSET_NOT_FOUND", "RELEASE_NOT_FOUND"]);
 
@@ -257,7 +255,7 @@ export class DuckdbInstallStore {
   }
 
   /**
-   * Install in the background, without asking (Decision 11): a missing,
+   * Install in the background, without asking: a missing,
    * outdated or unsafe helper, in a build with the digest built in, once
    * per page, unless the dialog is asking or the user closed it this
    * session. Never opens the dialog, never throws; logs codes only.

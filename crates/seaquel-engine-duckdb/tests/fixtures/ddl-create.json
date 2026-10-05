@@ -469,13 +469,7 @@
           }
         ],
         "indexes": [
-          {
-            "id": "i1",
-            "name": "idx\"1",
-            "columns": ["a\"b"],
-            "unique": false,
-            "type": "btree"
-          }
+          { "id": "i1", "name": "idx\"1", "columns": ["a\"b"], "unique": false, "type": "btree" }
         ],
         "foreignKeys": [
           {

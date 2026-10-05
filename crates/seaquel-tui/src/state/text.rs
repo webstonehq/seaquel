@@ -12,7 +12,7 @@ pub const TAB_HISTORY: &str = "History";
 pub const PANEL_PENDING: &str = "Pending Changes";
 pub const COMMAND_LOG: &str = "Command Log";
 
-/// The main view's tabs for a table (Decision 10).
+/// The main view's tabs for a table.
 pub const MAIN_TABS_TABLE: &[&str] = &["Data", "Structure", "Indexes", "Constraints", "DDL"];
 /// For a view: its rows and its columns.
 pub const MAIN_TABS_VIEW: &[&str] = &["Data", "Columns"];
@@ -66,8 +66,8 @@ pub const PROBLEM_TITLE_HELPER: &str = "DuckDB didn't start";
 pub const PROBLEM_TITLE_CLOSED: &str = "The connection was lost";
 pub const KEYCHAIN_SAVING: &str = "The password is saved once you answer the dialog.";
 
-/// The secret store each platform has, which the keychain dialogs name
-/// (probe F4): macOS's keychain, the Secret Service on Linux, Windows
+/// The secret store each platform has, which the keychain dialogs name:
+/// macOS's keychain, the Secret Service on Linux, Windows
 /// Credential Manager.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Store {
@@ -178,7 +178,7 @@ pub const fn save_password_hint(store: Store) -> &'static str {
 }
 
 /// Why the prompt asks for a saved password, with saving off: the store
-/// isn't there in this session (probe F4).
+/// isn't there in this session.
 pub const fn store_unavailable(store: Store) -> &'static str {
     match store {
         Store::MacKeychain => {
@@ -198,13 +198,13 @@ pub const fn store_unavailable(store: Store) -> &'static str {
 
 pub const NOT_CONNECTED_LOG: &str = "not connected";
 
-// Browse (Task 4).
+// Browse.
 pub const META_LOADING: &str = "the table's columns are still loading";
 pub const NO_ROWS_MATCH: &str = "no rows match the filter · esc to clear";
 pub const PAGE_LOADING: &str = "loading the page…";
 pub const OPEN_HINT: &str = "enter to open it";
 /// An unopened table's preview: `schema_tables` lists no columns on any
-/// engine, so they're read when the table opens (probe F1).
+/// engine, so they're read when the table opens.
 pub const LOAD_COLUMNS_HINT: &str = "enter to open it and load its columns";
 pub const FILTER_PLACEHOLDER: &str = "filter…";
 pub const DEFAULT_CELL: &str = "DEFAULT";
@@ -238,10 +238,10 @@ pub fn matches_on_page(n: usize) -> String {
 }
 
 pub const COMPARES_AS_TEXT: &str = "compares as text";
-// Query (Task 6).
+// Query.
 pub const MODE_INSERT: &str = "INSERT";
 pub const QUERY_TABS_NEW: &str = "+";
-/// A tab whose text was too long to keep in the state file (review M1).
+/// A tab whose text was too long to keep in the state file.
 pub const TAB_NOT_KEPT: &str = "this tab's text was over 1 MiB, so it wasn't kept between runs";
 /// A restored saved query's tab before the library names it.
 pub const SAVED_TAB: &str = "saved query";
@@ -257,7 +257,7 @@ pub const SAVED_SHARED: &str =
     "this saved query is shared: the app writes it to the repo on its next sync";
 pub const TAB_MODIFIED: &str = "the tab has changes that aren't saved: :w saves, :q! closes anyway";
 pub const CANCELLED: &str = "cancelled";
-/// A cancelled explain (review M5): the server may go on planning.
+/// A cancelled explain: the server may go on planning.
 pub const EXPLAIN_STOPPED: &str = "Stopped waiting; the plan may still finish on the server";
 /// A run cut at the cap was cancelled, so Core recorded no history (M8).
 pub const NO_HISTORY_ROW: &str = "no history row was recorded";
@@ -335,7 +335,7 @@ pub fn destructive_question(total: u32) -> String {
     )
 }
 
-/// `n`/`p` on results from another connection (review I2).
+/// `n`/`p` on results from another connection.
 pub fn results_elsewhere(connection: &str) -> String {
     format!(
         "these results came from {}; connect to it (or run again here) to page",
@@ -398,7 +398,7 @@ pub fn undo_insert(table: &str) -> String {
     format!("insert into {table}")
 }
 
-// Pending Changes and commit (Task 5).
+// Pending Changes and commit.
 
 /// Panel 4's last line (design 1c; "commit all" is "commit", so the words
 /// pair up with their keys).
@@ -420,7 +420,7 @@ pub const PROD_WARNING: &str = "⚠ This connection is tagged production.";
 pub const TYPE_PROD: &str = "type prod to confirm › ";
 pub const DESTRUCTIVE_HEADER: &str = "⚠ Destructive statements:";
 pub const DISCARD_TITLE: &str = "Discard?";
-/// The DuckDB helper plan's probe F1: a commit cut off by its connection.
+/// A commit cut off by its connection.
 pub const COMMIT_INTERRUPTED: &str =
     "the connection closed during the commit: it may have been applied; check the data before committing again";
 pub const MAYBE_APPLIED_HINT: &str = "may be partly applied: check the data";
@@ -571,7 +571,7 @@ pub const HELP_TITLE: &str = "Keybindings";
 pub const HELP_FOOTER: &str = "esc close";
 
 /// The help's last section: what the terminal does with the mouse and
-/// the Esc and Option keys (probe F2, F3, F8). `(keys, text)`; an empty
+/// the Esc and Option keys. `(keys, text)`; an empty
 /// key continues the line above.
 pub const HELP_TERMINAL_TITLE: &str = "Terminal";
 pub const HELP_TERMINAL: &[(&str, &str)] = &[
@@ -619,7 +619,7 @@ pub fn version_label() -> String {
     format!("{APP_NAME} {}", seaquel_terminal::VERSION)
 }
 
-/// A password saved from the TUI (Decision 23). On macOS the app is asked
+/// A password saved from the TUI. On macOS the app is asked
 /// once to read a keychain item the TUI created.
 pub fn password_saved(macos: bool) -> String {
     if macos {
@@ -645,7 +645,7 @@ pub fn failed_line(what: &str, code: &str) -> String {
     format!("{what} failed: {code}")
 }
 
-// ── The DuckDB helper's install dialog (the DuckDB helper plan, Task 7) ──
+// ── The DuckDB helper's install dialog ──
 
 pub const INSTALL_TITLE: &str = "DuckDB support";
 pub const INSTALL_ASK_TITLE: &str = "Download DuckDB support?";
@@ -654,7 +654,7 @@ pub const INSTALL_FAILED_TITLE: &str = "DuckDB support wasn't installed";
 /// The size lookup.
 pub const INSTALL_CHECKING: &str = "DuckDB support isn't installed. Looking up its download…";
 
-/// The question (Q5 A): the size before anything is fetched.
+/// The question: the size before anything is fetched.
 pub fn install_ask(size: &str) -> String {
     format!("DuckDB support is a separate download of {size}.")
 }
@@ -758,7 +758,7 @@ pub fn crashed(log: Option<&std::path::Path>) -> String {
     }
 }
 
-// Ask AI (Task 7, Decision 20).
+// Ask AI.
 pub const ASK_TITLE: &str = "Ask AI";
 pub const ASK_PROMPT: &str = "› ";
 pub const ASK_REFINE: &str = "refine › ";
@@ -795,7 +795,7 @@ pub fn ask_generated(elapsed_ms: u64, model: Option<&str>) -> String {
     }
 }
 
-/// Core's refusal of a model call, worded (Decision 20). A provider's own
+/// Core's refusal of a model call, worded. A provider's own
 /// message comes from Core already cut at 1 KiB with the key redacted.
 pub fn ask_error(code: &str, message: &str) -> String {
     let message = super::grid::clean(message);
@@ -864,7 +864,7 @@ pub fn ask_saved(name: &str) -> String {
 mod store_tests {
     use super::*;
 
-    /// Probe F4: the keychain dialogs name each platform's store, and only
+    /// The keychain dialogs name each platform's store, and only
     /// macOS's say "Always Allow".
     #[test]
     fn the_keychain_dialogs_are_worded_per_platform() {

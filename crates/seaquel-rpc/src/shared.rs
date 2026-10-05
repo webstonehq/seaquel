@@ -9,14 +9,14 @@
 //! {"method":"shared","result":{"method":"sync","result":{"value":{"conflicted":false,"rowsChanged":1,"filesWritten":0,"notices":[]},"seq":{"epoch":"…","n":9}}}}
 //! ```
 //!
-//! - **Desktop only** (Decision 31): [`crate::dispatch_workspace`] refuses
+//! - **Desktop only**: [`crate::dispatch_workspace`] refuses
 //!   the group with `NOT_SUPPORTED` on a Core built without
 //!   `LocalFiles::Allowed` (the web server's), whatever features Cargo
 //!   unified, and so does Core itself. Without the `git` and `storage`
 //!   features every method answers `NOT_SUPPORTED`.
 //! - `path` is an absolute path to a repo's working tree; `dirs` are
 //!   directories under its `.seaquel/projects/`; `share` names the
-//!   project's connections the link dialog ticked (Q30).
+//!   project's connections the link dialog ticked.
 //! - Every write and list answers a `Seqd`; `scan` is read-only and
 //!   answers the preview alone. The repo rows cross as their stored text.
 //! - Errors keep Core's codes: `REPO_NOT_FOUND`, `REPO_IN_USE`,
@@ -27,7 +27,7 @@
 //!   fails and name it in `failures`.
 //!
 //! `Debug` shows the method only: a path holds the user's home and project
-//! names, and a directory is a project's name (Decision 50).
+//! names, and a directory is a project's name.
 
 use std::fmt;
 
@@ -74,7 +74,7 @@ pub enum SharedRequest {
         path: String,
         share: Vec<String>,
     },
-    /// Unlink a project (Q31): the user's own connections stay, unlinked
+    /// Unlink a project: the user's own connections stay, unlinked
     /// and local-only; the ones the repo brought go when `remove_imported`
     /// (the user confirmed), and stay like the others otherwise. Its rows'
     /// links are cleared.

@@ -1,7 +1,7 @@
 /**
  * Closing every tab that belongs to a saved connection, in every project,
- * when the connection is gone: removed here, or in another window (phase
- * 5d-1, Decision 18). Schema, data, ERD, statistics, create-table and
+ * when the connection is gone: removed here, or in another window (phase 5d-1).
+ * Schema, data, ERD, statistics, create-table and
  * DuckDB-extension tabs, and the connection's own connect/edit tab. The
  * tab managers work on the active project only, so this edits the state's
  * per-project records directly: the tab lists, the active ids, the tab

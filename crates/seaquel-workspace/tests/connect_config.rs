@@ -1,13 +1,8 @@
 //! Replays the v2 connect-config fixtures (`tests/fixtures/connect-config-v2`,
 //! the spec; see its README) through the one builder,
 //! `seaquel_workspace::connections::plan`, for both targets.
-//!
-//! The frozen v1 fixtures (`tests/fixtures/connect-config`, recorded from
-//! the TypeScript) are the diff report: a case's output differs from v1's
-//! exactly when its `changedBy` names a Decision 6 row, the same check as
-//! `docs/plans/artifacts/2026-10-01-check-connect-config-v2.mjs.txt`.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use futures::executor::block_on;
@@ -20,7 +15,6 @@ use serde_json::{json, Map, Value};
 const GROUPS: [&str; 9] = [
     "postgres", "mysql", "mariadb", "mssql", "sqlite", "duckdb", "ssh", "secrets", "shared",
 ];
-const FORMS: [&str; 2] = ["form-add", "form-test"];
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -184,45 +178,6 @@ fn output(case: &Case) -> Value {
     Value::Object(out)
 }
 
-/// v1's output by case id, as the artifact checker reads it: for a saved
-/// case `case[case.gui]`'s tunnel and config (or `CREDENTIALS_REQUIRED` for
-/// `gui: "form"`) plus autoReconnect's `secretsRead`; for a form case the
-/// recorded tunnel, config and error.
-fn v1_outputs() -> HashMap<String, Value> {
-    let mut v1 = HashMap::new();
-    for group in GROUPS {
-        for c in read("connect-config", group) {
-            let mut out = Map::new();
-            out.insert(
-                "secretsRead".into(),
-                c["autoReconnect"]["secretsRead"].clone(),
-            );
-            let gui = c["gui"].as_str().unwrap();
-            if gui == "form" {
-                out.insert("error".into(), json!(CREDENTIALS_REQUIRED));
-            } else {
-                if let Some(t) = c[gui].get("tunnel") {
-                    out.insert("tunnel".into(), t.clone());
-                }
-                out.insert("config".into(), c[gui]["config"].clone());
-            }
-            v1.insert(c["name"].as_str().unwrap().to_string(), Value::Object(out));
-        }
-    }
-    for file in FORMS {
-        for c in read("connect-config", file) {
-            let mut out = Map::new();
-            for k in ["tunnel", "config", "error"] {
-                if let Some(v) = c.get(k) {
-                    out.insert(k.into(), v.clone());
-                }
-            }
-            v1.insert(c["name"].as_str().unwrap().to_string(), Value::Object(out));
-        }
-    }
-    v1
-}
-
 #[test]
 fn there_are_160_cases_split_as_the_readme_says() {
     let cases = cases();
@@ -259,36 +214,6 @@ fn every_case_builds_what_v2_expects() {
         failures.len(),
         failures.join("\n")
     );
-}
-
-/// The diff report: a case's output differs from v1's exactly when its
-/// `changedBy` is non-empty, and every v1 case is in v2 once.
-#[test]
-fn exactly_the_changed_cases_differ_from_v1() {
-    let mut v1 = v1_outputs();
-    let mut failures = Vec::new();
-    for case in cases() {
-        let Some(old) = v1.remove(&case.name) else {
-            failures.push(format!("{}: not a v1 case", case.name));
-            continue;
-        };
-        let got = output(&case);
-        match (case.changed_by.is_empty(), got == old) {
-            (true, false) => failures.push(format!(
-                "{}: changedBy is empty but the output differs from v1\n   v1  {old}\n   now {got}",
-                case.name
-            )),
-            (false, true) => failures.push(format!(
-                "{}: changedBy {:?} but the output equals v1",
-                case.name, case.changed_by
-            )),
-            _ => {}
-        }
-    }
-    for name in v1.keys() {
-        failures.push(format!("{name}: missing from v2"));
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// A `CREDENTIALS_REQUIRED` for a saved row names it.

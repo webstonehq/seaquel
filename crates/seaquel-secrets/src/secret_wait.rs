@@ -1,6 +1,5 @@
 //! Time spent waiting on the secret store, which the terminal binaries'
-//! timeouts leave out and the TUI shows (moved from `seaquel-mcp` in phase
-//! 7a, Decision 7).
+//! timeouts leave out and the TUI shows (moved from `seaquel-mcp` in phase 7a).
 //!
 //! On macOS the first read of a keychain item from `seaquel-cli` or
 //! `seaquel-tui` can show a prompt ("seaquel-cli wants to use your
@@ -152,7 +151,7 @@ impl SecretStore for Watched {
     }
 
     // A save or delete into an item another binary created reads it
-    // first, which can show the same dialog (phase 7a, Q5).
+    // first, which can show the same dialog (phase 7a).
     async fn set(&self, key: &str, value: &str) -> Result<(), SecretError> {
         let _pending = self.wait.begin();
         self.inner.set(key, value).await

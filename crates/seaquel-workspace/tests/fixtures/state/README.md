@@ -1,12 +1,16 @@
 # state fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`.
+
 These files record what today's TypeScript does with the state phase 5d-2 moves into Core: each window's open tabs and layout (and the legacy `project_state` and `tabs` rows they're saved to), saved workflows, dashboards and their versions, AI chats and messages, the app-state settings, the AI settings record and its API keys, themes, onboarding, tutorial progress and import state. They pin `seaquel_workspace::state`, the Core methods behind the `library` additions and the `settings` and `ui` groups, the way `../library` pinned 5d-1. See `docs/plans/2026-10-04-rust-core-phase-5d-plan.md`, "Parity fixtures", Decisions 19–27 and 5d-2 Task 2.
 
 **The fixtures are frozen.** After 5d-2 the GUI writes this state through Core, and the TypeScript survives only in the demo until phase 8. Change a case only when Core is meant to behave differently, say why in `changes.json` and under "`changes.json`" below, and never re-record to make a failing test pass.
 
 ## How they were made
 
-The recorder is `docs/plans/artifacts/2026-10-04-record-state-fixtures.test.ts.txt`, a vitest file. It ran on `8e178a8` plus the phase 5d working tree after 5d-2 Task 1 and its review fixes (the per-project `loaded` rule for project-state saves, `flush()` saving only pending projects and the streaming chat's messages, `activeView` kept per project, the reconcile saving only changed dashboards, a failed stream ending the turn, a deleted chat's stream aborted first, onboarding skipped on web, the license nudge's loaded check, a bad tutorial row skipped, starter tabs that leave the active project alone, and chart nodes stored without their source's rows), and the follow-up from this task's review: a project gets starter tabs only when its saved state holds no tab of any saved type (`hasSavedTabs`). To rerun it, copy it to `src/lib/hooks/database/record-state.test.ts`, run it with `FREEZE_STATE=1` (and `SEAQUEL_WASM_PREBUILT=1` if `pkg/` is current), and delete the copy. It needs a tree that still has the TypeScript managers and stores, so before 5d-2 Tasks 6a and 6b.
+The recorder was `docs/plans/artifacts/2026-10-04-record-state-fixtures.test.ts.txt`, a vitest file. It ran on `8e178a8` plus the phase 5d working tree after 5d-2 Task 1 and its review fixes (the per-project `loaded` rule for project-state saves, `flush()` saving only pending projects and the streaming chat's messages, `activeView` kept per project, the reconcile saving only changed dashboards, a failed stream ending the turn, a deleted chat's stream aborted first, onboarding skipped on web, the license nudge's loaded check, a bad tutorial row skipped, starter tabs that leave the active project alone, and chart nodes stored without their source's rows), and the follow-up from this task's review: a project gets starter tabs only when its saved state holds no tab of any saved type (`hasSavedTabs`). To rerun it, copy it to `src/lib/hooks/database/record-state.test.ts`, run it with `FREEZE_STATE=1` (and `SEAQUEL_WASM_PREBUILT=1` if `pkg/` is current), and delete the copy. It needs a tree that still has the TypeScript managers and stores, so before 5d-2 Tasks 6a and 6b.
 
 It runs the real code:
 

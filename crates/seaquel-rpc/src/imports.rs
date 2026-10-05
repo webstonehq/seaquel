@@ -1,4 +1,4 @@
-//! The `imports` group of the workspace RPC (phase 5e, Decision 47):
+//! The `imports` group of the workspace RPC (phase 5e):
 //! connections from TablePlus and DBeaver, read and imported by Core
 //! (`Workspace::import_candidates`, `import_create`).
 //!

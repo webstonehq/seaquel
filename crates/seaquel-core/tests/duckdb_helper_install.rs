@@ -1,5 +1,5 @@
-//! Core's DuckDB helper status and install (the DuckDB helper plan, Task
-//! 4): `duckdb_helper_status`, `duckdb_helper_asset`,
+//! Core's DuckDB helper status and install:
+//! `duckdb_helper_status`, `duckdb_helper_asset`,
 //! `duckdb_helper_install` and `duckdb_helper_install_from_file`, against
 //! `seaquel-http`'s release server on 127.0.0.1. Installs go into temp
 //! folders under `CARGO_TARGET_TMPDIR` (so a helper started from one is
@@ -469,7 +469,7 @@ fn the_install_futures_are_send(core: &Core, file: &Path) {
     send(core.duckdb_helper_install_from_file(file, None));
 }
 
-/// Review M5: an intact install in a folder that has gone loose (a umask,
+/// An intact install in a folder that has gone loose (a umask,
 /// another tool) is tightened and kept, offline: no download.
 #[cfg(unix)]
 #[tokio::test]
@@ -506,7 +506,7 @@ async fn an_intact_install_in_a_loose_folder_is_fixed_offline() {
     ));
 }
 
-/// Task 10's P1: an intact install whose file lost its owner's execute
+/// An intact install whose file lost its owner's execute
 /// bit (a restore, a copy tool) reads `Unsafe`, and the install doesn't
 /// keep it: it downloads over it, and the file is 0700 again.
 #[cfg(unix)]
@@ -561,7 +561,7 @@ async fn a_helper_its_owner_cant_execute_is_unsafe_and_replaced() {
     ));
 }
 
-// --- The pinned asset (the desktop DuckDB helper plan, Task 3, Decision 4).
+// --- The pinned asset.
 
 /// [`core_with`] with the asset's size and SHA-256 built in, as the app's
 /// release build has them.
@@ -632,7 +632,7 @@ async fn a_pinned_install_fetches_only_the_download() {
     ));
 }
 
-/// Task 10's P2: under the pin the download is the only request, and a
+/// Under the pin the download is the only request, and a
 /// release without this platform's asset answers it 404. That is
 /// `ASSET_NOT_FOUND`, as the metadata path says it, so the dialog words it
 /// as unpublished and offers the file. The version folder the install made
@@ -755,7 +755,7 @@ fn a_pinned_size_of_zero_is_refused() {
         seaquel_core::with_plugins(|id| id != "duckdb").duckdb_helper_pinned(0, &"a".repeat(64));
 }
 
-/// Review 1: a pinned Core keeps an intact install of the pinned asset that
+/// A pinned Core keeps an intact install of the pinned asset that
 /// came the metadata way (a terminal binary's, or an earlier unpinned run):
 /// nothing is requested.
 #[tokio::test]
@@ -800,7 +800,7 @@ async fn a_pinned_core_replaces_an_install_of_another_asset() {
     assert_eq!(std::fs::read(&done.path).unwrap(), bytes);
 }
 
-/// Task 4 review I1: a FIFO picked as the file (no writer, so opening it
+/// A FIFO picked as the file (no writer, so opening it
 /// would block forever) is `WRONG_FILE` at once under the pin, with nothing
 /// made and no thread left waiting.
 #[cfg(unix)]
@@ -827,7 +827,7 @@ async fn a_fifo_under_the_pin_is_the_wrong_file_at_once() {
     assert!(!dir.join(VERSION).exists(), "nothing is made");
 }
 
-/// Review 3: under the pin, a copied file of another length, or one that
+/// Under the pin, a copied file of another length, or one that
 /// isn't gzip, is `WRONG_FILE`, naming the asset to pick; nothing is made.
 #[tokio::test]
 async fn a_wrong_file_under_the_pin_names_the_asset_to_pick() {

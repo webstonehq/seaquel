@@ -89,7 +89,7 @@ seaquel_engine::impl_sqlx_driver!(
             );
             let mut columns = introspect::parse_columns(&columns?);
             let indexes = introspect::parse_indexes(&indexes?);
-            // Task 18: UNIQUE from the indexes (the parse stays the TS's),
+            // UNIQUE from the indexes (the parse stays the TS's),
             // without partial and INCLUDE unique indexes.
             let partial: Vec<Value> = partial?
                 .rows
@@ -125,8 +125,8 @@ seaquel_engine::impl_sqlx_driver!(
             analyze: bool,
         ) -> Result<ExplainResult, DbError> {
             // On a connection of its own, as a streamed statement runs:
-            // dropped before it ends (the TUI quitting during an `EXPLAIN
-            // ANALYZE` of a slow statement, phase 7a review I1), it stops
+            // dropped before it ends (the TUI quitting during an `EXPLAIN ANALYZE` of a slow statement),
+            // it stops
             // the statement on the server instead of leaving it running.
             use seaquel_engine::RunningStatement as _;
             let explain = PostgresDialect.explain_sql(sql, analyze);
@@ -193,7 +193,7 @@ seaquel_engine::impl_sqlx_driver!(
     }
 );
 
-/// A read-only transaction (AI safety plan, Decision 1) on a pooled
+/// A read-only transaction on a pooled
 /// connection that is closed afterwards, never returned: `ROLLBACK` doesn't
 /// undo session state such as advisory locks or `PREPARE`d statements. The
 /// SQL goes through `fetch_capped`, which uses the extended protocol, so a

@@ -14,8 +14,7 @@ struct StderrLogger;
 /// dropped at every level:
 /// - sqlx's statement log (`sqlx::query`, a statement's whole SQL; the
 ///   drivers also turn it off);
-/// - Postgres notices (`sqlx::postgres::notice`, a `RAISE WARNING`'s text,
-///   which the query chooses and can fill with values; probe M5);
+/// - Postgres notices (`sqlx::postgres::notice`, a `RAISE WARNING`'s text, which the query chooses and can fill with values);
 /// - tiberius's token stream (`tiberius::tds::stream::token`): every SQL
 ///   Server error at ERROR and every `PRINT`/info message at INFO, with the
 ///   server's text, which quotes values ("Conversion failed … 'x'", a
@@ -52,8 +51,7 @@ pub fn logs(metadata: &log::Metadata) -> bool {
 /// One log line: `[seaquel-server] LEVEL target: message key=value …`.
 /// The key-values are the record's structured fields (`activity`, `code`,
 /// ids, counts); nothing logged as one holds SQL or values. Some come from
-/// the browser (a stream or connection id, before Core checks it), so
-/// (phase 5b review, I1):
+/// the browser (a stream or connection id, before Core checks it), so:
 /// - each value is cut at [`MAX_LOG_VALUE_BYTES`] while it is written, never
 ///   formatted whole;
 /// - a value holding a space, `=`, `"`, `\` or a control character is
@@ -179,7 +177,7 @@ pub fn init_logging() {
     }
 }
 
-/// Where the assistant's model calls may go (phase 6, Decision 9):
+/// Where the assistant's model calls may go (phase 6):
 /// `public` (the default), `any` or `off`.
 pub const AI_EGRESS_ENV: &str = "SEAQUEL_AI_EGRESS";
 

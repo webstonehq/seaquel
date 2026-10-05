@@ -1,6 +1,6 @@
 /**
  * `LibrarySync`: other windows' and tabs' library changes, applied to this
- * page (phase 5d-1, Decision 18). The `ChangeFeed` groups Core's
+ * page (phase 5d-1). The `ChangeFeed` groups Core's
  * `storageChanged` events; this refetches what each group names and hands
  * it to the view model that shows it, which applies it by the `seq` rule
  * after this page's own writes to those rows have answered.
@@ -11,7 +11,7 @@
  *   another, with a toast), and the connection order of the ones loaded
  *   (`projectSidebarSet` announces a `project` change).
  * - `projectState`: a window's view state. Every other window ignores it
- *   (Decision 22: no cross-window reload); only an event naming this
+ *   (no cross-window reload); only an event naming this
  *   window's own id that the feed didn't skip as its own would reload it,
  *   which doesn't happen in practice (see `refreshViewState`).
  * - `label`: the project that holds the label, and every connection (a
@@ -34,7 +34,7 @@
  *   the chat streaming here, which reads them once its turn is stored.
  * - `setting`, `aiSettings`, `theme`, `onboarding`, `tutorial`,
  *   `importState`: the settings stores read their record again and apply
- *   it (a theme at once, Q18).
+ *   it (a theme at once).
  *
  * Every list is reloaded when events may have been missed: a new epoch,
  * and each (re)subscription of the event channel. One that comes while the
@@ -226,7 +226,7 @@ export class LibrarySync {
 
   /**
    * Only this window's own view state, written by another page under its
-   * id (Decision 22's rule). A no-op in practice: Core refuses a `ui` write
+   * id. A no-op in practice: Core refuses a `ui` write
    * whose window id isn't the caller's origin, so such an event always
    * carries this window's id as its origin too, and the feed skips events
    * with this page's origin before they get here. Kept so the rule holds if

@@ -1,5 +1,5 @@
 /**
- * A window's view state (phase 5d-2, Decision 22), against a real metadata
+ * A window's view state (phase 5d-2), against a real metadata
  * database: Core's `ui` group and library in the browser module (phase 8,
  * the demo's Core), with the view models on top. Each window
  * (a desktop window or a web tab) is its own set of managers under its own

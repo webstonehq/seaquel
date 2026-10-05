@@ -6,7 +6,7 @@ export interface ShareResource {
   sharedConnectionId?: string;
 }
 
-/** Whether a connection is shared with the repo: it has a template link (Decision 53). */
+/** Whether a connection is shared with the repo: it has a template link. */
 export function isSharedConnection(c: { sharedConnectionId?: string }): boolean {
   return !!c.sharedConnectionId;
 }

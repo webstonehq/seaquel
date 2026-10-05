@@ -19,7 +19,7 @@ function runShortcut(): string {
 }
 
 /**
- * The editor's inline prompt (phase 6, Decision 18 and Q9): `ai.generate`
+ * The editor's inline prompt (phase 6): `ai.generate`
  * with the active saved connection, whose provider, model and sharing
  * Core applies. The SQL is inserted at the cursor and never run: the box
  * says how to run it; the editor's Run is never called from here.
@@ -114,7 +114,7 @@ export function createAIInlinePrompt(ctx: QueryEditorContext) {
     set error(v: AIPromptError | null) {
       error = v;
     },
-    /** After an insert: how to run it (Q9). */
+    /** After an insert: how to run it. */
     get notice() {
       return notice;
     },

@@ -144,7 +144,7 @@ async fn mariadb_a_transaction_starts_through_sqlx_begin() {
 /// and MariaDB, so a batch with DDL can't be all or nothing. The INSERT
 /// before the `CREATE TABLE` stays committed when a later statement fails,
 /// and the failure still names its index. This is why a batch holding DDL
-/// applies in order rather than in one transaction (phase 5c, Decision 5).
+/// applies in order rather than in one transaction (phase 5c).
 async fn ddl_inside_commits_implicitly(var: &str) {
     let Some(config) = config_from_env(var) else {
         return;

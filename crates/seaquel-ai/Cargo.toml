@@ -21,9 +21,9 @@ futures = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# The tools' JSON schemas (Decision 3), generated as rmcp generates MCP's.
+# The tools' JSON schemas, generated as rmcp generates MCP's.
 schemars = { workspace = true }
-# The assistant's argument errors name the field (Decision 24).
+# The assistant's argument errors name the field.
 serde_path_to_error = "0.1.20"
 # JavaScript's `Number.prototype.toString`, for the `cellText` port
 # (tools/render.rs, moved from seaquel-mcp's format.rs).

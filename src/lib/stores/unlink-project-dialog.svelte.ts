@@ -1,5 +1,5 @@
 /**
- * The unlink dialog (Q31): which connections the repo brought, and whether
+ * The unlink dialog: which connections the repo brought, and whether
  * to remove them. The user's own connections always stay; cancelling
  * changes nothing.
  */

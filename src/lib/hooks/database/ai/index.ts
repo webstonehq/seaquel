@@ -1,5 +1,5 @@
 /**
- * The assistant on Core (phase 6, Decision 17): one `AiService` seam the
+ * The assistant on Core (phase 6): one `AiService` seam the
  * chat panel, the inline prompt and Settings → AI use. `CoreAi` sends each
  * call to Core's `ai` group on the desktop, the web and the demo; there is
  * no TypeScript twin. The page decides nothing about a turn: Core picks
@@ -38,7 +38,7 @@ export interface AiService {
   chat(request: AiChatRequest, signal?: AbortSignal): AsyncIterable<AiEvent>;
   /** Answer a turn waiting on an approval or a client tool. */
   respond(streamId: string, callId: string, decision: AiDecision): Promise<void>;
-  /** The inline prompt's SQL (Decision 18). Rejects with Core's code. */
+  /** The inline prompt's SQL. Rejects with Core's code. */
   generate(request: AiGenerateRequest): Promise<string>;
   /** The provider's model ids. Rejects with Core's code. */
   models(providerId: string): Promise<string[]>;

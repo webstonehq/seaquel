@@ -36,7 +36,7 @@
 	 * A deep link to a shared row's file. The path is Core's: a query's or
 	 * dashboard's stored `sharedPath`, a connection's template path inside
 	 * its `sharedConnectionId` (`<repoId>:<path>`). The repo is the active
-	 * project's own (Decision 42), never another project's.
+	 * project's own, never another project's.
 	 */
 	const copyShareLink = async (resource: ShareResource, resourceType: "query" | "dashboard" | "connection" = "query") => {
 		const repo = db.sharedRepos.repoForProject(db.state.activeProjectId);

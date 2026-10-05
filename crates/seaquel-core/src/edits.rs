@@ -3,13 +3,13 @@
 //! [`Workspace::duckdb_extension`].
 //!
 //! Planning is `seaquel_workspace::edits` (pure); here it gets the table
-//! metadata it needs, read from the database once per table per call
-//! (Decision 3), and is carried out on one of the workspace's connections.
+//! metadata it needs, read from the database once per table per call,
+//! and is carried out on one of the workspace's connections.
 //! Everything is validated (limits, metadata, keys, one statement per typed
 //! change, the destructive check) before the first statement runs, so a
 //! refusal applies nothing. A DML-only batch runs in one transaction
 //! (`Driver::transaction`); a batch with anything else runs in order and
-//! stops at the first failure (Decision 5).
+//! stops at the first failure.
 //!
 //! The calls are unary: dropping the future drops the driver call in
 //! flight, which rolls an open transaction back. An atomic apply dropped
@@ -17,10 +17,10 @@
 //! midway leaves the statements that already ran committed (each runs on
 //! its own), the one in flight to the database's cancel, and no history
 //! row and no outcome for any of them: the caller never learns which ran,
-//! and must reload what it shows (phase 5c plan, Task 6). `table_page` is a stream
+//! and must reload what it shows. `table_page` is a stream
 //! registered like a run's, so `Workspace::cancel`, `disconnect` and
 //! `close_all` reach it. Nothing here logs SQL, keys or values: activity
-//! names, ids, counts, modes and codes only (Decision 18).
+//! names, ids, counts, modes and codes only.
 
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
@@ -88,8 +88,8 @@ fn index_u32(i: usize) -> u32 {
     u32::try_from(i).unwrap_or(u32::MAX)
 }
 
-/// The metadata one edit call has read, by table: each table once
-/// (Decision 3), a failed read kept as its error.
+/// The metadata one edit call has read, by table: each table once,
+/// a failed read kept as its error.
 struct Metadata<'a> {
     handle: ConnectionHandle<'a>,
     tables: HashMap<TableTarget, Result<TableMeta, DbError>>,
@@ -153,7 +153,7 @@ async fn plan_one(
 struct Ready {
     id: String,
     planned: PlannedChange,
-    /// A keyed edit: it must affect a row (Decision 4).
+    /// A keyed edit: it must affect a row.
     keyed: bool,
 }
 
@@ -225,13 +225,13 @@ struct Ran {
 impl Workspace {
     /// Plan edits on one of this workspace's connections (`db.planEdits`):
     /// each edit's SQL and binds, query type, DML flag and summary, for the
-    /// pending-changes queue (Decisions 1–3, 12). Reads each table's
+    /// pending-changes queue. Reads each table's
     /// metadata once. Runs nothing.
     ///
     /// Errors: `CONNECTION_NOT_FOUND` for a connection this workspace
     /// doesn't own, `INVALID_ARGUMENT` past the interface's [`crate::EditLimits`],
     /// `NOT_SUPPORTED` for an engine without SQL rules or a dialect, a
-    /// metadata read's code, and `NOT_EDITABLE` (Decision 4). The first
+    /// metadata read's code, and `NOT_EDITABLE`. The first
     /// failing edit fails the call.
     pub async fn plan_edits(
         &self,
@@ -264,7 +264,7 @@ impl Workspace {
     }
 
     /// Apply the pending-changes queue on one of this workspace's
-    /// connections (`db.applyChanges`, Decisions 4, 5, 7 and 8).
+    /// connections (`db.applyChanges`).
     ///
     /// Everything is checked before the first statement runs: the limits,
     /// each table's metadata (read once), each edit's key, each typed
@@ -296,8 +296,7 @@ impl Workspace {
     }
 
     /// [`Workspace::apply_changes`] for the window or tab `origin`: the
-    /// history rows' `StorageChanged` event carries it (phase 5d, Decision
-    /// 18).
+    /// history rows' `StorageChanged` event carries it (phase 5d).
     pub async fn apply_changes_from(
         &self,
         core: &Core,
@@ -385,7 +384,7 @@ impl Workspace {
                         expect_rows: r.keyed.then_some(ExpectRows { min: 1 }),
                     })
                     .collect();
-                // Raced against `close_all` (probe M1): dropping the
+                // Raced against `close_all`: dropping the
                 // transaction rolls it back.
                 match until_cancelled(self.closing(), handle.transaction(statements))
                     .await
@@ -503,7 +502,7 @@ impl Workspace {
             .collect();
         match seaquel_storage::query_history::append_many(self.storage(), &items).await {
             Ok(()) => {
-                // Phase 5d, Decision 16: one event for the batch, with the
+                // One event for the batch, with the
                 // applying window's origin.
                 self.record_storage_write(
                     origin,
@@ -533,7 +532,7 @@ impl Workspace {
         Vec::new()
     }
 
-    /// One page of a data tab (`db.tablePage`, Decision 9), under
+    /// One page of a data tab (`db.tablePage`), under
     /// `params.stream_id` in this workspace's scope: Core builds the SELECT
     /// from the typed query (on SQL Server after reading the table's column
     /// types), then pages it as a run's SELECT: `pageSize + 1` rows at the
@@ -670,7 +669,7 @@ impl Workspace {
         })
     }
 
-    /// The DuckDB extensions tab's action (`db.duckdbExtension`, Q9): its
+    /// The DuckDB extensions tab's action (`db.duckdbExtension`): its
     /// statements run one at a time on one of this workspace's DuckDB
     /// connections. `List` returns `duckdb_extensions()`'s rows; the others
     /// `None`. `INVALID_ARGUMENT` for a name that isn't `^[A-Za-z0-9_]+$`,

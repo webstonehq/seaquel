@@ -9,7 +9,7 @@ use seaquel_rpc::{INVALID_ARGUMENT, NOT_SUPPORTED};
 pub fn status_for(code: &str) -> StatusCode {
     match code {
         // A missing or unsafe header, a bad body, a refused option or
-        // engine (SQLite and DuckDB on web, Decision 11b), a query the
+        // engine (SQLite and DuckDB on web), a query the
         // database refused.
         INVALID_ARGUMENT
         | "ENGINE_NOT_AVAILABLE"
@@ -22,7 +22,7 @@ pub fn status_for(code: &str) -> StatusCode {
         // table, no primary key, a key that isn't the primary key). Its
         // limits (`WEB_EDIT_LIMITS`) refuse with `INVALID_ARGUMENT`.
         | "NOT_EDITABLE"
-        // The assistant (phase 6, Decision 15): Core's own refusals of a
+        // The assistant (phase 6): Core's own refusals of a
         // model call, a turn on a connection opened for another saved
         // connection, and a model that asked for too many tool calls (a
         // turn's ending; never an HTTP answer, mapped for completeness).
@@ -32,8 +32,8 @@ pub fn status_for(code: &str) -> StatusCode {
         | "AI_DISABLED"
         | "CONNECTION_MISMATCH"
         | "TOOL_LIMIT"
-        // A read of a secret the web workspace has nowhere to keep (it has
-        // no store; probe F5): the client must supply it.
+        // A read of a secret the web workspace has nowhere to keep (it has no store):
+        // the client must supply it.
         | "NO_SECRET_STORE" => StatusCode::BAD_REQUEST,
         // Secrets (the web workspace has no store), SSH tunnels, and calls
         // an engine has no Rust implementation for.
@@ -43,7 +43,7 @@ pub fn status_for(code: &str) -> StatusCode {
         // in this user's file. (`SAVED_CONNECTION_NOT_FOUND`'s wire code is
         // `CONNECTION_NOT_FOUND`.) Phase 5d-2 adds dashboards, saved
         // workflows, chats, user themes and AI providers, and a dashboard's
-        // version (`dashboardVersionGet`, 5d-2 Task 7).
+        // version (`dashboardVersionGet`).
         "CONNECTION_NOT_FOUND"
         | "PROJECT_NOT_FOUND"
         | "SAVED_QUERY_NOT_FOUND"
@@ -133,7 +133,7 @@ mod tests {
             StatusCode::TOO_MANY_REQUESTS
         );
         assert_eq!(status_for("AUTH_ERROR"), StatusCode::BAD_REQUEST);
-        // The web workspace has no secret store (probe F5): a client's
+        // The web workspace has no secret store: a client's
         // problem, never a server fault.
         assert_eq!(status_for("NO_SECRET_STORE"), StatusCode::BAD_REQUEST);
         assert_eq!(status_for("TLS_ERROR"), StatusCode::BAD_GATEWAY);
@@ -164,7 +164,7 @@ mod tests {
             assert_eq!(status_for(code), StatusCode::NOT_FOUND, "{code}");
         }
         assert_eq!(status_for("STORAGE_FULL"), StatusCode::INSUFFICIENT_STORAGE);
-        // The assistant (phase 6, Decision 15 and Task 4's codes).
+        // The assistant (phase 6).
         for (code, status) in [
             ("NO_PROVIDER", StatusCode::BAD_REQUEST),
             ("NO_MODEL", StatusCode::BAD_REQUEST),

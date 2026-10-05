@@ -15,21 +15,13 @@
             "table_name": "fx-my-table",
             "table_type": "BASE TABLE"
           },
-          {
-            "schema_name": "seaquel_test",
-            "table_name": "fx.dotted",
-            "table_type": "BASE TABLE"
-          },
+          { "schema_name": "seaquel_test", "table_name": "fx.dotted", "table_type": "BASE TABLE" },
           {
             "schema_name": "seaquel_test",
             "table_name": "fx_accounts",
             "table_type": "BASE TABLE"
           },
-          {
-            "schema_name": "seaquel_test",
-            "table_name": "fx_café",
-            "table_type": "BASE TABLE"
-          },
+          { "schema_name": "seaquel_test", "table_name": "fx_café", "table_type": "BASE TABLE" },
           {
             "schema_name": "seaquel_test",
             "table_name": "fx_customers",
@@ -45,16 +37,8 @@
             "table_name": "fx_dotted_refs",
             "table_type": "BASE TABLE"
           },
-          {
-            "schema_name": "seaquel_test",
-            "table_name": "fx_mem",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "seaquel_test",
-            "table_name": "fx_orders",
-            "table_type": "BASE TABLE"
-          }
+          { "schema_name": "seaquel_test", "table_name": "fx_mem", "table_type": "BASE TABLE" },
+          { "schema_name": "seaquel_test", "table_name": "fx_orders", "table_type": "BASE TABLE" }
         ]
       },
       "output": [

@@ -1,5 +1,4 @@
-// The desktop DuckDB helper plan, Task 8 (Q12 B, Decision 14): only the
-// DuckDB helper keeps `disable-library-validation`, which lets DuckDB load
+// Only the DuckDB helper keeps `disable-library-validation`, which lets DuckDB load
 // its extensions (signed by DuckDB, not us; issue #114). The app, the CLI and
 // the TUI load no DuckDB in process, so they are signed with no entitlements.
 import { existsSync, readFileSync } from "node:fs";

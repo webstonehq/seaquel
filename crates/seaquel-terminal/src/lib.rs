@@ -1,4 +1,4 @@
-//! What the terminal binaries share (phase 7a, Decision 22): `seaquel-cli`
+//! What the terminal binaries share (phase 7a): `seaquel-cli`
 //! (the MCP server) and `seaquel-tui` both build on this crate, so the
 //! policy they have in common lives once:
 //!

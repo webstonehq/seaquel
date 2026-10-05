@@ -1,4 +1,4 @@
-//! The SQL editor (Q7 A, Decision 14): `ratatui-textarea` keeps the buffer,
+//! The SQL editor: `ratatui-textarea` keeps the buffer,
 //! the cursor and undo; this layer adds the modes (Insert by default, Esc to
 //! Normal with `h j k l w b e 0 $ gg G dd yy p u x i a o O`, `:` commands),
 //! the scroll position the view draws from, and highlighting from
@@ -28,7 +28,7 @@ pub const TAB_WIDTH: usize = 4;
 /// on each key (a 2 MB text then types without a scan per key).
 pub const HIGHLIGHT_NOW_BYTES: usize = 256 * 1024;
 
-/// The editor's mode (Q7 A).
+/// The editor's mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Insert,
@@ -115,8 +115,8 @@ pub struct Editor {
     /// Moves on with every change of the text.
     gen: u64,
     /// Every line ended in `\r\n` when the text was set: the lines are kept
-    /// without the `\r` and [`Editor::text`] joins them with `\r\n` again
-    /// (review M3). A text with mixed endings is read as `\n`.
+    /// without the `\r` and [`Editor::text`] joins them with `\r\n` again.
+    /// A text with mixed endings is read as `\n`.
     crlf: bool,
     /// The first line and display column drawn.
     pub top: usize,
@@ -813,7 +813,7 @@ mod tests {
         assert!(!is_keyword("invoices"));
     }
 
-    // Q7 A: keywords, strings, comments, quoted names and numbers follow the
+    // Keywords, strings, comments, quoted names and numbers follow the
     // scanner's spans.
     #[test]
     fn highlighting_follows_the_scanner() {
@@ -897,7 +897,7 @@ mod tests {
         }
     }
 
-    // Q7 A: Insert by default; Esc (the keymap's) puts it in Normal.
+    // Insert by default; Esc (the keymap's) puts it in Normal.
     #[test]
     fn insert_mode_types_and_edits() {
         let mut e = Editor::default();
@@ -1088,7 +1088,7 @@ mod tests {
         assert_eq!(e.text(), "one\ntwo");
     }
 
-    // Review M3: a text whose lines all end in `\r\n` keeps them, in `new`
+    // A text whose lines all end in `\r\n` keeps them, in `new`
     // and `set_text` alike, so a saved query opens unmodified and a
     // literal keeps its bytes; a mixed one is normalised to `\n` by both.
     #[test]

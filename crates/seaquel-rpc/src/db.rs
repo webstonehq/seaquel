@@ -92,8 +92,8 @@ pub enum DbRequest {
     Disconnect {
         connection_id: String,
     },
-    /// Record that an open connection was opened for a saved connection
-    /// (phase 6 Task 7): the page's `add` connects a form before Core has
+    /// Record that an open connection was opened for a saved connection:
+    /// the page's `add` connects a form before Core has
     /// made the row. Once per connection; `null`.
     BindSaved {
         connection_id: String,
@@ -125,8 +125,8 @@ pub enum DbRequest {
         connection_id: String,
         request: EngineRequest,
     },
-    /// Which of `connectionIds` this workspace still holds (phase 6 probe
-    /// F4 review I1): a page whose event channel was down (a sleeping
+    /// Which of `connectionIds` this workspace still holds:
+    /// a page whose event channel was down (a sleeping
     /// laptop past the web's window grace) checks the connections it shows
     /// and reconnects the ones Core closed. Answers only ids of this
     /// workspace's open connections, in the order asked; at most
@@ -240,7 +240,7 @@ pub struct ConnectParams {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub create_if_missing: bool,
-    /// The saved connection this connection is for (phase 6, Decision 6):
+    /// The saved connection this connection is for (phase 6):
     /// an assistant turn runs its tools only on a connection opened for
     /// the chat's saved connection (`CONNECTION_MISMATCH`). A saved target
     /// records its own id without it; naming another is `INVALID_ARGUMENT`.
@@ -411,16 +411,16 @@ pub enum CoreEvent {
     /// as in `stream`) and `statementDone`/`statementError`, then one `done`
     /// or `error` (nothing more after a cancel).
     Run { stream_id: String, event: RunEvent },
-    /// One event of assistant turn `streamId` (phase 6, Decision 11):
+    /// One event of assistant turn `streamId` (phase 6):
     /// `started`, `text`, tool calls, `approvalRequired` and `clientTool`,
     /// then one `done` or `error` (nothing more after a cancel).
     Ai { stream_id: String, event: AiEvent },
-    /// A stored write committed (phase 5d, Decision 16): what changed, never
+    /// A stored write committed (phase 5d): what changed, never
     /// a value. `scope` is the project, connection or chat the `ids` belong
     /// to; `ids` `null` means reload the kind within the scope. `origin` is
     /// the writer's window or tab (`null` for Core's own writes): a window
-    /// ignores its own. `seq` orders it against write and list results
-    /// (Decision 17). Every one of the workspace's windows or tabs gets it.
+    /// ignores its own. `seq` orders it against write and list results.
+    /// Every one of the workspace's windows or tabs gets it.
     StorageChanged {
         kind: StoredKind,
         scope: Option<String>,
@@ -664,7 +664,7 @@ fn connect_request(params: ConnectParams) -> seaquel_core::ConnectRequest {
     req.with_saved_connection_id(params.saved_connection_id)
 }
 
-/// The window `origin` is recorded on the connection (phase 6 probe F4):
+/// The window `origin` is recorded on the connection:
 /// its new connection for a saved connection replaces its older ones, and
 /// the web server closes a closed window's connections.
 #[cfg(feature = "workspace")]

@@ -1004,7 +1004,7 @@ impl Sim {
                 Ok(()) => {}
                 Err(FileFailure::Stale) => {
                     // M1, Core's side: a teammate's change is on disk; the
-                    // project syncs instead, so the file wins (Q20).
+                    // project syncs instead, so the file wins.
                     let mut res = CallResult::default();
                     self.sync(pid, &mut res);
                     return Some(("failed".into(), Some("FILE_CHANGED".into())));
@@ -1202,7 +1202,7 @@ impl Sim {
                 r.insert("git_repo_path".into(), opt(&p.git_repo_path));
                 r.insert("updated_at".into(), json!(p.updated_at));
                 if self.linked(&id) {
-                    // Q25: a linked project's directory is stored before
+                    // A linked project's directory is stored before
                     // anything can rename it (the first sync stores it).
                     if let Some((_, l)) = self.project_link(&id) {
                         self.shared_dirs.entry(id.clone()).or_insert(l.dir);
@@ -1506,7 +1506,7 @@ fn repo_view(r: &Row) -> Value {
     json!({"id": s(r, "id"), "path": data["path"], "name": data["name"]})
 }
 
-/// Removes the id Core wrote (Q22) from a file it wrote, checking it is a
+/// Removes the id Core wrote from a file it wrote, checking it is a
 /// v4 uuid in the first line or key.
 fn strip_file_id(path: &str, text: &str) -> Result<String, String> {
     let lower = path.to_ascii_lowercase();
@@ -2241,7 +2241,7 @@ fn an_edit_while_a_name_is_withheld_stays_local() {
     assert_eq!(versions(&sim), after_edit, "no version from the syncs");
 }
 
-/// Decision 34 (coordinator's follow-up): a name-only change from a
+/// A name-only change from a
 /// teammate merges with a local content change. The teammate renames the
 /// file and changes nothing else; before any sync, the user edits the
 /// text. The edit goes out under the teammate's name (by the publish, or,

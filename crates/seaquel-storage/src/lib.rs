@@ -36,7 +36,7 @@ pub use open::{SchemaPolicy, Storage, StorageOptions, CAP_PAGE_SIZE, WRITE_WAIT}
 pub use write::{Reader, WriteTx};
 
 /// Refills the `name_key` of every row that has a text name and no key
-/// (phase 5d-1 probe fix; dashboards since 5d-2): the rows an older release wrote or renamed
+/// (dashboards since 5d-2): the rows an older release wrote or renamed
 /// after `backfill_name_keys` ran, for instance on a downgrade and
 /// re-upgrade. Core runs it on each writable open. It only reads when
 /// there's nothing to fill (a name that isn't UTF-8 can't have a key, so it
@@ -63,7 +63,7 @@ pub const LIST_META_PENDING: &str =
      OR EXISTS (SELECT 1 FROM dashboard_versions WHERE widget_count IS NULL)";
 
 /// Refills the list metadata of the rows an older release wrote without
-/// it (5d-2 Task 7 review): its replace-all save of a project's saved
+/// it: its replace-all save of a project's saved
 /// workflows inserts whole rows with no `meta`, and its versions have no
 /// `widget_count`. Core runs it on each writable open, after
 /// [`refill_name_keys`], and a capped (web) open runs it too. Like that

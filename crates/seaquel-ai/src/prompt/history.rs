@@ -1,4 +1,4 @@
-//! The chat's history as a turn sends it (Q7, Decisions 13, 23 and 29):
+//! The chat's history as a turn sends it:
 //! the stored rows, newest first within 512 KB, with a reply's stored tool
 //! calls rendered back as the rounds they were.
 //!
@@ -16,7 +16,7 @@
 //! question), rather than the earlier one dropped: the budget already paid
 //! for both rows, and the model sees what was asked.
 //!
-//! **The budget** (Decision 29) counts each row's UTF-8 bytes: a plain
+//! **The budget** counts each row's UTF-8 bytes: a plain
 //! row's content; for a row with `parts`, each text and each call's input
 //! JSON plus its result as sent back. Turns are kept whole, newest first,
 //! while they fit. In the first turn that doesn't, the user message is kept

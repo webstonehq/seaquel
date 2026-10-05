@@ -1,5 +1,4 @@
-//! Connections lost without being asked to close (the desktop DuckDB
-//! helper plan, Decision 7).
+//! Connections lost without being asked to close.
 //!
 //! A driver that can tell ([`seaquel_engine::Driver::closed`]: the remote
 //! DuckDB driver, whose helper process can die) gets a watcher on Core's

@@ -22,7 +22,7 @@ pub async fn save(st: &Storage, data: &RawValue) -> Result<()> {
 /// [`load`] on the pool or inside a write: `None` when there's no row or
 /// the stored text doesn't read (not UTF-8, not JSON); stored `null` reads
 /// as JSON `null`. Core reads a record that isn't an object as the
-/// defaults (Decision 20).
+/// defaults.
 pub async fn get(r: impl Into<Reader<'_>>) -> Result<Option<Box<RawValue>>> {
     let mut conn = r.into().conn().await?;
     let row: Option<(Option<Vec<u8>>,)> =

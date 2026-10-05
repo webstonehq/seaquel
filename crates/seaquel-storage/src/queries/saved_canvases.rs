@@ -1,12 +1,12 @@
-//! `saved_canvases`: saved workflows, one row each (phase 5d-2, Decision
-//! 23). Until 5d-2 they were written only by `project_state::save`, which
+//! `saved_canvases`: saved workflows, one row each (phase 5d-2).
+//! Until 5d-2 they were written only by `project_state::save`, which
 //! replaced a project's whole list; that function keeps doing so for its
 //! frozen fixtures. Core now writes them one at a time here.
 //!
 //! `data` is today's `SavedWorkflow` JSON, stored and read byte for byte;
 //! storage never parses more than whether it is JSON, and its `name` and
 //! times for `meta` (migration `0003`), which `workflowsList` answers
-//! instead of the bodies ([`list_meta`], phase 5d-2 Task 7).
+//! instead of the bodies ([`list_meta`]).
 
 use crate::db;
 use crate::db::Row;
@@ -54,8 +54,8 @@ pub const META_OF_DATA: &str = "CASE WHEN typeof(data) = 'text' AND json_valid(d
 /// known, so no refill looks at it again, and listed by nothing.
 pub const UNREADABLE: &str = "null";
 
-/// Fills `meta` of every row an older release wrote without it (5d-2 Task 7
-/// review); the ones that don't read get [`UNREADABLE`].
+/// Fills `meta` of every row an older release wrote without it;
+/// the ones that don't read get [`UNREADABLE`].
 pub(crate) fn refill_sql() -> String {
     format!(
         "UPDATE saved_canvases SET meta = COALESCE({META_OF_DATA}, '{UNREADABLE}') \
@@ -79,7 +79,7 @@ pub fn list_meta_sql() -> String {
 /// body's size. `meta` is bytes because it can hold text that isn't UTF-8:
 /// `->>` returns an escaped lone surrogate as CESU-8 (`"\ud800"` gives
 /// `ED A0 80`) and `json_object` copies a stored non-UTF-8 byte through, so
-/// reading it as a string would fail the whole list (5d-2 Task 7 review).
+/// reading it as a string would fail the whole list.
 type MetaRow = (Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>, i64);
 
 #[derive(Deserialize, Default)]
@@ -90,8 +90,8 @@ struct Meta {
     updated_at: Option<String>,
 }
 
-/// A project's saved workflows without their bodies (`workflowsList`,
-/// phase 5d-2 Task 7): id, project, name, times and size, in rowid order,
+/// A project's saved workflows without their bodies (`workflowsList`):
+/// id, project, name, times and size, in rowid order,
 /// the rows that don't read left out (as [`list`] leaves them out).
 pub async fn list_meta(
     r: impl Into<Reader<'_>>,

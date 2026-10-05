@@ -1,6 +1,6 @@
 /**
  * The seam between the editor's view model (`QueryExecutionManager`) and
- * whatever runs its SQL (phase 5b, Decision 13).
+ * whatever runs its SQL (phase 5b).
  *
  * `CoreQueryRunner` (every build; the demo's Core runs in the page since
  * phase 8): `db.run` and `db.page` in Core.

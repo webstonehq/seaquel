@@ -1,4 +1,4 @@
-//! What the pointer is on (probe F3): the boxes, rows, cells and title
+//! What the pointer is on: the boxes, rows, cells and title
 //! tabs, worked out from the same layout, windows and widths the view draws
 //! with, so a click lands on what the user sees. Pure: `update` calls it.
 

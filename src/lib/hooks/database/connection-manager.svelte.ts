@@ -70,7 +70,7 @@ import {
  */
 const CORE_RESTARTED = "CORE_RESTARTED";
 
-/** `connectionClosed` codes shown without a toast (phase 6 probe F4). */
+/** `connectionClosed` codes shown without a toast. */
 const QUIET_CLOSE_CODES = new Set(["WINDOW_CLOSED", "CONNECTION_REPLACED"]);
 
 export type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "labelIds"> & {
@@ -183,7 +183,7 @@ export function connectionDraft(
 
 /**
  * Desktop: the secrets a form saves with the connection, set in Core's
- * call (Decision 8). Only a typed secret whose flag is on is sent; Core
+ * call. Only a typed secret whose flag is on is sent; Core
  * deletes the entries whose flag the save turns off. `undefined` when
  * there's none. Never used on web, whose vault stays in the browser.
  */
@@ -368,8 +368,8 @@ export class ConnectionManager {
 
   /**
    * Apply a `connectionsList` taken at `seq` to the rows `ids` names (every
-   * row when `null`), each only if `seq` is newer than what it shows
-   * (Decision 17). A row the list lacks was deleted. `remote`: the list is
+   * row when `null`), each only if `seq` is newer than what it shows.
+   * A row the list lacks was deleted. `remote`: the list is
    * a refetch for another window's change, so a changed row is counted for
    * the forms editing it, and a deleted one is disconnected with a toast.
    */
@@ -513,8 +513,8 @@ export class ConnectionManager {
   listenForCoreEvents(): () => void {
     const client = getCoreClient();
     // Before `events`, so the first start isn't missed. Events sent while
-    // the channel was down are lost (on web a sleep past the server's
-    // window grace closes this tab's connections, probe F4 review I1), so
+    // the channel was down are lost (on web a sleep past the server's window grace closes this tab's connections),
+    // so
     // after every restart ask Core which connections it still holds.
     const stopResubscribed = client.onResubscribed(({ initial }) => {
       if (!initial) void this.checkAlive();
@@ -522,7 +522,7 @@ export class ConnectionManager {
     // Any call that finds its connection gone says so (`watchClient`).
     const stopNotFound = onConnectionNotFound((id) => this.handleConnectionLost(id));
     const stopEvents = client.events((event) => {
-      // `storageChanged` is for the change feed (phase 5d-1, Task 6).
+      // `storageChanged` is for the change feed (phase 5d-1).
       if (event.type === "connectionClosed") this.handleConnectionClosed(event);
     });
     return () => {
@@ -569,7 +569,7 @@ export class ConnectionManager {
     );
     if (!connection) return;
     // On desktop Core drops a DuckDB connection unasked only when its
-    // helper died (Decision 7, Task 2 review M3): shown lost, never
+    // helper died: shown lost, never
     // reconnected quietly, since the query that killed the helper may do
     // it again. The `CONNECTION_CLOSED` event says the same if it comes
     // first; then this finds nothing.
@@ -584,7 +584,7 @@ export class ConnectionManager {
   }
 
   /**
-   * The background path (F4 re-review R1, M-b, M-c): show `connection` as
+   * The background path (M-b, M-c): show `connection` as
    * disconnected without moving the project's active connection or closing
    * its schema tabs, and reconnect it once. The active connection stays the
    * active one, shown disconnected until it's back; landing doesn't make it
@@ -607,8 +607,8 @@ export class ConnectionManager {
 
   /**
    * Mark the connection `event` names as disconnected, and say why. After
-   * Core restarted in the page (`CORE_RESTARTED`, the demo's trap recovery,
-   * phase 8 Decision 16) nothing is wrong with the connection itself, so
+   * Core restarted in the page (`CORE_RESTARTED`, the demo's trap recovery)
+   * nothing is wrong with the connection itself, so
    * it's reconnected at once as a saved target, as `autoReconnect` does;
    * only a failed reconnect is shown.
    */
@@ -624,7 +624,7 @@ export class ConnectionManager {
     }
     this.markDisconnected(connection);
     // The web server closed a closed tab's connections, or this tab's older
-    // connection after it connected again (phase 6 probe F4). Only a page
+    // connection after it connected again. Only a page
     // that no longer holds the connection should hear these; one that does
     // just shows it disconnected.
     if (QUIET_CLOSE_CODES.has(event.code)) return;
@@ -633,15 +633,15 @@ export class ConnectionManager {
 
   /**
    * Add a new database connection: connect the form, load its schema, then
-   * save it through the library, whose answer carries Core's id (Decision
-   * 1). Only then does it join the page, so a failed save leaves nothing
+   * save it through the library, whose answer carries Core's id.
+   * Only then does it join the page, so a failed save leaves nothing
    * and disconnects. On desktop its secrets go in the same call; on web the
    * vault is unlocked first (a cancelled unlock saves nothing) and its
    * ciphertext is written after the row, under Core's id.
    */
   async add(connection: ConnectionInput): Promise<string> {
     void log.info(`Adding connection: type=${connection.type}`);
-    // SQLite and DuckDB on web (Decision 11b): refuse before anything runs.
+    // SQLite and DuckDB on web: refuse before anything runs.
     assertDatabaseTypeAvailable(connection.type);
     this.assertSshAvailable(connection);
     // The row's id is Core's, known once it's saved.
@@ -724,7 +724,7 @@ export class ConnectionManager {
 
   /**
    * Tell Core the connection `add` opened is the row it just saved, so
-   * the assistant runs on it (Decision 6: a turn needs a connection opened
+   * the assistant runs on it (a turn needs a connection opened
    * for its chat's row). A failure is logged: only the assistant needs it,
    * and a reconnect records it again.
    */
@@ -750,7 +750,7 @@ export class ConnectionManager {
   /**
    * Web: write the secrets the form saves to the vault under the saved
    * connection's id, and delete those whose flag the save turned off.
-   * Core has no store on web (Decision 8). A failure is shown, not thrown:
+   * Core has no store on web. A failure is shown, not thrown:
    * the row is saved.
    */
   private async saveVaultSecrets(
@@ -779,7 +779,7 @@ export class ConnectionManager {
   }
 
   /**
-   * Import connections from another tool (Decision 47): Core reads the file
+   * Import connections from another tool: Core reads the file
    * again, imports the candidates `chosen` names into `projectId` in one
    * transaction (local-only, a taken name as the first free "<name> (2)",
    * the duplicate check inside it) and appends them to the project's order.
@@ -840,7 +840,7 @@ export class ConnectionManager {
     baseline?: ConnectionFields,
     options: { askToInstall?: boolean } = {},
   ): Promise<string> {
-    // One at a time per connection (review M1), as `autoReconnect`.
+    // One at a time per connection, as `autoReconnect`.
     const running = this.reconnects.get(connectionId);
     if (running) return running;
     const interactive = options.askToInstall ?? true;
@@ -976,7 +976,7 @@ export class ConnectionManager {
     void this.onSchemaLoaded(connectionId, schemasWithTables, client);
 
     // Set this as the active connection (only after schema loading
-    // succeeds), unless it reconnected in the background (F4 re-review R1):
+    // succeeds), unless it reconnected in the background:
     // then the user's choice of active connection stands.
     if (!background || this.upgraded.has(connectionId)) {
       this.setActiveForProject(connectionId, existingConnection.projectId);
@@ -1024,9 +1024,9 @@ export class ConnectionManager {
 
   /**
    * Save an edited connection without reconnecting. Only the fields the
-   * form changed are sent (Decision 2): `baseline` is what the form opened
+   * form changed are sent: `baseline` is what the form opened
    * with, so another window's change to a field this form didn't touch
-   * survives (Decision 18). Without one, the page's copy is the baseline.
+   * survives. Without one, the page's copy is the baseline.
    * A refusal (`NAME_TAKEN`, a removed row) throws, worded for the user,
    * and changes nothing.
    */
@@ -1085,7 +1085,7 @@ export class ConnectionManager {
   async test(connection: ConnectionInput): Promise<void> {
     assertDatabaseTypeAvailable(connection.type);
     this.assertSshAvailable(connection);
-    // Decision 6: a DuckDB file a connected connection holds can't be
+    // A DuckDB file a connected connection holds can't be
     // opened twice (Core refuses at once). It is open and working, so the
     // test passes without asking, when the form names it the same way: the
     // same path, and no connection string or the row's own (one with other
@@ -1119,7 +1119,7 @@ export class ConnectionManager {
 
   /**
    * Remove a connection and all its state. Core deletes the row (its
-   * history, chats and labels cascade) and its secrets (Decision 9); a
+   * history, chats and labels cascade) and its secrets; a
    * failed delete throws, worded for the user, and the connection stays.
    */
   async remove(id: string): Promise<void> {
@@ -1154,7 +1154,7 @@ export class ConnectionManager {
       // connection made active if it was.
       this.forget(connection);
     }
-    // A linked connection's template went first (Core, Decision 37).
+    // A linked connection's template went first (Core).
     reportProjection(answer, connection?.projectId, { removal: true });
   }
 
@@ -1182,7 +1182,7 @@ export class ConnectionManager {
 
   /**
    * The demo's connection, once the demo's start (`$lib/demo/init`) has
-   * stored it (Core's `ensureDemoConnection`, Decision 19: the fixed
+   * stored it (Core's `ensureDemoConnection`: the fixed
    * `demo-connection` row, created once and afterwards only marked
    * connected, so the visitor's labels, AI flags and project stay),
    * connected it as a saved target (`providerConnectionId`) and seeded its
@@ -1242,7 +1242,7 @@ export class ConnectionManager {
    */
   autoReconnect(connectionId: string, options: { background?: boolean } = {}): Promise<boolean> {
     const background = options.background ?? false;
-    // One at a time per connection (review M1): a second call while one
+    // One at a time per connection: a second call while one
     // runs (an event and a failed call at once) gets the same promise. A
     // caller that isn't background joining a background attempt (the user
     // picks the connection) upgrades it: it activates when it lands (N2).
@@ -1323,7 +1323,7 @@ export class ConnectionManager {
       const keyring = getKeyringService();
       if (keyring.isAvailable()) {
         try {
-          // Strict (F4 re-review M-a): null only when no password is
+          // Strict: null only when no password is
           // stored; a stored one that can't be decrypted throws.
           const stored = keyring.getDbPasswordStrict
             ? await keyring.getDbPasswordStrict(connection.id)
@@ -1335,7 +1335,7 @@ export class ConnectionManager {
           // don't dial without it (F1/F2/F5 review P2: a
           // failed login can count toward a lockout, as on SQL Server). The
           // user connects from the connection's tab. A vault that holds no
-          // password for the row (trust auth, probe F5) still connects.
+          // password for the row (trust auth) still connects.
           void log.warn("Reading the saved password from the vault failed:", error);
           throw new Error("The saved password couldn't be read from the vault");
         }
@@ -1383,8 +1383,8 @@ export class ConnectionManager {
   }
 
   /**
-   * The shared switch: a connection is shared when it has a template link
-   * (Decision 53), whatever its stored local-only flag says. Sharing sends
+   * The shared switch: a connection is shared when it has a template link,
+   * whatever its stored local-only flag says. Sharing sends
    * `isLocalOnly: false`, on which Core writes its template and links it;
    * unsharing sends `true`, which takes the template out. One click either
    * way; the outcome is said.
@@ -1403,7 +1403,7 @@ export class ConnectionManager {
    */
   async toggle(id: string): Promise<void> {
     const connection = this.state.connections.find((c) => c.id === id);
-    // A background reconnect running for it (F4 re-review M-c): the user's
+    // A background reconnect running for it: the user's
     // disconnect wins when it lands.
     if (connection && this.backgroundIds.has(id)) this.userDisconnected.add(id);
     if (!connection?.providerConnectionId) return;
@@ -1429,7 +1429,7 @@ export class ConnectionManager {
       c.id === id ? { ...c, providerConnectionId: undefined } : c,
     );
     void log.info(`Connection disconnected: ${id}`);
-    // A background reconnect (F4 re-review R1, M-b) keeps the schema tabs
+    // A background reconnect (M-b) keeps the schema tabs
     // and the project's active connection while it runs.
     if (options.background) return;
 

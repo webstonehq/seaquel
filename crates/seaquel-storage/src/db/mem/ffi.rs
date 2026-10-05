@@ -1,5 +1,5 @@
 //! The thin safe wrapper over SQLite's C API that the in-memory executor
-//! runs on (phase 8 Decision 3). This file holds every `unsafe` block in
+//! runs on. This file holds every `unsafe` block in
 //! the crate. Everything above it handles owned Rust values only.
 //!
 //! On wasm32 the C API is `sqlite-wasm-rs`'s (SQLite compiled to wasm,

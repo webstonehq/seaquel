@@ -1,4 +1,4 @@
-//! The editor's run, planned (phase 5b, Decision 4).
+//! The editor's run, planned (phase 5b).
 //!
 //! `db.run` hands Core the editor's whole text, a target (every statement,
 //! or the one at a UTF-16 cursor), the parameter values from the dialog and
@@ -38,7 +38,7 @@ pub const CONFIRM_REQUIRED: &str = "CONFIRM_REQUIRED";
 
 /// The most destructive statements a `CONFIRM_REQUIRED` refusal lists; its
 /// `destructiveTotal` counts them all. A run of 645,000 DROPs made one
-/// 38.6 MB frame before runs were capped (phase 5b probe, N3), and the
+/// 38.6 MB frame before runs were capped (N3), and the
 /// dialog shows a few at a time anyway.
 pub const MAX_DESTRUCTIVE_LISTED: usize = 100;
 /// A page size past the cap, page 0, an offset that overflows, a `db.page`
@@ -53,8 +53,7 @@ pub const INVALID_PARAMETERS: &str = "INVALID_PARAMETERS";
 /// the text size). The default is no limit: the desktop app, the CLI and
 /// the MCP server run a script of any size with any values, as before 5b.
 /// The web server sets all four (`WEB_RUN_LIMITS`; owner, 2026-10-02),
-/// since its frames are 8 MiB and planning them blocked a worker (phase 5b
-/// probe I1, review C1).
+/// since its frames are 8 MiB and planning them blocked a worker.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RunLimits {
     /// The longest run text, or page SQL, in bytes: `INVALID_ARGUMENT`
@@ -140,7 +139,7 @@ pub fn check_param_values<'a>(
 /// statements' [`substituted_size_bound`] less their own length, on every
 /// interface. A value is copied (SQL Server, DuckDB) or bound
 /// (MySQL/MariaDB) once per use, so without it a 1 MiB value used 300,000
-/// times would make terabytes before anything ran (phase 5b probe, N3).
+/// times would make terabytes before anything ran (N3).
 /// Only the growth counts, so a script of any size with a few parameters
 /// runs; 32 MiB still takes a 1 MiB value used a dozen times.
 pub const MAX_RUN_SUBSTITUTED_BYTES: usize = 32 * 1024 * 1024;
@@ -149,8 +148,7 @@ pub const MAX_RUN_SUBSTITUTED_BYTES: usize = 32 * 1024 * 1024;
 /// them by more than [`MAX_RUN_SUBSTITUTED_BYTES`] in all. Only the growth
 /// counts (each statement's [`substituted_size_bound`] less its length), so
 /// the statements' own size never matters. Pure and cheap: nothing is
-/// substituted. Each value is costed once however many statements use it
-/// (phase 5b review, C1).
+/// substituted. Each value is costed once however many statements use it.
 pub fn check_substitution_budget<'a>(
     statements: impl IntoIterator<Item = &'a str>,
     values: &Values<'_>,
@@ -377,7 +375,7 @@ impl fmt::Debug for PageSource {
     }
 }
 
-/// How a statement runs (Decision 5).
+/// How a statement runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -635,7 +633,7 @@ pub fn plan(
     if let Some(values) = params {
         check_param_values(values.iter().map(|(_, v)| v), limits)?;
     }
-    // Looked up once for every statement (phase 5b review, C1).
+    // Looked up once for every statement.
     let values = params.map(Values::new);
     let chosen: Vec<(u32, Statement)> = match target {
         RunTarget::All => {
@@ -733,7 +731,7 @@ pub fn plan(
 }
 
 /// How `source` runs: its query type decides, then the page size and its
-/// own row limit (Decision 5).
+/// own row limit.
 fn step_for(source: PageSource, engine: SqlEngine, page_size: u32, defer_writes: bool) -> Step {
     let query_type = query_type(&source.sql, engine);
     if defer_writes && query_type != QueryType::Select {
@@ -946,7 +944,7 @@ impl fmt::Debug for Step {
 
 // ── History ──
 
-/// The history row a run records (Decision 11): `hist-<uuid>` as `id`, the
+/// The history row a run records: `hist-<uuid>` as `id`, the
 /// time as `Date.toISOString()` writes it, and the saved connection's id,
 /// name and labels from `ctx`.
 pub fn history_item(

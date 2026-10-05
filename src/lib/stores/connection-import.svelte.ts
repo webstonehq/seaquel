@@ -1,5 +1,5 @@
 /**
- * The TablePlus and DBeaver import dialogs' state (phase 5e, Decision 47).
+ * The TablePlus and DBeaver import dialogs' state (phase 5e).
  * Core finds and reads the other tool's file and answers candidates marked
  * against the project's connections: `duplicateOf` for one the project
  * already has, `problem` for one that can't be imported. Nothing found and

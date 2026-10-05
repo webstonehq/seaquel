@@ -18,7 +18,7 @@
 //! `queryVersionsPrune`), and phase 5d-2 its app-state, project-state,
 //! dashboard, chat, theme, onboarding, tutorial, import-state and
 //! connection-override methods (35 in all): the `library`, `settings` and
-//! `ui` groups replaced them (the overrides are retired, Q13), and naming
+//! `ui` groups replaced them (the overrides are retired), and naming
 //! one is an unknown method (`INVALID_ARGUMENT`). Phase 5e retired
 //! `sharedReposLoadAll` and `sharedReposSaveAll` the same way: the `shared`
 //! group's repo calls replaced them. What stays in the storage group is the
@@ -40,7 +40,7 @@
 //! `secrets`, `git`, `imports`) answers `NOT_SUPPORTED`.
 //! [`dispatch_workspace`], the web server's entry point, refuses SSH, git
 //! and licensing whatever the features, and the `shared` and `imports`
-//! groups on a Core built without `LocalFiles` (phase 5e, Decision 31);
+//! groups on a Core built without `LocalFiles` (phase 5e);
 //! the desktop routes the first three to `dispatch_ssh`, `dispatch_git`
 //! and `dispatch_license`.
 
@@ -326,7 +326,7 @@ storage_methods! {
 
 /// A secret call. Keys must be `db:<id>`, `ssh:<id>`, `ssh-key:<id>` or
 /// `license-key`; anything else is `INVALID_ARGUMENT`. So is
-/// `ai-api-key:<id>` (phase 6, Decision 7): Core reads AI keys itself, and
+/// `ai-api-key:<id>` (phase 6): Core reads AI keys itself, and
 /// the settings group writes them.
 /// `Debug` never shows a value.
 #[derive(Serialize, Deserialize)]
@@ -516,7 +516,7 @@ pub async fn dispatch_workspace(
     logged(group, method, async {
         match req {
             Request::Storage(r) => storage(ws, r, &origin).await.map(Response::Storage),
-            // Boxed (phase 5e re-review R1): a library call may publish a
+            // Boxed: a library call may publish a
             // shared file and sync, which makes its future deep; inlined
             // here, it crowds a 2 MiB worker in a debug build.
             Request::Library(r) => Box::pin(crate::library::library(core, ws, r, &origin))
@@ -526,7 +526,7 @@ pub async fn dispatch_workspace(
                 .await
                 .map(Response::Settings),
             Request::Ui(r) => crate::ui::ui(core, ws, r, &origin).await.map(Response::Ui),
-            // Desktop only (phase 5e, Decision 31): the user's repos and
+            // Desktop only (phase 5e): the user's repos and
             // other tools' files, refused on a Core without `LocalFiles`
             // (the web server's) whatever the features. Boxed like the
             // library: a sync's future is deep.
@@ -554,7 +554,7 @@ pub async fn dispatch_workspace(
             // open tunnels from the server.
             Request::Ssh(_) => Err(RpcError::not_supported("SSH tunnels")),
             // Boxed like the library (phase 6 probe-fix review I2): a
-            // connect's future (plan, tunnel, open, replace) sat inline in
+            // connect's future (tunnel, open, replace) sat inline in
             // every call's and overflowed a 2 MiB stack.
             Request::Db(r) => Box::pin(crate::db::db(core, ws, r, &origin))
                 .await
@@ -628,7 +628,7 @@ async fn storage(
 ) -> Result<StorageResponse, RpcError> {
     let change = storage_change(&req);
     let response = storage_call(ws, req).await.map_err(rpc_error)?;
-    // Phase 5d, Decision 16: every storage write emits one event after it
+    // Every storage write emits one event after it
     // committed, with the writer's origin so its own window can skip it.
     if let Some((kind, scope, ids)) = change {
         ws.record_storage_write(origin, kind, scope, ids);
@@ -758,7 +758,7 @@ async fn secret(
     };
     // A bad key is refused the same way with or without a store.
     //
-    // Phase 6, Decision 7: Core reads a provider's key itself and writes it
+    // Core reads a provider's key itself and writes it
     // with the settings call that carries it, so no page reads, sets or
     // deletes one here (on the desktop the key never reaches the webview).
     if key.starts_with(AI_KEY_PREFIX) {
@@ -768,7 +768,7 @@ async fn secret(
         ));
     }
     // The store's own check also takes AI keys, so this group names its
-    // own forms first (review M3), then lets the store check the id.
+    // own forms first, then lets the store check the id.
     let ours = GROUP_KEY_PREFIXES.iter().any(|p| key.starts_with(p)) || key == LICENSE_KEY;
     if !ours {
         return Err(RpcError::invalid_argument(

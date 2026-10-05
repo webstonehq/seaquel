@@ -1,4 +1,4 @@
-//! Decision 11b: the web server never opens SQLite or DuckDB.
+//! The web server never opens SQLite or DuckDB.
 //!
 //! Their "connection string" is a path on the server, so a signed-in user
 //! could open `auth.db` or another user's `meta.db`, and DuckDB's `read_*`,

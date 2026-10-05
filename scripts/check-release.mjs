@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// `release.yml`'s `check-release` job (the desktop DuckDB helper plan, Q11 B,
-// Decision 15, Task 9): reads the draft release after every other job and
+// `release.yml`'s `check-release` job:
+// reads the draft release after every other job and
 // fails, naming each problem, unless every target ships a complete set:
 //
 // - the app, built and pinned to this target's DuckDB helper (the matrix
@@ -13,7 +13,7 @@
 // - every job before this one succeeded;
 // - the release is still a pre-release (`release.yml` makes it one).
 //
-// The title is the gate (review I1): `tauri-action` creates the draft as
+// The title is the gate: `tauri-action` creates the draft as
 // "NOT CHECKED: Release <tag>", and the job sets "Release <tag>" only when
 // this passes ("NOT READY (check-release failed): …" when it doesn't). The
 // release is a pre-release (I3), which the website's update check skips;

@@ -1,5 +1,5 @@
 /**
- * This page's write origin (phase 5d, Decision 18): the id Core puts on the
+ * This page's write origin (phase 5d): the id Core puts on the
  * `storageChanged` event of every write the page makes, so the page can
  * skip its own changes (its write's answer already updated it).
  *

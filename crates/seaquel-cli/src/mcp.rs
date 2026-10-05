@@ -91,8 +91,7 @@ fn init_logging(level: LogLevel) {
 }
 
 /// Held at WARN on top of the shared filter: rmcp logs each request at
-/// DEBUG with its arguments, which carry SQL (phase 6's follow-up, closed
-/// in phase 7a by Decision 17).
+/// DEBUG with its arguments, which carry SQL.
 const HELD_AT_WARN: &[&str] = &["rmcp"];
 
 /// What `--log-level` lets through.
@@ -104,10 +103,10 @@ fn startup_error(e: CoreError) -> String {
     format!("{}: {}", e.code, e.message)
 }
 
-/// The CLI's Core, as the desktop app builds its own: every engine (DuckDB
-/// through the `seaquel-duckdb` helper, the DuckDB helper plan), the
-/// user's files (phase 5e, Decision 31) and the import paths. No command
-/// uses the shared projection or the imports yet (Q26); the read-only
+/// The CLI's Core, as the desktop app builds its own: every engine (DuckDB through the `seaquel-duckdb` helper),
+/// the
+/// user's files (phase 5e) and the import paths. No command
+/// uses the shared projection or the imports yet; the read-only
 /// storage refuses their writes. `hooks` (debug builds) bring the
 /// known_hosts file and a built DuckDB helper.
 fn core_builder(
@@ -164,7 +163,7 @@ async fn serve(args: McpArgs) -> Result<(), String> {
         }
     };
     // A DuckDB connection without its helper fails its tools; say so once
-    // here too (Decision 13). stderr only, whatever the log level.
+    // here too. stderr only, whatever the log level.
     if let Some(notice) = server.duckdb_helper_notice() {
         eprintln!("seaquel-cli mcp: {notice}");
     }

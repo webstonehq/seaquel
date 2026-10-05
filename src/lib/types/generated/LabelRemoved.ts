@@ -2,6 +2,6 @@
 
 /**
  * What `labelRemove` changed besides the label: the connections that had
- * it, in any project (Decision 10).
+ * it, in any project.
  */
 export type LabelRemoved = { connectionIds: Array<string>, };

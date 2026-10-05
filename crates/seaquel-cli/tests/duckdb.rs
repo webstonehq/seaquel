@@ -1,5 +1,5 @@
 //! `seaquel-cli duckdb status` and `seaquel-cli duckdb install` in the built
-//! binary (the DuckDB helper plan, Task 8, Decision 13).
+//! binary.
 //!
 //! Every run sets `SEAQUEL_DATA_DIR` to a temp folder under the target dir
 //! and `SEAQUEL_CLI_TEST_DUCKDB_RELEASES` to a release server on 127.0.0.1
@@ -115,7 +115,7 @@ async fn status_says_outdated_when_only_another_version_is_there() {
     let out = sb.run(NO_RELEASES, &["duckdb", "status"]).await;
     assert_eq!(stdout(&out), "outdated\n", "{}", stderr(&out));
     assert_eq!(out.status.code(), Some(1));
-    // The pruning rule, in words (Task 4's review, M4).
+    // The pruning rule, in words.
     assert!(stderr(&out).contains("two newest"), "{}", stderr(&out));
 }
 
@@ -267,7 +267,7 @@ fn parts(sb: &Sandbox) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Review I2: SIGINT during `install --from` stops the blocking copy
+/// SIGINT during `install --from` stops the blocking copy
 /// between reads and waits for it, so no `.part` file is left, and the CLI
 /// exits 130. The file is a regular file of 8 MiB (128 reads of 64 KiB),
 /// copied with a 50 ms pause before each read through the debug-only
@@ -322,7 +322,7 @@ async fn sigint_during_install_from_leaves_no_partial_file() {
     assert!(!sb.helper_path().exists());
 }
 
-/// Task 4 review I1: a FIFO given to `--from` (nothing writing to it, so
+/// A FIFO given to `--from` (nothing writing to it, so
 /// opening it would block) is refused at once with a plain error, and
 /// nothing is made.
 #[cfg(unix)]

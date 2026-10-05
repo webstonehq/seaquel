@@ -1,4 +1,4 @@
-//! The `ui` group through Core (phase 5d-2, Decision 22): each window's
+//! The `ui` group through Core (phase 5d-2): each window's
 //! view state per project, the fallback a new window starts from, `rev`
 //! ordering, the legacy mirror, the bounded prunes and `windowGet`.
 #![cfg(all(feature = "storage", feature = "secrets"))]
@@ -454,8 +454,6 @@ async fn a_view_state_event_names_only_its_window() {
     );
 }
 
-// ── Phase 5d-2 review ──
-
 /// A web limit that holds only the view state's text sizes.
 fn only(limits: StateLimits) -> StateLimits {
     StateLimits {
@@ -645,7 +643,7 @@ async fn a_view_state_round_trips_byte_for_byte() {
     assert_eq!(ps[0]["active_view"], "workflow");
 }
 
-/// Phase 5d-2 re-review: a body past `max_view_state_bytes` and larger
+/// A body past `max_view_state_bytes` and larger
 /// than the stored state is refused before it's parsed (here it isn't even
 /// a view state), naming the limit.
 #[tokio::test]
@@ -662,8 +660,6 @@ async fn an_oversized_body_is_refused_before_it_is_parsed() {
             .unwrap_err();
     assert!(e.message.contains("max_view_state_bytes"), "{e:?}");
 }
-
-// ── Phase 5d-2 Task 7 probe fixes ──
 
 /// Writes in one millisecond: `windowGet`, a new window's copy and the
 /// legacy mirror all name the last write committed. Before, `windows`

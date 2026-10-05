@@ -1,5 +1,5 @@
-//! The DuckDB helper's install dialog against a real Core (the DuckDB
-//! helper plan, Task 7): a DuckDB connection with no helper opens the
+//! The DuckDB helper's install dialog against a real Core:
+//! a DuckDB connection with no helper opens the
 //! dialog, which downloads from `seaquel-http`'s `MockReleases` on
 //! 127.0.0.1 into the temp data dir's `bin/duckdb/<version>/` and then
 //! connects again. Nothing reaches GitHub.
@@ -282,8 +282,7 @@ async fn the_installed_helper_connects_and_a_stopped_one_offers_reconnect() {
 }
 
 /// A copy of the built helper of the test's own under `dir` (a hard
-/// link, else a copy), so its process checks see only this test's helpers
-/// (review M1).
+/// link, else a copy), so its process checks see only this test's helpers.
 #[cfg(unix)]
 fn own_helper(bin: &Path, dir: &Path) -> PathBuf {
     let to = dir.join("real-seaquel-duckdb");
@@ -334,10 +333,10 @@ async fn all_gone(pid_log: &Path, paths: &[&Path], within: Duration) {
 /// What the stand-in helper does.
 #[cfg(unix)]
 enum Proxy<'a> {
-    /// Probe F1: on the client's `transaction` request, kill the helper and
+    /// On the client's `transaction` request, kill the helper and
     /// itself before the helper sees it.
     DieOnCommit,
-    /// Probe F3: on `close`, pass it on, end its output, wait for the
+    /// On `close`, pass it on, end its output, wait for the
     /// helper, then take `secs` more (a slow checkpoint) and leave `marker`.
     LingerOnClose { secs: u32, marker: &'a Path },
 }
@@ -468,8 +467,8 @@ async fn a_helper_that_dies_mid_commit_loses_the_connection_and_marks_the_queue(
     .await;
     h.keys("c");
     h.press(KeyCode::Enter);
-    // Core's `ConnectionClosed` (the desktop DuckDB helper plan,
-    // Decision 7) can open the offer before the apply's own answer ends
+    // Core's `ConnectionClosed`
+    // can open the offer before the apply's own answer ends
     // the commit, so both are waited for.
     h.until_within(
         "the reconnect offer and the commit's end",
@@ -504,7 +503,7 @@ async fn a_helper_that_dies_mid_commit_loses_the_connection_and_marks_the_queue(
     all_gone(&pid_log, &[&real, &file], Duration::from_secs(5)).await;
 }
 
-/// Probe F3: quitting while the helper is still closing its database (a
+/// Quitting while the helper is still closing its database (a
 /// checkpoint that takes seconds) stays within the TUI's exit bound
 /// (`SETTLE_WITHIN`): the driver stops waiting after 2 s and lets the
 /// helper go, and the helper finishes and exits on its own.

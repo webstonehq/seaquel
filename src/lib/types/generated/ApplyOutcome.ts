@@ -23,7 +23,7 @@ results: Array<ChangeResult>, failed?: ApplyFailure,
  */
 ddl: boolean, 
 /**
- * The history rows appended (Decision 8), in queue order.
+ * The history rows appended, in queue order.
  */
 history: Array<PersistedQueryHistoryItem>, } | { "outcome": "confirmRequired", 
 /**

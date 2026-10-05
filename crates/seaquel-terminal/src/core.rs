@@ -67,8 +67,8 @@ impl CoreOptions {
     }
 }
 
-/// The DuckDB helper's folder, `<data_local_dir>/<identifier>/bin/duckdb`
-/// (Decision 9), beside the command line tool the app installs; under
+/// The DuckDB helper's folder, `<data_local_dir>/<identifier>/bin/duckdb`,
+/// beside the command line tool the app installs; under
 /// `SEAQUEL_DATA_DIR` when that is set. Each version's helper is
 /// `<this>/<version>/seaquel-duckdb[.exe]`.
 pub fn duckdb_helper_dir() -> Result<PathBuf, CoreError> {
@@ -82,7 +82,7 @@ pub fn duckdb_helper_dir() -> Result<PathBuf, CoreError> {
 /// has (the CLI's import paths, the TUI's AI client) on the builder this
 /// returns.
 ///
-/// DuckDB is the remote engine (the DuckDB helper plan, Decision 11): each
+/// DuckDB is the remote engine: each
 /// connection runs in a `seaquel-duckdb` helper of this app version, found
 /// under `options.duckdb_helper_dir` (else [`duckdb_helper_dir`]). The
 /// other engines come through `with_plugins(|id| id != "duckdb")`, so a
@@ -149,7 +149,7 @@ pub fn core_builder(options: CoreOptions) -> CoreBuilder {
     builder
 }
 
-/// Whether the `_DUCKDB_HELPER` hook may write its link (review M1): only
+/// Whether the `_DUCKDB_HELPER` hook may write its link: only
 /// into a folder the caller chose (`CoreOptions::duckdb_helper_dir`) or
 /// under a non-empty `SEAQUEL_DATA_DIR`, so a debug binary run with the
 /// hook but without the data-dir override never writes into the real
@@ -211,7 +211,7 @@ mod tests {
         assert_eq!(core.local_files(), Some(LocalFiles::Allowed));
     }
 
-    /// Review M1: the `_DUCKDB_HELPER` hook writes only into a folder the
+    /// The `_DUCKDB_HELPER` hook writes only into a folder the
     /// caller chose (`duckdb_helper_dir`) or under `SEAQUEL_DATA_DIR`, never
     /// into the real data-local dir.
     #[test]

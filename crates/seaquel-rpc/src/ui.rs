@@ -1,4 +1,4 @@
-//! The `ui` group of the workspace RPC (phase 5d-2, Q12 B, Decision 22):
+//! The `ui` group of the workspace RPC (phase 5d-2):
 //! each window's view state of a project (its open tabs with their text,
 //! pane layout, active ids and active connection) and its active project,
 //! through Core (`Workspace::load_window_state`, …).

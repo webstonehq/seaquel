@@ -3,7 +3,7 @@
 /**
  * A secret call. Keys must be `db:<id>`, `ssh:<id>`, `ssh-key:<id>` or
  * `license-key`; anything else is `INVALID_ARGUMENT`. So is
- * `ai-api-key:<id>` (phase 6, Decision 7): Core reads AI keys itself, and
+ * `ai-api-key:<id>` (phase 6): Core reads AI keys itself, and
  * the settings group writes them.
  * `Debug` never shows a value.
  */

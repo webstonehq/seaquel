@@ -72,7 +72,7 @@
 		if (qb) {
 			// Use null for validTableNames to accept any table (for real databases too).
 			// Parse in the builder's dialect: the tutorial keeps PostgreSQL, though
-			// its executor runs DuckDB (decision 4 of the phase 2b plan).
+			// its executor runs DuckDB.
 			const parsed = parseSql(sql, { validTableNames: null, engine: qb.engine });
 			if (parsed) {
 				qb.applyFromParsedSql(parsed);

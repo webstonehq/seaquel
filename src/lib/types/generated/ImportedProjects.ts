@@ -2,7 +2,7 @@
 import type { ProjectFailure } from "./ProjectFailure";
 
 /**
- * `shared.importProjects`' answer (review M5): each directory is imported
+ * `shared.importProjects`' answer: each directory is imported
  * whole or not at all.
  */
 export type ImportedProjects = { 

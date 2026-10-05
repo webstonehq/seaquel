@@ -1,7 +1,6 @@
 //! Parity of `{{param}}` extraction and substitution with the frozen TS
 //! fixtures (`tests/fixtures/params.json`), which already hold fix 13's output
-//! (the model in the recorder's `params-model.ts`, kept as
-//! `docs/plans/artifacts/2026-09-27-sql-recorder-params-model.ts.txt`).
+//! (the model in the recorder's `params-model.ts`, in git history).
 //! `bugfixes.json` has no hand-written params cases to apply, which
 //! `no_hand_written_params_cases` checks.
 //!

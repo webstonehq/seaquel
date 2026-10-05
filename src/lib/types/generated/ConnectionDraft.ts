@@ -11,7 +11,7 @@ export type ConnectionDraft = { projectId: string, name: string, type: "postgres
  */
 connected?: boolean, 
 /**
- * An import's draft (Decision 13): a taken name becomes the first free
+ * An import's draft: a taken name becomes the first free
  * `"<name> (n)"` instead of `NAME_TAKEN`.
  */
 renameIfTaken?: boolean, };

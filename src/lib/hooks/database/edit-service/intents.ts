@@ -1,5 +1,5 @@
 /**
- * Edit intents (phase 5c, Decision 1) from the grid's decoded rows: a table,
+ * Edit intents (phase 5c) from the grid's decoded rows: a table,
  * the key as `[column, value]` pairs in the primary-key list's order, a
  * column and a value, every value in the cell wire format (`encodeParam`:
  * bigint, decimal, bytes, NaN/±inf and JSON objects tagged; `undefined`

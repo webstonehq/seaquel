@@ -1,6 +1,6 @@
 /**
  * The seams between the GUI and Core's shared projection and imports
- * (phase 5e, Decisions 40–48), like the library's `LibraryService`.
+ * (phase 5e), like the library's `LibraryService`.
  *
  * - `SharedService`: the `shared` RPC group. Core owns the `.seaquel` tree:
  *   linking, unlinking and importing projects, the repo list, and the sync
@@ -13,7 +13,7 @@
  *
  * Both are desktop only (`LocalFiles`): `CoreShared`/`CoreImports` there,
  * `NoShared`/`NoImports` on web and in the demo, which answer
- * `NOT_SUPPORTED` (Decision 48; the GUI hides the entry points there).
+ * `NOT_SUPPORTED` (the GUI hides the entry points there).
  */
 import type { ImportCandidate } from "$lib/types/generated/ImportCandidate";
 import type { ImportCandidates } from "$lib/types/generated/ImportCandidates";
@@ -61,7 +61,7 @@ export type {
   UnlinkReport,
 };
 
-/** What a library write did to its row's file (Decision 36), when anything. */
+/** What a library write did to its row's file, when anything. */
 export type ProjectionOutcome = NonNullable<Seqd<unknown>["projection"]>;
 
 /** Which projects a sync covers: one project, or every project linked to a repo. */
@@ -91,11 +91,11 @@ export interface SharedService {
   removeRepo(id: string): Promise<Seqd<null>>;
   /**
    * Links a project to the repo at `path` and syncs it. `share`: the link
-   * dialog's ticked connections, exported as templates (Q30).
+   * dialog's ticked connections, exported as templates.
    */
   linkProject(projectId: string, path: string, share: string[]): Promise<Seqd<SyncReport>>;
   /**
-   * Unlinks a project (Q31): the user's own connections stay, unlinked and
+   * Unlinks a project: the user's own connections stay, unlinked and
    * local-only; the ones the repo brought go when `removeImported`.
    */
   unlinkProject(projectId: string, removeImported: boolean): Promise<Seqd<UnlinkReport>>;

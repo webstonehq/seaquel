@@ -544,7 +544,7 @@ mod tests {
         }
     }
 
-    /// Review 2: a folder's new DACL reaches its existing children. A file
+    /// A folder's new DACL reaches its existing children. A file
     /// inside that inherited `%TEMP%`'s entries (Administrators among them)
     /// inherits the user's and SYSTEM's afterwards, and nothing else.
     #[test]
@@ -576,7 +576,7 @@ mod tests {
         }
     }
 
-    /// Q9 A's case: `Everyone:(M)` on a folder is read as writable by
+    /// `Everyone:(M)` on a folder is read as writable by
     /// another principal; making it private again clears it.
     #[test]
     fn everyone_modify_is_read_and_repaired() {

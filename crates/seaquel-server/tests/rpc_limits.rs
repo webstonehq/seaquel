@@ -44,13 +44,13 @@ async fn the_server_core_has_the_web_library_limits() {
     assert_eq!(limits.max_connections, Some(10_000));
     assert_eq!(limits.max_projects, Some(1_000));
     assert_eq!(limits.max_saved_queries, Some(50_000));
-    // Phase 5d-1 probe fix: 8 versions of a query of `max_query_bytes`.
+    // 8 versions of a query of `max_query_bytes`.
     assert_eq!(limits.max_version_bytes, Some(16 * 1024 * 1024));
     // The test server's Core has them too.
     assert_eq!(Env::new(1).state.core.library_limits(), WEB_LIBRARY_LIMITS);
 }
 
-/// Phase 5d-2, Decision 27.
+/// The web server's Core is built with `WEB_STATE_LIMITS`.
 #[tokio::test]
 async fn the_server_core_has_the_web_state_limits() {
     let limits = web_core(seaquel_core::ai::AiEgress::Public, None).state_limits();
@@ -149,7 +149,7 @@ fn padded_apply(c: &str, hang: bool) -> String {
     .to_string()
 }
 
-/// Probe review, M4: every `applyChanges`, `planEdits` and
+/// Every `applyChanges`, `planEdits` and
 /// `duckdbExtension` counts, whatever its size: a user runs at most 4 at
 /// once, and the rest are 429 `TOO_MANY_REQUESTS`. Other calls and other
 /// users aren't held up, and every slot is released when a call ends or is
@@ -231,7 +231,7 @@ async fn a_user_runs_at_most_four_edit_calls_at_once() {
     assert_eq!(env.state.workspaces.users_with_calls_in_flight(), 0);
 }
 
-/// Probe review, M4: a user's calls hold at most 40 MiB of bodies at once
+/// A user's calls hold at most 40 MiB of bodies at once
 /// (a lone call always runs); past it a call is 429 `TOO_MANY_REQUESTS`
 /// before it's parsed.
 #[tokio::test]

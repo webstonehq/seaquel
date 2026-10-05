@@ -1,5 +1,5 @@
 /**
- * Decision 11b in the UI: SQLite and DuckDB aren't offered on web (they
+ * SQLite and DuckDB aren't offered on web (they
  * would open files on the server), and stay on desktop and in the demo.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";

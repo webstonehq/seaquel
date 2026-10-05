@@ -304,7 +304,7 @@ impl Driver for RemoteDriver {
     /// The read-only path (`session::read_only`), in the helper on a clone of its
     /// own; the caps applied here. The timeout is ignored: dropping the call
     /// cancels it in the helper. Past the helper's 16 at once, a call waits
-    /// here for a slot (the desktop DuckDB helper plan, Decision 5).
+    /// here for a slot.
     async fn query_read_only_with(
         &self,
         sql: &str,

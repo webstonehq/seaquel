@@ -127,7 +127,7 @@ const STEPS_REPLAYED = 119;
 /**
  * Cases whose step (the number) adds a connection of another engine than DuckDB,
  * or changes one's type to another. Core in the page registers only the
- * DuckDB engine (phase 8, Decision 13), and Core's library refuses a type
+ * DuckDB engine (phase 8), and Core's library refuses a type
  * it wasn't built with (`ENGINE_NOT_AVAILABLE`, the rule web applies to
  * SQLite and DuckDB). So that step is checked as a refusal that writes
  * nothing, and the case stops there. The Rust replay

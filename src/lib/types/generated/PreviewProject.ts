@@ -7,7 +7,7 @@ import type { PreviewTemplate } from "./PreviewTemplate";
  */
 export type PreviewProject = { dir: string, name: string, description?: string, queries: number, dashboards: number, templates: Array<PreviewTemplate>, 
 /**
- * Files the scan didn't read (Decision 32).
+ * Files the scan didn't read.
  */
 skipped: number, 
 /**

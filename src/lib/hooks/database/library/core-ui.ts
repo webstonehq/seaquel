@@ -4,7 +4,7 @@
  * activation, and a first load, which copies a row) join the write queue
  * and land in the order the page issued them. The `pagehide` save goes as a
  * `keepalive` request outside the queue; `rev` orders it against the saves
- * still queued (Decision 22).
+ * still queued.
  */
 import type { RustStorageClient } from "$lib/storage/rust-client";
 import type { UiService, ViewState, ViewStateLoaded } from "./types";

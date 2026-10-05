@@ -1,5 +1,5 @@
-//! `window_state` (migration `0002_window_state.sql`, phase 5d-2 Decision
-//! 22): one window's view of one project (its open tabs with their text,
+//! `window_state` (migration `0002_window_state.sql`):
+//! one window's view of one project (its open tabs with their text,
 //! pane layout and active ids) as one JSON blob, stored and read byte for
 //! byte, with `rev`, the page's save counter.
 //!
@@ -89,14 +89,14 @@ pub async fn state_bytes(
 /// The project's most recently saved view state, whichever window saved
 /// it: the last write committed (`write_seq`, one past the project's
 /// highest on every write, then `rowid`), so it is what the legacy mirror
-/// shows, even for saves in one millisecond (5d-2 Task 7). One step down
+/// shows, even for saves in one millisecond. One step down
 /// `idx_window_state_project_seq` (`?1` the project), no sort.
 pub const MOST_RECENT: &str = "\
     SELECT CAST(window_id AS BLOB), CAST(project_id AS BLOB), CAST(state AS BLOB), rev, \
            CAST(updated_at AS BLOB) \
     FROM window_state WHERE project_id = ?1 ORDER BY write_seq DESC, rowid DESC LIMIT 1";
 
-/// What a new window starts with (Decision 22): the project's most recently
+/// What a new window starts with: the project's most recently
 /// used window's row, or `None` when no window has saved this project.
 pub async fn most_recent(
     r: impl Into<Reader<'_>>,
@@ -183,7 +183,7 @@ pub const PRUNE_FOR_PROJECT: &str = "\
 
 /// Keeps at most `max_states` view states of the project (the most recent),
 /// never deleting one of a window named in `spare`, in one indexed
-/// `DELETE` of at most [`PRUNE_BATCH`] rows (Decision 22). Returns how many
+/// `DELETE` of at most [`PRUNE_BATCH`] rows. Returns how many
 /// went. The legacy `project_state` and `tabs` rows are never pruned.
 pub async fn prune_for_project(
     tx: &mut WriteTx,

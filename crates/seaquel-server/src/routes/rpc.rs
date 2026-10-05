@@ -17,7 +17,7 @@
 //! session and drops any copy the browser sent, so the header is trusted
 //! here; that trust is why the server must stay on loopback (`main.rs`).
 //!
-//! `X-Seaquel-Origin` (phase 5d, Decision 18) names the browser tab that
+//! `X-Seaquel-Origin` (phase 5d) names the browser tab that
 //! sent the call; the `StorageChanged` event of a write carries it, so that
 //! tab can skip its own change. Node forwards it only when it matches
 //! `^[A-Za-z0-9_-]{1,64}$`, and it's checked again here: one that's missing,
@@ -84,7 +84,7 @@ pub const ORIGIN_HEADER: &str = "x-seaquel-origin";
 pub const BODY_LIMIT: usize = 64 * 1024 * 1024;
 
 /// How many bytes of bodies one user's `/rpc` calls in flight may hold
-/// together (probe review, M4); a call past it is refused with
+/// together; a call past it is refused with
 /// [`TOO_MANY_REQUESTS`] (429) before it's parsed. A lone call always runs,
 /// so a body up to [`BODY_LIMIT`] still fits. The GUI's everyday calls
 /// (loading its state, many at once) are tiny next to it.
@@ -218,8 +218,8 @@ pub(crate) fn write_origin(headers: &HeaderMap) -> WriteOrigin {
 }
 
 /// A call [`MAX_EDIT_CALLS_PER_USER`] counts: the edit calls and the unary
-/// model calls. Library, settings and `ui` calls don't count (phase 5d,
-/// Decisions 15 and 27): they're single-row writes and reads, bounded by
+/// model calls. Library, settings and `ui` calls don't count (phase 5d):
+/// they're single-row writes and reads, bounded by
 /// the web limits; nor does `ai.respond`, which only hands a turn its
 /// answer. Like every call they count toward
 /// [`MAX_IN_FLIGHT_BYTES_PER_USER`] and the body limits.

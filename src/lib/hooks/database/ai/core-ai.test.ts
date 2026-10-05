@@ -1,8 +1,8 @@
 /**
- * `CoreAi` (phase 6 Task 7): every assistant call is an `ai` request to
+ * `CoreAi`: every assistant call is an `ai` request to
  * Core. On web the page sends the provider's key from the vault with each
- * call (Q1); on the desktop it sends none and never reads one (Core reads
- * the keychain, Decision 7): no `secret` call at all. The key is the fake
+ * call; on the desktop it sends none and never reads one (Core reads the keychain):
+ * no `secret` call at all. The key is the fake
  * test key; nothing here reaches a provider.
  */
 import { describe, expect, it, vi } from "vitest";
@@ -174,7 +174,7 @@ describe("CoreAi on web (the vault)", () => {
       (r) => (r as { params: { params: { apiKey?: string } } }).params.params.apiKey,
     );
     expect(sent).toEqual([TEST_KEY, TEST_KEY, TEST_KEY, TEST_KEY]);
-    // Review I1: every key names its provider, so Core can refuse it for another.
+    // Every key names its provider, so Core can refuse it for another.
     const named = [streams[0], ...calls].map(
       (r) => (r as { params: { params: { providerId?: string } } }).params.params.providerId,
     );

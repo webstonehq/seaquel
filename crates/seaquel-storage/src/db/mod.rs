@@ -1,4 +1,4 @@
-//! The SQL layer under every query function (phase 8 Decision 3): one set
+//! The SQL layer under every query function: one set
 //! of queries, two executors, chosen by target and never by a Cargo
 //! feature, so feature unification can't put both in one build.
 //!

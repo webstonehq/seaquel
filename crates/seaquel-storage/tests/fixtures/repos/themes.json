@@ -1,92 +1,10 @@
 {
-  "repo": "themeRepo",
-  "source": "src/lib/storage/repos/themes-repo.ts",
-  "note": "Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
-  "cases": [
-    {
-      "name": "themes/preferences",
-      "description": "loadPreferences is null until saved; save and overwrite.",
-      "steps": [
-        {"call":"themeRepo.loadPreferences","args":[],"result":null},
-        {"call":"themeRepo.savePreferences","args":["default-light","default-dark"]},
-        {
-          "call": "themeRepo.loadPreferences",
-          "args": [],
-          "result": {"lightThemeId":"default-light","darkThemeId":"default-dark"}
-        },
-        {"call":"themeRepo.savePreferences","args":["solarized-light","ünïcødé-dark"]},
-        {
-          "call": "themeRepo.loadPreferences",
-          "args": [],
-          "result": {"lightThemeId":"solarized-light","darkThemeId":"ünïcødé-dark"}
-        }
-      ],
-      "rows": {
-        "theme_preferences": {
-          "columns": ["id","light_theme_id","dark_theme_id"],
-          "rows": [[1,"solarized-light","ünïcødé-dark"]],
-          "types": [["integer","text","text"]]
-        }
-      }
-    },
-    {
-      "name": "themes/user-themes",
-      "description": "saveUserThemes replaces the set; loadUserThemes returns the parsed objects.",
-      "steps": [
-        {"call":"themeRepo.loadUserThemes","args":[],"result":[]},
-        {
-          "call": "themeRepo.saveUserThemes",
-          "args": [
-            [
-              {
-                "id": "t1",
-                "name": "Nachtblau 🌙",
-                "mode": "dark",
-                "colors": {"background":"#000000","accent":"#ff00ff"},
-                "nested": [1,2.5,null,true]
-              },
-              {"id":"t2","name":"Plain"}
-            ]
-          ]
-        },
-        {
-          "call": "themeRepo.loadUserThemes",
-          "args": [],
-          "result": [
-            {
-              "id": "t1",
-              "name": "Nachtblau 🌙",
-              "mode": "dark",
-              "colors": {"background":"#000000","accent":"#ff00ff"},
-              "nested": [1,2.5,null,true]
-            },
-            {"id":"t2","name":"Plain"}
-          ]
-        },
-        {"call":"themeRepo.saveUserThemes","args":[[{"id":"t3","name":"Only"}]]},
-        {"call":"themeRepo.loadUserThemes","args":[],"result":[{"id":"t3","name":"Only"}]},
-        {"call":"themeRepo.saveUserThemes","args":[[]]},
-        {"call":"themeRepo.loadUserThemes","args":[],"result":[]}
-      ],
-      "rows": {"user_themes":{"columns":["id","data"],"rows":[],"types":[]}}
-    },
-    {
-      "name": "themes/user-themes-bad-rows",
-      "description": "Bad and null JSON rows are skipped; a JSON scalar is kept.",
-      "steps": [
-        {"sql":"INSERT INTO user_themes (id, data) VALUES ('a', '{bad')","params":[]},
-        {"sql":"INSERT INTO user_themes (id, data) VALUES ('b', 'null')","params":[]},
-        {"sql":"INSERT INTO user_themes (id, data) VALUES ('c', '42')","params":[]},
-        {"sql":"INSERT INTO user_themes (id, data) VALUES ('d', '{\"id\":\"d\"}')","params":[]},
-        {"call":"themeRepo.loadUserThemes","args":[],"result":[42,{"id":"d"}]}
-      ],
-      "rows": {
-        "user_themes": {
-          "columns": ["id","data"],
-          "rows": [["a","{bad"],["b","null"],["c","42"],["d","{\"id\":\"d\"}"]],
-          "types": [["text","text"],["text","text"],["text","text"],["text","text"]]
-        }
-      }
-    }
-  ]
+"repo":"themeRepo",
+"source":"src/lib/storage/repos/themes-repo.ts",
+"note":"Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
+"cases":[
+{"name":"themes/preferences","description":"loadPreferences is null until saved; save and overwrite.","steps":[{"call":"themeRepo.loadPreferences","args":[],"result":null},{"call":"themeRepo.savePreferences","args":["default-light","default-dark"]},{"call":"themeRepo.loadPreferences","args":[],"result":{"lightThemeId":"default-light","darkThemeId":"default-dark"}},{"call":"themeRepo.savePreferences","args":["solarized-light","ünïcødé-dark"]},{"call":"themeRepo.loadPreferences","args":[],"result":{"lightThemeId":"solarized-light","darkThemeId":"ünïcødé-dark"}}],"rows":{"theme_preferences":{"columns":["id","light_theme_id","dark_theme_id"],"rows":[[1,"solarized-light","ünïcødé-dark"]],"types":[["integer","text","text"]]}}},
+{"name":"themes/user-themes","description":"saveUserThemes replaces the set; loadUserThemes returns the parsed objects.","steps":[{"call":"themeRepo.loadUserThemes","args":[],"result":[]},{"call":"themeRepo.saveUserThemes","args":[[{"id":"t1","name":"Nachtblau 🌙","mode":"dark","colors":{"background":"#000000","accent":"#ff00ff"},"nested":[1,2.5,null,true]},{"id":"t2","name":"Plain"}]]},{"call":"themeRepo.loadUserThemes","args":[],"result":[{"id":"t1","name":"Nachtblau 🌙","mode":"dark","colors":{"background":"#000000","accent":"#ff00ff"},"nested":[1,2.5,null,true]},{"id":"t2","name":"Plain"}]},{"call":"themeRepo.saveUserThemes","args":[[{"id":"t3","name":"Only"}]]},{"call":"themeRepo.loadUserThemes","args":[],"result":[{"id":"t3","name":"Only"}]},{"call":"themeRepo.saveUserThemes","args":[[]]},{"call":"themeRepo.loadUserThemes","args":[],"result":[]}],"rows":{"user_themes":{"columns":["id","data"],"rows":[],"types":[]}}},
+{"name":"themes/user-themes-bad-rows","description":"Bad and null JSON rows are skipped; a JSON scalar is kept.","steps":[{"sql":"INSERT INTO user_themes (id, data) VALUES ('a', '{bad')","params":[]},{"sql":"INSERT INTO user_themes (id, data) VALUES ('b', 'null')","params":[]},{"sql":"INSERT INTO user_themes (id, data) VALUES ('c', '42')","params":[]},{"sql":"INSERT INTO user_themes (id, data) VALUES ('d', '{\"id\":\"d\"}')","params":[]},{"call":"themeRepo.loadUserThemes","args":[],"result":[42,{"id":"d"}]}],"rows":{"user_themes":{"columns":["id","data"],"rows":[["a","{bad"],["b","null"],["c","42"],["d","{\"id\":\"d\"}"]],"types":[["text","text"],["text","text"],["text","text"],["text","text"]]}}}
+]
 }

@@ -1,7 +1,7 @@
 //! `CREATE TABLE` text to a table definition, for the table editor's SQL pane
-//! (Task 5). Port of `src/lib/db/parse-create-table.ts` (deleted in phase 2b)
-//! with bug fixes 16 and 17, as the recorder's `create-table-fixed.ts` defines
-//! them (`docs/plans/artifacts/2026-09-27-sql-recorder-create-table-fixed.ts.txt`).
+//! Port of `src/lib/db/parse-create-table.ts` (deleted in phase 2b)
+//! with bug fixes 16 and 17, as the recorder's `create-table-fixed.ts` (in
+//! git history) defines them.
 //! Not sqlparser: the pane matches type names as the user wrote them.
 //!
 //! The TS is a handful of regular expressions over three small scanners of its

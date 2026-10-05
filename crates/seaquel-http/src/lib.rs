@@ -7,10 +7,10 @@
 //! - [`NativeHttp`]: `seaquel_ai::http::HttpClient` over that client, with
 //!   the model calls' timeouts, no redirects and the egress rules.
 //! - [`egress`]: the web server's guard against model calls to private
-//!   addresses (phase 6 Decision 9).
+//!   addresses.
 //! - [`release_asset`] (the `release-asset` feature): a release asset
 //!   downloaded, checked for size and SHA-256, gunzipped and installed into
-//!   private folders (the DuckDB helper plan, Task 4).
+//!   private folders.
 
 pub mod client;
 pub mod egress;

@@ -7,9 +7,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Describe @public.users\n\nReferenced context:\nTable: public.users (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - email: text [NOT NULL]\n  - name: text"
   },
@@ -21,9 +19,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Describe @orders\n\nReferenced context:\nTable: public.orders (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - user_id: integer [FK, NOT NULL] -> users.id\n  - total: numeric(10,2)\n  - created_at: timestamp with time zone [NOT NULL]"
   },
@@ -35,9 +31,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Describe @USERS\n\nReferenced context:\nTable: public.users (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - email: text [NOT NULL]\n  - name: text"
   },
@@ -49,9 +43,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Describe @Public.Orders\n\nReferenced context:\nTable: public.orders (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - user_id: integer [FK, NOT NULL] -> users.id\n  - total: numeric(10,2)\n  - created_at: timestamp with time zone [NOT NULL]"
   },
@@ -63,9 +55,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Describe @public.active_users\n\nReferenced context:\nTable: public.active_users (view)\nColumns:\n  - id: integer\n  - email: text"
   },
@@ -77,9 +67,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Explain @\"Monthly revenue\"\n\nReferenced context:\nSaved query: Monthly revenue\n```sql\nSELECT date_trunc('month', created_at) AS m, sum(total) FROM orders GROUP BY 1\n```"
   },
@@ -91,9 +79,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Explain @Monthly revenue"
   },
@@ -105,9 +91,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Explain @users\n\nReferenced context:\nTable: public.users (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - email: text [NOT NULL]\n  - name: text"
   },
@@ -119,9 +103,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Change @Sales\n\nReferenced context:\nDashboard: Sales (id: dash-1)\nWidgets:\n  - Revenue [id: w-1] (kpi)\n    Query: SELECT sum(total) FROM orders\n  - Notes [id: w-2] (text)"
   },
@@ -133,9 +115,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Fill @\"Empty board\"\n\nReferenced context:\nDashboard: Empty board (id: dash-2)"
   },
@@ -147,9 +127,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "@orders and @ORDERS again\n\nReferenced context:\nTable: public.orders (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - user_id: integer [FK, NOT NULL] -> users.id\n  - total: numeric(10,2)\n  - created_at: timestamp with time zone [NOT NULL]"
   },
@@ -161,9 +139,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Ask @nobody about it"
   },
@@ -175,9 +151,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "What about @orders?"
   },
@@ -189,9 +163,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Mail ada@example.com"
   },
@@ -203,9 +175,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Plain question"
   },
@@ -217,9 +187,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": true
-      }
+      "sharing": { "schema": true }
     },
     "enriched": "Use @public.orders, @\"Top customers\" and @Sales\n\nReferenced context:\nSaved query: Top customers\n```sql\nSELECT user_id, count(*) FROM orders GROUP BY 1 ORDER BY 2 DESC LIMIT 10\n```\n\nDashboard: Sales (id: dash-1)\nWidgets:\n  - Revenue [id: w-1] (kpi)\n    Query: SELECT sum(total) FROM orders\n  - Notes [id: w-2] (text)"
   },
@@ -231,9 +199,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": false
-      }
+      "sharing": { "schema": false }
     },
     "enriched": "Describe @public.users\n\nReferenced context:\nTable: public.users (table)\nColumns:\n  - id: integer [PK, NOT NULL]\n  - email: text [NOT NULL]\n  - name: text"
   },
@@ -245,9 +211,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": false
-      }
+      "sharing": { "schema": false }
     },
     "enriched": "Explain @\"Monthly revenue\"\n\nReferenced context:\nSaved query: Monthly revenue\n```sql\nSELECT date_trunc('month', created_at) AS m, sum(total) FROM orders GROUP BY 1\n```"
   },
@@ -259,9 +223,7 @@
       "tables": "SCHEMA",
       "savedQueries": "SAVED",
       "dashboards": "DASHBOARDS",
-      "sharing": {
-        "schema": false
-      }
+      "sharing": { "schema": false }
     },
     "enriched": "Change @Sales\n\nReferenced context:\nDashboard: Sales (id: dash-1)\nWidgets:\n  - Revenue [id: w-1] (kpi)\n    Query: SELECT sum(total) FROM orders\n  - Notes [id: w-2] (text)"
   }

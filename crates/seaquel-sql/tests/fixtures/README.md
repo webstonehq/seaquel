@@ -1,5 +1,9 @@
 # seaquel-sql parity fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`. The same day, the `about` text of `bugfixes.json` (no test reads it) gained ", now in git history at ae7f269" after the plan it names; nothing else in the file changed.
+
 > **Frozen.** These files pin what the TypeScript SQL code did (with the
 > numbered bug fixes applied) before `seaquel-sql` replaced it in phase 2b. The
 > TypeScript and the recorder are gone, so the fixtures can't be recorded
@@ -32,7 +36,7 @@ It imported the real TS (`parseSql`, `parseQueryForVisualization`,
 `extractParameters`, `hasParameters`, `substituteParameters`,
 `parseCreateTableSql`, `applyParsedSqlToState`, `buildSql` and the lesson
 criteria), so it was deleted with that TS in phase 2b (Task 12). A copy of
-every file in `scripts/sql-fixtures/` is kept as
+every file in `scripts/sql-fixtures/` was kept as
 `docs/plans/artifacts/2026-09-27-sql-recorder-<file>.txt`, for example
 `2026-09-27-sql-recorder-params-model.ts.txt`. The file names below are the
 recorder's.

@@ -1,4 +1,4 @@
-//! The in-memory executor's own tests (phase 8 Task 2). They run twice:
+//! The in-memory executor's own tests. They run twice:
 //! natively over `libsqlite3-sys` (`cargo test -p seaquel-storage --lib`),
 //! and in wasm32 under Node over `sqlite-wasm-rs`
 //! (`cargo test --target wasm32-unknown-unknown -p seaquel-storage --lib`,
@@ -194,7 +194,7 @@ both!(a_lone_surrogate_reads_as_5d2_does, {
     let p = pool();
     // `->>` gives an escaped lone surrogate as CESU-8 (`ED A0 80`), and the
     // `name` codecs read it as bytes; reading it as text fails, as sqlx's
-    // `from_utf8` does (5d-2 Task 7 review).
+    // `from_utf8` does.
     let sql = r#"SELECT '"\ud800x"' ->> '$' AS v"#;
     let bytes: Option<Vec<u8>> = query_scalar(sql).fetch_one(&p).await.unwrap();
     assert_eq!(bytes, Some(vec![0xED, 0xA0, 0x80, b'x']));

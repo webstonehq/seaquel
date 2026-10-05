@@ -1,11 +1,11 @@
 /**
- * The assistant's turn in the demo's module (phase 6 Task 5): `ai.chat`
+ * The assistant's turn in the demo's module: `ai.chat`
  * through the module's `stream`, its model calls going out through a fetch
  * bridge the page passes to `open` (here over Node's `fetch`) to a local
  * Node mock provider. Stopping a turn is `db.cancel`, and the module keeps
  * polling it, so the reply is stored with what streamed; a dropped turn
- * aborts its request too. The bridge is the page's own (`./fetch-bridge`,
- * Task 8). No real provider is called; the key is the fake test key.
+ * aborts its request too. The bridge is the page's own (`./fetch-bridge`).
+ * No real provider is called; the key is the fake test key.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AsyncDuckDB } from "@duckdb/duckdb-wasm";
@@ -32,7 +32,7 @@ if (missing && process.env.CI) throw new Error(missing);
 const TEST_KEY = "test-key-not-real";
 
 /**
- * The page's fetch bridge (`./fetch-bridge`, Task 8) over Node's `fetch`,
+ * The page's fetch bridge (`./fetch-bridge`) over Node's `fetch`,
  * limited to the mock (`localFetch`), with each abort recorded.
  */
 function fetchBridge(mock: MockProvider) {
@@ -72,7 +72,7 @@ describe.skipIf(missing !== null)("the assistant in the browser module", () => {
     return response.result.result;
   }
 
-  /** The provider `setUp` made: a supplied key names it (review I1). */
+  /** The provider `setUp` made: a supplied key names it. */
   let providerId = "";
 
   /** A provider at the mock on the demo connection, a chat, and the connection open. */
@@ -171,7 +171,7 @@ describe.skipIf(missing !== null)("the assistant in the browser module", () => {
         events.push(event);
         if (event.event.type === "text" && !cancelled) {
           cancelled = true;
-          // Never from inside the callback (Decision 15): a microtask later.
+          // Never from inside the callback: a microtask later.
           queueMicrotask(() => void module.call(body("db", "cancel", { streamId: "t3" })));
         }
       },

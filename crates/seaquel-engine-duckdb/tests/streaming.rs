@@ -1,4 +1,4 @@
-//! Streaming execution for `query_stream` (the DuckDB helper plan's Q3 A):
+//! Streaming execution for `query_stream`:
 //! DuckDB hands out a result's chunks as it produces them, instead of
 //! materializing the whole result before the first one. So the first batch
 //! arrives early, a query failing late fails after the batches before it,

@@ -74,7 +74,7 @@ pub enum SecretError {
     /// There is no store to ask: no D-Bus session or Secret Service
     /// provider (a headless Linux host), no keychain the session can use
     /// (macOS over SSH). Unlike [`SecretError::Store`], nothing refused, so
-    /// a connect can ask for the secret instead (phase 7a probe F4).
+    /// a connect can ask for the secret instead.
     #[error("{op} secret {key:?} failed: {message}")]
     Unavailable {
         op: SecretOp,

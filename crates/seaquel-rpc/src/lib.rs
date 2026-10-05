@@ -18,7 +18,7 @@
 //! the frontend makes (introspection, EXPLAIN, and the table editor's DDL),
 //! and a dispatcher onto Core. Paging and the grid's CRUD statements aren't
 //! here any more: Core builds them for `db.tablePage`, `db.planEdits` and
-//! `db.applyChanges` (phase 5c, Decision 14).
+//! `db.applyChanges` (phase 5c).
 //!
 //! The GUIs reach it as `db.engine`: an [`EngineRequest`] on one of the
 //! workspace's connections, run through [`dispatch_on`].

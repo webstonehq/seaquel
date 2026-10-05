@@ -1,6 +1,6 @@
 /**
  * The schema-cache lookups the view model runs on the table and column
- * references a run's `statementStart` carries (phase 5b, Decision 9).
+ * references a run's `statementStart` carries (phase 5b).
  */
 import { describe, expect, it } from "vitest";
 import type { SchemaTable } from "$lib/types";

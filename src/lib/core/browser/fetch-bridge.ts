@@ -1,5 +1,5 @@
 /**
- * The demo's fetch bridge (phase 6 Task 8, Decision 8, Q2 B): the page's
+ * The demo's fetch bridge: the page's
  * half of the module's model calls (`crates/seaquel-browser/src/fetch.rs`).
  * `openBrowserCore` passes it to the module's `open`, and `BrowserCore`
  * passes it again to every instance a trap restart opens.
@@ -7,7 +7,7 @@
  * - `start(id, …)` sends the request Rust built (headers and body as given,
  *   the visitor's key among the headers) and resolves with the status once
  *   the head arrives. No cookie, no referrer, no cache, and no redirect is
- *   followed (Decision 9: a redirect fails the call).
+ *   followed (a redirect fails the call).
  * - `read(id)` gives the next body chunk, or `null` at the end (and for an
  *   id that's finished, aborted or unknown).
  * - `abort(id)` stops the request: before the head (the fetch's signal) or

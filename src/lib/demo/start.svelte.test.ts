@@ -1,6 +1,6 @@
 /**
- * The demo's start on Core in the page (phase 8, Task 6; Decisions 6, 17,
- * 19 and 20): the whole page (`UseDatabase`) over the browser module (its
+ * The demo's start on Core in the page (phase 8):
+ * the whole page (`UseDatabase`) over the browser module (its
  * test build) and DuckDB-WASM's Node build, as `src/routes/(app)/+layout`
  * starts it. Each "page load" is a fresh module graph and a fresh DuckDB
  * (a reload's DuckDB starts empty), over one snapshot store, as IndexedDB
@@ -172,7 +172,7 @@ describe.skipIf(missing)("the demo's start", () => {
 
   it("the demo starts clean with an old file in localStorage and deletes it", async () => {
     const local = new FakeLocalStorage();
-    // An earlier demo's metadata file (Q2 C: never read), and keys that stay.
+    // An earlier demo's metadata file (never read), and keys that stay.
     local.setItem("seaquel_db", "U1FMaXRlIGZvcm1hdCAz");
     local.setItem("seaquel_db.backup", "x");
     local.setItem("seaquel-theme-cache", "{}");

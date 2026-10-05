@@ -179,7 +179,7 @@ describe("substituteParameters: mssql", () => {
         dec: new SqlDecimal("-0.50"),
       }).sql,
     ).toBe("SELECT 1, 9007199254740993, (-0.50)");
-    // Changed from the TS (decision 11 in the phase 2b plan): a bytes value is
+    // Changed from the TS: a bytes value is
     // refused. The TS inlined it as `0x00ff10`; no caller passes one.
     expect(() => sub("SELECT {{bin}}", { bin: new Uint8Array([0, 255, 16]) })).toThrow(
       ParameterSubstitutionError,
@@ -289,7 +289,7 @@ describe("substituteParameters: duckdb", () => {
         t: true,
       }).sql,
     ).toBe("SELECT 9007199254740993, 0.001, 1");
-    // Changed from the TS (decision 11 in the phase 2b plan): a bytes value is
+    // Changed from the TS: a bytes value is
     // refused. The TS inlined it as `from_hex('00ff')`; no caller passes one.
     expect(() => sub("SELECT {{bin}}", { bin: new Uint8Array([0, 255]) })).toThrow(
       ParameterSubstitutionError,

@@ -1,6 +1,6 @@
 /**
  * The phase 6 ts-baseline's page-view values, replayed through the page on
- * Core's events (Task 7). Task 4's replay (`seaquel-core/tests/ai_replay.rs`)
+ * Core's events. Task 4's replay (`seaquel-core/tests/ai_replay.rs`)
  * pins what Core sends, stores and refuses for `page.json`; it left the
  * page's own view to this task: `messages` (what the chat shows),
  * `allowAllAfter`, the approval cards (`approvals`), and `turns.json`'s
@@ -237,7 +237,7 @@ function coreTurn(plan: TurnPlan) {
       turn.emit({ type: "approvalRequired", callId, sql });
       return Promise.race([turn.answer(callId), turn.stopped().then(() => null)]);
     };
-    /** Stop: Core stores the reply with what streamed, and sends nothing more (Q8). */
+    /** Stop: Core stores the reply with what streamed, and sends nothing more. */
     const stopped = async () => {
       await store(turn, { content: text });
     };

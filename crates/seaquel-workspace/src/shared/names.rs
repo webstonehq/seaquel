@@ -1,4 +1,4 @@
-//! File names (Q21, Decision 39) and the path rules (Decision 32).
+//! File names and the path rules.
 
 use std::collections::HashSet;
 
@@ -41,7 +41,7 @@ fn cut(s: &str, max: usize) -> &str {
     s[..end].trim_end_matches('-')
 }
 
-/// A name's file stem (Q21): NFC, lower case, NFC again; letters, marks and
+/// A name's file stem: NFC, lower case, NFC again; letters, marks and
 /// digits of every script kept (`\p{L}`, `\p{M}`, `\p{N}`); any other run
 /// is one `-`, and none at either end; `untitled` when nothing is left;
 /// Windows' reserved names get `-file`; at most 250 bytes, cut on a
@@ -75,8 +75,8 @@ pub fn file_stem(name: &str) -> String {
     cut(&stem, MAX_STEM_BYTES).to_string()
 }
 
-/// Today's `nameToFilename` (the slug path of rows an older release wrote,
-/// Decision 33): lower case, everything but `a-z0-9`, whitespace and `-`
+/// Today's `nameToFilename` (the slug path of rows an older release wrote):
+/// lower case, everything but `a-z0-9`, whitespace and `-`
 /// dropped, runs of whitespace as `-`, runs of `-` as one, one `-` trimmed
 /// at each end, `untitled` when nothing is left.
 pub fn legacy_stem(name: &str) -> String {
@@ -117,7 +117,7 @@ pub fn legacy_stem(name: &str) -> String {
     }
 }
 
-/// How paths compare when Core picks a new one (Decision 32, M2): NFC and
+/// How paths compare when Core picks a new one (M2): NFC and
 /// case-insensitive, as APFS and NTFS compare names.
 pub fn path_key(path: &str) -> String {
     nfc_lower_nfc(path)
@@ -161,8 +161,8 @@ fn join(dir: &str, name: &str) -> String {
     }
 }
 
-/// The first free `<dir>/<stem><ext>`, then `<stem>-2<ext>`, `-3`, …
-/// (Q21). `taken` decides what is free; pass one that compares by
+/// The first free `<dir>/<stem><ext>`, then `<stem>-2<ext>`, `-3`, ….
+/// `taken` decides what is free; pass one that compares by
 /// [`path_key`] ([`TakenPaths`]). The file name stays within 255 bytes: a
 /// suffix cuts the stem again on a character boundary.
 pub fn free_path(dir: &str, stem: &str, ext: &str, taken: &dyn Fn(&str) -> bool) -> String {
@@ -175,7 +175,7 @@ pub fn free_path(dir: &str, stem: &str, ext: &str, taken: &dyn Fn(&str) -> bool)
     if !taken(&first) {
         return first;
     }
-    // Decision 32 bounds a directory at 20,000 files, so a free name turns
+    // The scan bounds a directory at 20,000 files, so a free name turns
     // up long before this; the cap only keeps the loop finite.
     let mut last = first;
     for n in 2..=1_000_000u32 {
@@ -187,7 +187,7 @@ pub fn free_path(dir: &str, stem: &str, ext: &str, taken: &dyn Fn(&str) -> bool)
     last
 }
 
-/// Why a path was refused (Decision 32). Names no part of the path.
+/// Why a path was refused. Names no part of the path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathProblem {
     NotUnderSeaquel,
@@ -230,7 +230,7 @@ pub fn check_component(part: &str) -> Result<(), PathProblem> {
     Ok(())
 }
 
-/// A repo-relative path from a row or a request (Decision 32):
+/// A repo-relative path from a row or a request:
 /// `.seaquel/` then `/`-separated components that pass
 /// [`check_component`], at most 1,024 bytes.
 pub fn check_rel_path(path: &str) -> Result<(), PathProblem> {

@@ -7,8 +7,8 @@ description = "DuckDB engine for Seaquel: the DuckDB helper's two halves (the cl
 [features]
 # The helper's client: every native interface reaches DuckDB this way, so
 # `cargo test -p seaquel-engine-duckdb` runs every suite through the helper
-# with no DuckDB in the test binaries. (The in-process native driver was
-# deleted in Task 12 of the desktop DuckDB helper plan.)
+# with no DuckDB in the test binaries. (There is no in-process native
+# driver any more.)
 default = ["remote"]
 # The browser demo (phase 8): DuckDB-WASM through a JavaScript bridge the page
 # passes in. Its driver is compiled only for wasm32 (`src/browser/`); the
@@ -21,7 +21,7 @@ browser = [
     "dep:wasm-bindgen",
     "dep:wasm-bindgen-futures",
 ]
-# The DuckDB helper (the DuckDB helper plan): `remote` is the client half, a
+# The DuckDB helper: `remote` is the client half, a
 # `Driver` over a `seaquel-duckdb` child process, with no `duckdb` crate;
 # `helper` is the server half the helper binary runs: duckdb-rs, the session
 # code (`session.rs`), the interrupt guard (`blocking.rs`) and the column
@@ -42,7 +42,7 @@ remote = [
     "tokio/sync",
     "tokio/time",
     # Windows: every start reads the helper's and its folders' DACLs
-    # (`process::check`; the desktop DuckDB helper plan, Task 7).
+    # (`process::check`).
     "seaquel-runtime/acl",
 ]
 # `tokio/time`: the end's wait for DuckDB's close is measured on tokio's

@@ -596,7 +596,7 @@ async fn refill_covers_dashboards() {
     st.close().await;
 }
 
-/// 5d-2 Task 7 review: an older release's replace-all save writes
+/// An older release's replace-all save writes
 /// `saved_canvases` rows (and versions) with no `meta` (`widget_count`);
 /// every writable open fills them again, as `refill_name_keys` does. Only
 /// an indexed `EXISTS` read when there's nothing to fill: a row that can't
@@ -924,7 +924,7 @@ async fn dashboard_version_lists_carry_no_snapshots() {
             ("v2", 2.0, Some(1), "t2"),
             ("v3", 3.0, None, "t3"),
             ("v4", 4.0, None, "t4"),
-            // Review fix: text that isn't UTF-8 is read lossily, not a
+            // Text that isn't UTF-8 is read lossily, not a
             // failed list.
             ("v5", 5.0, Some(0), "\u{FFFD}"),
         ]
@@ -1128,7 +1128,7 @@ async fn saved_workflow_lists_carry_no_bodies() {
              ('ff', 'p', CAST(X'7B226E616D65223A22FF227D' AS TEXT))"#,
     )
     .await;
-    // Review fix: a name SQLite hands back as bytes that aren't UTF-8 (a
+    // A name SQLite hands back as bytes that aren't UTF-8 (a
     // lone surrogate's `->>` is CESU-8, `EDA080`; a stored `FF` is copied
     // through by `json_object`) is read lossily; it never fails the list.
     let list = saved_canvases::list_meta(&st, "p").await.unwrap();
@@ -1732,7 +1732,7 @@ async fn most_recent_is_the_projects_last_saved_window() {
             .unwrap();
     }
     tx.commit().await.unwrap();
-    // The last write committed, whatever the times say (5d-2 Task 7): the
+    // The last write committed, whatever the times say: the
     // legacy mirror, written by every save, shows `c`'s too.
     let recent = window_state::most_recent(&st, "p").await.unwrap().unwrap();
     assert_eq!(
@@ -2042,7 +2042,7 @@ async fn the_legacy_mirror_equals_todays_save_without_canvases() {
 
 /// The window state has no connection order or starred lists: the mirror
 /// keeps the stored ones (and a project with no row gets the defaults),
-/// and writes the saving window's active connection (Q14).
+/// and writes the saving window's active connection.
 #[tokio::test]
 async fn the_mirror_keeps_the_stored_connection_order() {
     let dir = tempfile::tempdir().unwrap();
@@ -2361,7 +2361,7 @@ async fn refill_skips_names_that_arent_utf8() {
 
 // ── Task 4 additions: `windowGet`'s read and a provider's vault rows ──
 
-/// `windowGet`'s fallback (Decision 22): the most recently used window
+/// `windowGet`'s fallback: the most recently used window
 /// that has an active project, whichever it is; windows without one are
 /// passed over.
 #[tokio::test]
@@ -2399,8 +2399,8 @@ async fn most_recent_active_uses_the_index() {
     st.close().await;
 }
 
-/// A removed AI provider's vault row goes inside the removal's write
-/// (Decision 20); rows of other scopes or keys stay.
+/// A removed AI provider's vault row goes inside the removal's write;
+/// rows of other scopes or keys stay.
 #[tokio::test]
 async fn a_credential_is_removed_by_scope_and_key_inside_a_write() {
     use seaquel_storage::user_credentials;
@@ -2454,7 +2454,7 @@ async fn a_credential_is_removed_by_scope_and_key_inside_a_write() {
     st.close().await;
 }
 
-/// Windows used in the same millisecond (5d-2 Task 7 probe fix): "most
+/// Windows used in the same millisecond: "most
 /// recent" is the last write committed, in both tables, whatever the rows'
 /// times and insertion order, so `windowGet`, a new window's copy and the
 /// legacy mirror (written by every save) agree. A row updated in place
@@ -2562,7 +2562,7 @@ async fn the_prunes_use_their_indexes_without_a_sort() {
     st.close().await;
 }
 
-/// Phase 5d-2 review: the web's per-user backstop. With `max_bytes` the
+/// The web's per-user backstop. With `max_bytes` the
 /// file can't grow past its cap: a write past it fails with `STORAGE_FULL`
 /// and leaves nothing, and smaller writes still go through. Without it
 /// (the desktop) the same write succeeds.
@@ -2697,7 +2697,7 @@ async fn a_cancelled_write_leaves_no_transaction_open() {
     st.close().await;
 }
 
-/// Phase 5d-2 re-review: a file at or over the cap still opens (the schema
+/// A file at or over the cap still opens (the schema
 /// work, here a pending migration that adds pages, runs uncapped); reads
 /// and deletes work, and only a write that grows it is refused.
 #[tokio::test]

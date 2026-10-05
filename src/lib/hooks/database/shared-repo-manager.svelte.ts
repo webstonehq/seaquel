@@ -43,7 +43,7 @@ export interface SharedViews {
  * git status of each (the sync button's counts and state, held in memory
  * only: a status refresh writes nothing, bug 20), and the conflict dialog's
  * state. A pull, a commit and a conflict resolution sync every project
- * linked to the repo (Decision 35); the git calls take Core's repo lock and
+ * linked to the repo; the git calls take Core's repo lock and
  * record `lastSyncAt` themselves.
  */
 export class SharedRepoManager {
@@ -201,8 +201,8 @@ export class SharedRepoManager {
   // -------- Git --------
 
   /**
-   * Pull changes from remote, then sync every project linked to the repo
-   * (Decision 35). Conflicts open the conflict dialog. `"updated"` when the
+   * Pull changes from remote, then sync every project linked to the repo.
+   * Conflicts open the conflict dialog. `"updated"` when the
    * pull went through, `"conflicted"` when it left conflicts (the caller
    * then says nothing about an update).
    */
@@ -298,7 +298,7 @@ export class SharedRepoManager {
 
   /**
    * Resolve one conflicted file with `resolution`; once none is left, the
-   * repo's projects are synced (Decision 35).
+   * repo's projects are synced.
    */
   /** `resolution` `null` keeps a side that deleted the file. */
   async resolveConflict(
@@ -376,7 +376,7 @@ export class SharedRepoManager {
   }
 
   /**
-   * Probe fix 7: the projects this sync skipped whole are marked (their
+   * The projects this sync skipped whole are marked (their
    * sync status shows it); the others it read are cleared. A conflicted
    * sync read nothing and changes nothing.
    */
@@ -429,7 +429,7 @@ export class SharedRepoManager {
   /**
    * Refresh the Git status for a repository. A status that can't be read is
    * shown on the repo (`statusUnreadable`, the error, `syncStatus` error)
-   * instead of passing silently (Task 1, M4).
+   * instead of passing silently (M4).
    */
   async refreshRepoStatus(repoId: string): Promise<void> {
     const repo = this.state.sharedRepos.find((r) => r.id === repoId);
@@ -524,8 +524,8 @@ export class SharedRepoManager {
 
   /**
    * Refresh every repo's status; a repo whose status changed since the last
-   * refresh (someone edited its files, committed or fetched) is synced
-   * (Decision 35). The first refresh only records the status: startup
+   * refresh (someone edited its files, committed or fetched) is synced.
+   * The first refresh only records the status: startup
    * syncs the active project itself.
    */
   async refreshAllRepoStatuses(): Promise<void> {

@@ -17,7 +17,7 @@ use seaquel_types::storage::PersistedAIMessage;
 
 use crate::library::ChangeSeq;
 
-/// A provider's API key sent with one call (web, demo; Decision 7):
+/// A provider's API key sent with one call (web, demo):
 /// never serialized, never shown by `Debug`, dropped with the call.
 #[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
@@ -52,7 +52,7 @@ impl From<String> for SuppliedSecret {
     }
 }
 
-/// Whether the turn asks before a query tool runs (Decision 6).
+/// Whether the turn asks before a query tool runs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -65,8 +65,7 @@ pub enum Approval {
     AllowAll,
 }
 
-/// The user's message, with the id the page made for it (5d-2, Decision
-/// 24).
+/// The user's message, with the id the page made for it (5d-2).
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -111,7 +110,7 @@ pub struct ChatParams {
     pub api_key: Option<SuppliedSecret>,
     /// The provider `api_key` is for, required with it: a key for any other
     /// provider than the one Core resolves is refused before a request
-    /// (`AI_PROVIDER_CHANGED`, Task 7 review I1).
+    /// (`AI_PROVIDER_CHANGED`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub provider_id: Option<String>,
@@ -183,20 +182,19 @@ pub enum AiStop {
     End,
     /// The model ran out of tokens (bug 5): the reply is cut.
     MaxTokens,
-    /// The reply reached the most a stored reply may hold (the message
-    /// limit, `max_message_bytes`, or Core's 1 MiB ceiling; probe F2):
+    /// The reply reached the most a stored reply may hold (the message limit, `max_message_bytes`, or Core's 1 MiB ceiling):
     /// Core stopped reading the provider and stored the reply cut, ending
     /// with [`REPLY_CUT_NOTE`].
     TooLong,
 }
 
-/// What a reply Core cut for its size ends with, as stored (probe F2): the
+/// What a reply Core cut for its size ends with, as stored: the
 /// model reads it in later turns' history, and the page recognises it and
 /// shows its own wording instead.
 pub const REPLY_CUT_NOTE: &str =
     "\n\n[Seaquel cut this reply here: it was longer than a stored reply may be.]";
 
-/// What a turn tells the page (Decision 11), in order: one `started`, then
+/// What a turn tells the page, in order: one `started`, then
 /// `text` (coalesced), `toolCall`/`toolDone`, `approvalRequired` and
 /// `clientTool` as they come, and exactly one `done` or `error`. A
 /// cancelled turn ends with neither.
@@ -347,7 +345,7 @@ impl fmt::Debug for AiEvent {
     }
 }
 
-/// The inline prompt (`ai.generate`, Decision 18): the saved connection
+/// The inline prompt (`ai.generate`): the saved connection
 /// whose provider, model and sharing apply, what the user asked and the
 /// editor's text. Answers the SQL to insert.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]

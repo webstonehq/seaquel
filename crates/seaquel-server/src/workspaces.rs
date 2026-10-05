@@ -108,10 +108,9 @@ fn read_user_db_max_bytes() -> u64 {
     }
 }
 
-/// Each workspace's storage: at most 2 connections (one reader, and the
-/// writer connection; phase 7a Decision 5), each closed once idle for 60 s, and the file capped at
-/// [`user_db_max_bytes`] (phase 5d-2 review: a per-user backstop behind the
-/// per-call limits; a write past it fails with `STORAGE_FULL`, 507).
+/// Each workspace's storage: at most 2 connections (one reader, and the writer connection),
+/// each closed once idle for 60 s, and the file capped at
+/// [`user_db_max_bytes`] (a per-user backstop behind the per-call limits; a write past it fails with `STORAGE_FULL`).
 pub fn user_storage_options() -> StorageOptions {
     StorageOptions {
         max_connections: 2,
@@ -209,13 +208,13 @@ struct Stats {
 
 /// How many events one listener (socket) may have waiting before it counts
 /// as lagging: past it the hub drops the listener, and its socket closes
-/// with 1013 and [`EVENTS_LAGGED`] so the client reconnects and reloads
-/// (phase 5d review, I1). A socket that keeps up never gets near it.
+/// with 1013 and [`EVENTS_LAGGED`] so the client reconnects and reloads.
+/// A socket that keeps up never gets near it.
 pub const LISTENER_EVENT_BOUND: usize = 1024;
 
 /// How many bytes of events (as [`event_bytes`] counts them) one listener
 /// may have waiting before it counts as lagging, like
-/// [`LISTENER_EVENT_BOUND`] (phase 5d-1 probe fix, c6). Core keeps each
+/// [`LISTENER_EVENT_BOUND`] (c6). Core keeps each
 /// event small (at most 16 KiB of ids, a scope of at most 1 KiB), so this
 /// is the backstop: a user's sockets together hold at most
 /// [`MAX_LISTENERS_PER_USER`] × 8 MiB.
@@ -476,9 +475,8 @@ impl Drop for CallSlot {
 }
 
 /// How long a window's connections outlive its last `/rpc/stream` socket
-/// (phase 6 probe F4; 10 minutes since its review, I1: a short sleep or a
-/// slow network keeps them, and a tab back later reconnects what it shows
-/// after `db.alive`): a reload reconnects well within it and keeps them
+/// (10 minutes since its review, I1: a short sleep or a slow network keeps them, and a tab back later reconnects what it shows after `db.alive`):
+/// a reload reconnects well within it and keeps them
 /// (the reconnects then replace them, see `Workspace::connect`); a tab
 /// that stays closed past it loses them (`Workspace::close_owned_by`).
 /// [`Workspaces::with_window_grace`] shortens it for tests.
@@ -629,8 +627,8 @@ impl Workspaces {
     }
 
     /// Count one open `/rpc/stream` socket of `user_id`'s window `origin`
-    /// (its write origin, the tab's window id) until the hold is dropped
-    /// (phase 6 probe F4). When a window's last socket closes and none
+    /// (its write origin, the tab's window id) until the hold is dropped.
+    /// When a window's last socket closes and none
     /// opens within the grace period ([`WINDOW_GRACE`]), the window is
     /// gone: its connections in the user's open workspace are closed
     /// (`Workspace::close_owned_by`), and the user's other sockets hear
@@ -1059,7 +1057,7 @@ mod tests {
         }
     }
 
-    /// Phase 5d-1 probe fix: a listener's queue is bounded by bytes as well
+    /// A listener's queue is bounded by bytes as well
     /// as by count, and reading an event frees its bytes.
     #[tokio::test]
     async fn a_listener_past_its_byte_bound_is_dropped_as_lagging() {

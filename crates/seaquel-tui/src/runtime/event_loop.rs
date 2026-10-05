@@ -1,4 +1,4 @@
-//! The event loop (spike S2): one `tokio::select!`, biased to input, over
+//! The event loop: one `tokio::select!`, biased to input, over
 //! the terminal's events, Core's answers (the inbox), the spawned tasks,
 //! the shutdown signals and a 16 ms tick. Input marks the screen dirty; a tick draws it only then, so
 //! a flood of events never costs a frame each. `update` gets every message
@@ -36,7 +36,7 @@ pub enum Exit {
     Crashed,
     /// The terminal's event stream ended.
     EventsEnded,
-    /// The terminal went away (EIO before SIGHUP; probe F5).
+    /// The terminal went away (EIO before SIGHUP).
     TerminalClosed,
 }
 
@@ -561,7 +561,7 @@ mod tests {
         assert!(text.contains("vi: not found"), "drawn again: {text}");
     }
 
-    // Review I1: a bracketed paste reaches `update` as one message.
+    // A bracketed paste reaches `update` as one message.
     #[test]
     fn a_paste_is_one_message() {
         assert!(matches!(

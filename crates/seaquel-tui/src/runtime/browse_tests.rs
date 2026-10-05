@@ -308,7 +308,7 @@ async fn postgres_keys_by_a_two_column_primary_key_and_casts_json() {
         store: store.clone(),
     };
     let table = crate::testing::live::unique_table("tui_browse");
-    // Dropped when the test ends, failed or not (probe F9).
+    // Dropped when the test ends, failed or not.
     let _guard = crate::testing::live::TableGuard::new(&config, &format!("public.{table}"));
     let setup = table.clone();
     let conn = seed
@@ -527,7 +527,7 @@ async fn mysql_round_trips_bytes_a_bigint_and_a_decimal() {
         store: store.clone(),
     };
     let table = crate::testing::live::unique_table("tui_bytes");
-    // Dropped when the test ends, failed or not (probe F9).
+    // Dropped when the test ends, failed or not.
     let _guard = crate::testing::live::TableGuard::new(&config, &table);
     let setup = table.clone();
     let conn = seed

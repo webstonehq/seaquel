@@ -1,5 +1,5 @@
 /**
- * Phase 5e Task 7: the GUI over Core's shared projection and imports. The
+ * The GUI over Core's shared projection and imports. The
  * managers run as `UseDatabase` wires them, over a recording library (whose
  * write answers can carry a `projection` outcome), a recording
  * `SharedService` and `ImportsService`, and a git stub. No manager under

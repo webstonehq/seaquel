@@ -4,48 +4,16 @@
       "name": "getColumnTypes",
       "input": {},
       "output": [
-        {
-          "name": "TEXT",
-          "category": "String"
-        },
-        {
-          "name": "VARCHAR",
-          "category": "String",
-          "hasLength": true
-        },
-        {
-          "name": "INTEGER",
-          "category": "Numeric"
-        },
-        {
-          "name": "REAL",
-          "category": "Numeric"
-        },
-        {
-          "name": "NUMERIC",
-          "category": "Numeric",
-          "hasPrecision": true
-        },
-        {
-          "name": "BLOB",
-          "category": "Binary"
-        },
-        {
-          "name": "BOOLEAN",
-          "category": "Boolean"
-        },
-        {
-          "name": "DATE",
-          "category": "Date/Time"
-        },
-        {
-          "name": "DATETIME",
-          "category": "Date/Time"
-        },
-        {
-          "name": "TIMESTAMP",
-          "category": "Date/Time"
-        }
+        { "name": "TEXT", "category": "String" },
+        { "name": "VARCHAR", "category": "String", "hasLength": true },
+        { "name": "INTEGER", "category": "Numeric" },
+        { "name": "REAL", "category": "Numeric" },
+        { "name": "NUMERIC", "category": "Numeric", "hasPrecision": true },
+        { "name": "BLOB", "category": "Binary" },
+        { "name": "BOOLEAN", "category": "Boolean" },
+        { "name": "DATE", "category": "Date/Time" },
+        { "name": "DATETIME", "category": "Date/Time" },
+        { "name": "TIMESTAMP", "category": "Date/Time" }
       ]
     }
   ]

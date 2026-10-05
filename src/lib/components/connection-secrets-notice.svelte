@@ -3,7 +3,7 @@
 	import { m } from "$lib/paraglide/messages.js";
 	import { connectionSecretsNotice } from "$lib/stores/connection-secrets-notice.svelte.js";
 
-	// Decision 12a: shown once, then the stored list is cleared.
+	// Shown once, then the stored list is cleared.
 	const dismiss = () => void connectionSecretsNotice.dismiss();
 </script>
 

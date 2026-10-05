@@ -1,4 +1,4 @@
-//! `SchemaPolicy::RequireCurrent` (phase 7a Decision 3): a second process
+//! `SchemaPolicy::RequireCurrent`: a second process
 //! beside the app (the TUI) opens the file writable, but only when there is
 //! no schema work left, and then never creates, migrates or re-journals it.
 

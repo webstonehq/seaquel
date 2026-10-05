@@ -1,5 +1,5 @@
 //! `seaquel-tui`: Seaquel in the terminal, a lazygit-style client over Core
-//! in a binary of its own (phase 7a, Q1). `main.rs` only calls [`run`].
+//! in a binary of its own (phase 7a). `main.rs` only calls [`run`].
 //!
 //! - `state/`: the model and `update`, pure (no Core, no I/O, no clock);
 //! - `view/`: the renderer, which only reads the model;
@@ -106,7 +106,7 @@ pub fn run(args: TuiArgs) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    // The state file (Q4 A): `--theme` is remembered once given.
+    // The state file: `--theme` is remembered once given.
     let mut remembered = runtime::state_file::load(&dir);
     let choice = match args.theme {
         Some(choice) => {
@@ -143,7 +143,7 @@ pub fn run(args: TuiArgs) -> ExitCode {
     // Core stops a statement still running on the server from a task of
     // its own, spawned as the stream drops (Postgres's `pg_cancel_backend`,
     // MySQL's `KILL QUERY`, each with a 5 s limit): give those time to land
-    // (probe F5: a closed terminal left a streaming statement running).
+    // (a closed terminal left a streaming statement running).
     runtime.block_on(runtime::settle(runtime::SETTLE_WITHIN));
     // crossterm's event reader may still sit in a blocking read; nothing
     // that matters is left running.
@@ -176,8 +176,7 @@ pub fn run(args: TuiArgs) -> ExitCode {
 
 /// A line on stderr. A failed write is ignored: once the terminal is
 /// closed every write fails with EIO, and `eprintln!` would panic (then
-/// abort, in the panic hook) before Core's connections were closed (probe
-/// F5).
+/// abort, in the panic hook) before Core's connections were closed.
 pub(crate) fn say(line: impl std::fmt::Display) {
     use std::io::Write;
     let _ = writeln!(std::io::stderr(), "{line}");

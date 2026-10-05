@@ -4,8 +4,8 @@ import type { QueryType } from "./QueryType";
 
 /**
  * One planned change: its SQL and binds (for display; Core builds again
- * at apply time), its query type, whether it counts as DML (Decision 5)
- * and what it does (Decision 12). `Debug` shows no SQL or values.
+ * at apply time), its query type, whether it counts as DML
+ * and what it does. `Debug` shows no SQL or values.
  */
 export type PlannedChange = { sql: string, params: Array<unknown>, queryType: QueryType, dml: boolean, 
 /**

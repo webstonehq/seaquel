@@ -440,8 +440,8 @@ fn dictionary_label<K: ArrowDictionaryKeyType>(array: &dyn Array, row: usize) ->
 ///
 /// Object keys come out **sorted**, not in the STRUCT's field order (nor a
 /// MAP's entry order): the workspace's serde_json has no `preserve_order`,
-/// so `serde_json::Map` is a BTreeMap. Enabling it is a workspace-wide
-/// follow-up in the phase 2 plan.
+/// so `serde_json::Map` is a BTreeMap. Enabling it would be a
+/// workspace-wide change.
 pub(crate) fn json_of(v: &Value) -> Json {
     match v {
         Value::Null => Json::Null,

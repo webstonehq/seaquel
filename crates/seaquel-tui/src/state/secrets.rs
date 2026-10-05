@@ -1,4 +1,4 @@
-//! Passwords the user types (Q5; Decisions 16 and 23). A typed password
+//! Passwords the user types. A typed password
 //! lives in the model only while its connection does: it's sent to Core as
 //! `SuppliedSecrets` for the connect, saved only through Core's
 //! `connectionUpdate` when the user ticked "Save password" and the connect

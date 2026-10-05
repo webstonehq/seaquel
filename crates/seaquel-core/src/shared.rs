@@ -5,13 +5,13 @@
 //!
 //! Every decision is `seaquel_workspace::shared`'s (pairing, the three-way
 //! rule, file names, the formats); the file I/O is `seaquel-git`'s `tree`
-//! (no symlinks, Decision 32). This module orders them:
+//! (no symlinks). This module orders them:
 //!
 //! - **Locks.** Each call takes the repo's lock ([`Core::repo_lock`]) first
 //!   and the storage's write lock after, never the other way round, and
 //!   never reads or writes a file while a `WriteTx` is open.
 //! - **Sync** ([`Workspace::shared_sync`]): under the repo lock, read the
-//!   index (a conflicted repo changes nothing, Decision 35) and scan the
+//!   index (a conflicted repo changes nothing) and scan the
 //!   directory; then, in one `WriteTx`, read the project's rows, plan
 //!   ([`plan_sync`] with the limits this Core was built with), apply the row
 //!   ops in plan order and store the links that wait for no write; commit;
@@ -19,20 +19,20 @@
 //!   renames); then store the links whose write succeeded. One event per
 //!   kind and scope (the rows' right after their commit, the late links'
 //!   and `sharedRepo` after the files), none when nothing changed.
-//! - **Publish** (Decision 36, from the library calls): after the call's
+//! - **Publish** (from the library calls): after the call's
 //!   commit, under the repo lock, read the row again, plan
 //!   ([`plan_publish`]), apply the files as a sequence (stop at the first
 //!   failure), then store `on_success`, or `on_failure` after a failed write
 //!   (never after a refusal). A write that finds a teammate's change on
 //!   disk (`expect_hash`) writes nothing: the project syncs instead and the
 //!   answer is `FILE_CHANGED`.
-//! - **Removals** (Decision 37): unsharing or removing a shared row deletes
+//! - **Removals**: unsharing or removing a shared row deletes
 //!   its file first under the repo lock, keeping the bytes, then writes the
 //!   row; a failed row write puts the file back.
 //!
 //! Only a Core built with [`crate::LocalFiles::Allowed`] does any of this.
 //! Logs carry activities, repo and project ids, counts and codes: never a
-//! path, a name, a host or a file's content (Decision 50).
+//! path, a name, a host or a file's content.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -93,7 +93,7 @@ pub const REPO_CONFLICTED: &str = "REPO_CONFLICTED";
 /// relative to `.seaquel/` (for the GUI only).
 pub const FILE_ERROR: &str = tree::FILE_ERROR;
 /// A publish found a teammate's change in the file: nothing was written,
-/// the project synced, and the file's content won (Q20).
+/// the project synced, and the file's content won.
 pub const FILE_CHANGED: &str = "FILE_CHANGED";
 
 /// What `shared.sync` reconciles.
@@ -101,8 +101,7 @@ pub const FILE_CHANGED: &str = "FILE_CHANGED";
 pub enum SyncTarget {
     /// One project (activation, startup).
     Project(String),
-    /// Every project linked to the repo (after a pull, a commit or a
-    /// conflict resolution, Decision 35).
+    /// Every project linked to the repo (after a pull, a commit or a conflict resolution).
     Repo(String),
 }
 
@@ -171,7 +170,7 @@ fn raw_value(text: String) -> Box<RawValue> {
         .unwrap_or_else(|_| RawValue::from_string("null".to_string()).expect("null is JSON"))
 }
 
-/// Core's ids: `<prefix><uuid v4>` for rows, a uuid v4 for files (Q22).
+/// Core's ids: `<prefix><uuid v4>` for rows, a uuid v4 for files.
 struct CoreIds;
 
 impl IdSource for CoreIds {
@@ -217,7 +216,7 @@ struct SameRepo {
     project_ids: Vec<String>,
 }
 
-/// A repo path's canonical form (review R8): [`tree::lock_key`] of the path
+/// A repo path's canonical form: [`tree::lock_key`] of the path
 /// without trailing separators.
 async fn canonical(path: &str) -> PathBuf {
     tree::lock_key(Path::new(&repo_path_key(path))).await
@@ -304,7 +303,7 @@ async fn store_link(tx: &mut WriteTx, repo_id: &str, u: &LinkUpdate) -> Result<(
     Ok(())
 }
 
-/// How an unlink treats a connection of the project (Q31).
+/// How an unlink treats a connection of the project.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UnlinkClass {
     /// Shared from here (`shared_origin` `exported`): always kept.
@@ -349,7 +348,7 @@ async fn register_repo_in(
 }
 
 /// [`register_repo_in`], with the id a new row takes when `id` names one
-/// no row has (review I3: the id a project's template links carry).
+/// no row has (the id a project's template links carry).
 async fn register_repo_as(
     tx: &mut WriteTx,
     path: &str,
@@ -358,7 +357,7 @@ async fn register_repo_as(
     known: Option<&str>,
     id: Option<&str>,
 ) -> Result<(String, bool)> {
-    // Review R8: the row another spelling of this folder has, found before
+    // The row another spelling of this folder has, found before
     // the transaction ([`Workspace::same_repo`]).
     if let Some(known) = known {
         if shared_repos::get(&mut *tx, known).await?.is_some() {
@@ -418,7 +417,7 @@ impl Workspace {
         }))
     }
 
-    /// The rows that name the folder `path` names (review R8): repo paths
+    /// The rows that name the folder `path` names: repo paths
     /// are compared in the canonical form the repo lock uses
     /// ([`tree::lock_key`]: symlinks resolved, the on-disk case, no trailing
     /// separator), not as spelled. Reads the pool and the disk, so call it
@@ -485,7 +484,7 @@ impl Workspace {
         if linked.repo_id.is_some() {
             return Ok(());
         }
-        // Review I3: the id the project's template links already carry, so
+        // The id the project's template links already carry, so
         // its connections stay paired with their templates.
         let dir = format!("{SEAQUEL_DIR}/projects/{}/connections/", linked.dir);
         let carried = connections::list_in_project(self.storage(), project_id)
@@ -526,7 +525,7 @@ impl Workspace {
 
 impl Workspace {
     /// Reconciles a project's directory with its rows, or every project
-    /// linked to a repo (Decisions 34 and 35). A repo with conflicted files
+    /// linked to a repo. A repo with conflicted files
     /// answers `conflicted: true` and nothing is written on either side.
     ///
     /// Errors: `NOT_SUPPORTED` without `LocalFiles`, `PROJECT_NOT_FOUND`,
@@ -556,7 +555,7 @@ impl Workspace {
                 let path = self.repo_path(&repo_id).await?;
                 let mut total = SyncReport::default();
                 let mut seq = self.change_seq();
-                // Review M5: one project's failure doesn't stop the others;
+                // One project's failure doesn't stop the others;
                 // each is named in the report.
                 for project_id in self.same_repo(&path).await?.project_ids {
                     let synced = async {
@@ -611,7 +610,7 @@ impl Workspace {
         linked: Linked,
         remember: bool,
     ) -> Result<(SyncReport, ChangeSeq)> {
-        // Boxed (review C1): inlined, these futures made each library
+        // Boxed: inlined, these futures made each library
         // call's state machine deep enough to overflow a 2 MiB stack in a
         // debug build.
         Box::pin(self.sync_locked_inner(core, origin, project_id, linked, remember)).await
@@ -644,7 +643,7 @@ impl Workspace {
             ..ScanBounds::default()
         };
         let scan = tree::scan(&linked.root, &plink.root(), bounds).await?;
-        // Probe fix 7: past the scan's bounds the whole project is skipped.
+        // Past the scan's bounds the whole project is skipped.
         let whole_skip = whole_project_skip(&scan, &plink.root());
         let now = now(core)?;
         let limits = Limits {
@@ -652,7 +651,7 @@ impl Workspace {
             state: core.state_limits(),
         };
 
-        // Probe fix 4: the rows are read and the plan made outside the
+        // The rows are read and the plan made outside the
         // storage's write lock (on a large project that is most of a
         // sync), then a short transaction checks that nothing the plan
         // relied on changed meanwhile ([`PlanStamp`]) and writes it. A
@@ -714,7 +713,7 @@ impl Workspace {
             });
         }
         tx.commit().await?;
-        // Announced now (review I1): the rows are committed, so their
+        // Announced now: the rows are committed, so their
         // events must not wait on the files (a failure there would lose
         // them, and the published sequence would be held meanwhile).
         let mut seq = self.change_seq();
@@ -767,7 +766,7 @@ impl Workspace {
             let mut late = Touched::default();
             for u in &waiting {
                 store_link(&mut tx, &repo_id, u).await?;
-                // Re-review R2: announced even when the first transaction
+                // Announced even when the first transaction
                 // already announced the kind, since its readers ran before
                 // this link (a row's new `sharedPath`) was stored.
                 late.add(u.kind, &u.id);
@@ -800,8 +799,8 @@ impl Workspace {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .filter(plan.notices)
         } else {
-            // A project skipped whole is named on every sync (probe fix
-            // 7): its one notice is all the plan has.
+            // A project skipped whole is named on every sync:
+            // its one notice is all the plan has.
             plan.notices
         };
         info!(
@@ -868,7 +867,7 @@ impl Workspace {
         Ok(touched)
     }
 
-    /// One planned row write, as the library writes it (Decision 34: the
+    /// One planned row write, as the library writes it (the
     /// file's content with a version, unsharing, a template's connection
     /// appended to the order).
     async fn apply_row_op(
@@ -880,7 +879,7 @@ impl Workspace {
         limits: &Limits,
         order: &mut Option<Vec<String>>,
     ) -> Result<()> {
-        // Boxed (re-review R1): each row op inlines the library's write.
+        // Boxed: each row op inlines the library's write.
         Box::pin(self.apply_row_op_inner(tx, op, project_id, now, limits, order)).await
     }
 
@@ -916,7 +915,7 @@ impl Workspace {
                 }
                 let mut row = lib::connection_from_draft(id.clone(), draft, now);
                 insert_connection_in(tx, &mut row, draft.rename_if_taken, &limits.library).await?;
-                // Q31: the repo brought it, so an unlink asks before removing it.
+                // The repo brought it, so an unlink asks before removing it.
                 connections::set_origin(tx, id, Some(connections::ORIGIN_IMPORTED)).await?;
                 if let Some(order) = order.as_mut() {
                     order.push(id.clone());
@@ -987,7 +986,7 @@ fn log_id(id: &str) -> &str {
 }
 
 /// How many times a sync plans outside the write lock before it plans
-/// inside it (probe fix 4).
+/// inside it.
 const OPTIMISTIC_PLANS: usize = 2;
 
 /// Why the scan skipped the project directory `root` whole (past its file
@@ -1082,7 +1081,7 @@ async fn shared_rows_pool(ws: &Workspace, project_id: &str) -> Result<RowsRead> 
     read_rows(RowSrc::Pool(ws.storage()), project_id).await
 }
 
-/// What a plan made outside the write lock relied on (probe fix 4): every
+/// What a plan made outside the write lock relied on: every
 /// row's link columns (so a row added, removed or relinked shows), and each
 /// row the plan changes, whole. Per-row stamps rather than the workspace's
 /// change sequence, which counts every write (a setting, another project's
@@ -1092,7 +1091,7 @@ async fn shared_rows_pool(ws: &Workspace, project_id: &str) -> Result<RowsRead> 
 /// plans again.
 ///
 /// What it compares is the `Persisted*` row JSON plus the link columns
-/// `RowLink` reads (review A4). `connections.shared_origin` is in neither:
+/// `RowLink` reads. `connections.shared_origin` is in neither:
 /// harmless today, since only a write under the repo lock (link, publish)
 /// or an unlink changes it, and a sync holds that lock. A column added to
 /// the rows later must be added here if a plan reads it.
@@ -1164,7 +1163,7 @@ impl PlanStamp {
     }
 }
 
-// ── Publish (Decision 36) and removals (Decision 37) ──
+// ── Publish and removals ──
 
 /// A removal's file already deleted, waiting for the row write
 /// ([`Workspace::unpublish_begin`]). It holds the repo lock until
@@ -1225,7 +1224,7 @@ impl Workspace {
         }
     }
 
-    /// Publishes the row a library call just committed (Decision 36):
+    /// Publishes the row a library call just committed:
     /// `None` when there's nothing to write (no link, not shared, nothing
     /// that changes the file, no `LocalFiles`).
     pub(crate) async fn publish_row(
@@ -1235,7 +1234,7 @@ impl Workspace {
         project_id: &str,
         what: Publish<'_>,
     ) -> Option<PublishOutcome> {
-        // Boxed (review C1): inlined, these futures made each library
+        // Boxed: inlined, these futures made each library
         // call's state machine deep enough to overflow a 2 MiB stack in a
         // debug build.
         Box::pin(self.publish_row_inner(core, origin, project_id, what)).await
@@ -1280,7 +1279,7 @@ impl Workspace {
         linked: Linked,
         what: Publish<'_>,
     ) -> Result<Option<PublishOutcome>> {
-        // Boxed (review C1): inlined, these futures made each library
+        // Boxed: inlined, these futures made each library
         // call's state machine deep enough to overflow a 2 MiB stack in a
         // debug build.
         Box::pin(self.publish_locked_inner(core, origin, project_id, linked, what)).await
@@ -1297,7 +1296,7 @@ impl Workspace {
     ) -> Result<Option<PublishOutcome>> {
         self.ensure_repo(project_id, &mut linked).await?;
         let plink = linked.link();
-        // Q31: sharing a connection from here (the link dialog's ticks, the
+        // Sharing a connection from here (the link dialog's ticks, the
         // local-only switch) records it as the user's own.
         let export = matches!(
             what,
@@ -1438,9 +1437,9 @@ impl Workspace {
             }
             Some(OpOutcome::Stale) => {
                 // M1: a teammate's change is on disk. Nothing was written;
-                // the project syncs, and the file wins (Q20).
+                // the project syncs, and the file wins.
                 info!(activity = "shared.publish", project_id = log_id(project_id), kind = kind_label, result = "stale"; "The file changed in the repo; syncing instead");
-                // Review M3: a rename's new file, already written, is taken
+                // A rename's new file, already written, is taken
                 // back, so no two files carry the file's one id; the old
                 // file (the teammate's change) stays and the sync pairs it.
                 let undo: Vec<FileOp> = plan
@@ -1511,7 +1510,7 @@ impl Workspace {
 
     /// Stores a publish's link (if any) and announces `sharedRepo` when a
     /// link or a file changed. `export`: a connection shared from here, whose
-    /// stored link records it as the user's own (Q31).
+    /// stored link records it as the user's own.
     async fn store_publish_link(
         &self,
         origin: &WriteOrigin,
@@ -1547,7 +1546,7 @@ impl Workspace {
         Ok(())
     }
 
-    /// Decision 37's first half: before unsharing or removing the row
+    /// The first half of an unshare: before unsharing or removing the row
     /// `id`, take its repo's lock and delete its file, keeping the bytes.
     /// `None` when there's nothing to delete (no link, no `LocalFiles`).
     pub(crate) async fn unpublish_begin(
@@ -1557,7 +1556,7 @@ impl Workspace {
         id: &str,
         keeps_row: bool,
     ) -> Result<Option<Unpublish>> {
-        // Boxed (review C1): inlined, these futures made each library
+        // Boxed: inlined, these futures made each library
         // call's state machine deep enough to overflow a 2 MiB stack in a
         // debug build.
         Box::pin(self.unpublish_begin_inner(core, kind, id, keeps_row)).await
@@ -1673,7 +1672,7 @@ impl Workspace {
         }))
     }
 
-    /// Decision 37's second half, after the row write: put the file back if
+    /// The second half, after the row write: put the file back if
     /// the write failed; otherwise clear an unshared row's link (and on a
     /// teammate's change, sync instead). Releases the repo lock.
     pub(crate) async fn unpublish_end(
@@ -1683,7 +1682,7 @@ impl Workspace {
         pending: Option<Unpublish>,
         written: bool,
     ) -> Option<PublishOutcome> {
-        // Boxed (review C1): inlined, these futures made each library
+        // Boxed: inlined, these futures made each library
         // call's state machine deep enough to overflow a 2 MiB stack in a
         // debug build.
         Box::pin(self.unpublish_end_inner(core, origin, pending, written)).await
@@ -1752,11 +1751,11 @@ impl Workspace {
 // ── Link, unlink, import ──
 
 impl Workspace {
-    /// Links a project to the repo at `path` (Decision 40): registers the
+    /// Links a project to the repo at `path`: registers the
     /// repo (or reuses it), picks the directory (one whose `project.yaml`
     /// names the project, else a free one), writes `project.yaml` if
     /// missing, exports the connections `share` names as templates and
-    /// links each to its template (Q30), stores the directory, and syncs.
+    /// links each to its template, stores the directory, and syncs.
     ///
     /// Errors: `NOT_SUPPORTED`, `PROJECT_NOT_FOUND`, `INVALID_ARGUMENT` (a
     /// `share` id that isn't one of the project's connections),
@@ -1802,7 +1801,7 @@ impl Workspace {
             ));
         }
         let _lock = core.repo_lock(&root).await;
-        // Re-review R5: read again under the lock; the project may have been
+        // Read again under the lock; the project may have been
         // linked, unlinked or moved while the lock was awaited.
         let project = projects::get(self.storage(), project_id)
             .await?
@@ -1889,7 +1888,7 @@ impl Workspace {
             }
         }
         let linked = self.linked(project_id).await?.ok_or_else(not_linked)?;
-        // Probe fix 1: templates already in the directory that no connection
+        // Templates already in the directory that no connection
         // links: a ticked connection adopts one (by its kept file id, then by
         // name and type) instead of writing `<name>-2.yaml`.
         let mut free = self.free_templates(project_id, &linked).await?;
@@ -1901,8 +1900,8 @@ impl Workspace {
             if c.shared_connection_id.is_some() {
                 continue;
             }
-            // Re-review I1: the tick is the explicit share (Q30), so a
-            // local-only connection (the wizard's default, or one a Q31
+            // The tick is the explicit share, so a
+            // local-only connection (the wizard's default, or one an
             // unlink kept) stops being local-only before it's published.
             if c.is_local_only == Some(true) {
                 let now = now(core)?;
@@ -1953,8 +1952,8 @@ impl Workspace {
         Ok(Seqd::new(report, seq))
     }
 
-    /// The connections an unlink with `remove_imported` would remove (the
-    /// unlink dialog's list, Task 7 re-review): the same test as
+    /// The connections an unlink with `remove_imported` would remove (the unlink dialog's list):
+    /// the same test as
     /// [`Workspace::shared_unlink_project`], read without the repo lock.
     /// `PROJECT_NOT_LINKED` for a project without a link.
     pub async fn shared_unlink_preview(
@@ -1978,7 +1977,7 @@ impl Workspace {
         })
     }
 
-    /// Unlinks a project (Decision 40 with Q31): the connections linked to
+    /// Unlinks a project: the connections linked to
     /// its directory's templates are unlinked and made local-only. The
     /// user's own (shared from here, `shared_origin` `exported`) always stay,
     /// with their secrets; the ones the repo brought (`imported`, or a link
@@ -2000,7 +1999,7 @@ impl Workspace {
         };
         let now = now(core)?;
         let plink = linked.link();
-        // Review R8: other projects on the same folder, in any spelling,
+        // Other projects on the same folder, in any spelling,
         // read before the transaction (canonicalizing touches the disk).
         let others_using = self
             .same_repo(&linked.repo_path)
@@ -2020,10 +2019,10 @@ impl Workspace {
                 Some(_) => kept.push(c.id),
             }
         }
-        // Q31: what stays is unlinked (the origin goes with the link) and
+        // What stays is unlinked (the origin goes with the link) and
         // local-only, its fields and secrets as they were.
         for id in &kept {
-            // Probe fix 1: the template's file id stays (path, base and
+            // The template's file id stays (path, base and
             // origin go), so a relink can adopt that template again instead
             // of writing a second one.
             let file_id = connections::link(&mut tx, id)
@@ -2211,7 +2210,7 @@ impl Workspace {
         Ok(out)
     }
 
-    /// Imports the repo's project directories `dirs` (Decision 40): one
+    /// Imports the repo's project directories `dirs`: one
     /// project each, under the name its `project.yaml` gives (the first
     /// free `"<name> (n)"` when taken), linked to `path` with that
     /// directory stored (bug 8), then synced, which imports that
@@ -2260,7 +2259,7 @@ impl Workspace {
             .flatten()
             .unwrap_or_default();
         let limits = core.library_limits();
-        // Probe fix 8: a directory a project here already links isn't
+        // A directory a project here already links isn't
         // imported again (read under the lock, so a link can't race it).
         let mut linked_dirs = HashSet::new();
         for id in self.same_repo(&path).await?.project_ids {
@@ -2280,7 +2279,7 @@ impl Workspace {
                 });
                 continue;
             }
-            // Review M5: each directory is imported whole or not at all, and
+            // Each directory is imported whole or not at all, and
             // one that fails doesn't stop the others.
             match self
                 .import_one(core, origin, &path, &remote_url, &d, &limits)
@@ -2318,7 +2317,7 @@ impl Workspace {
     ) -> Result<String> {
         let now = now(core)?;
         let known = self.same_repo(path).await?.repo_id;
-        // Re-review R3: the project (and a repo row it registers) is
+        // The project (and a repo row it registers) is
         // announced only once its sync succeeded, through the after-commit
         // path, so no other window is told of a project the undo below may
         // remove. The rows its sync writes are announced as the sync goes,
@@ -2380,7 +2379,7 @@ impl Workspace {
 }
 
 /// A template in a linked project's `connections/` that no connection
-/// links (probe fix 1).
+/// links.
 struct FreeTemplate {
     path: String,
     name_key: String,
@@ -2421,12 +2420,12 @@ impl Workspace {
             .collect())
     }
 
-    /// Links `c` to a free template that is its own (probe fix 1): the one
+    /// Links `c` to a free template that is its own: the one
     /// carrying the file id `c` kept from its last link, else the one with
     /// its name (`name_key`) and type, and only when exactly one matches.
     /// The base is the file's hash, so the sync that ends the link writes
-    /// the row's values into it when they differ (the tick is the share,
-    /// Q30). Whether it adopted one.
+    /// the row's values into it when they differ (the tick is the share).
+    /// Whether it adopted one.
     async fn adopt_template(
         &self,
         origin: &WriteOrigin,
@@ -2455,9 +2454,9 @@ impl Workspace {
             return Ok(false);
         };
         let t = free.remove(at);
-        // Review A1: the file is the base only when the row already says
-        // the same. Otherwise no base, so the link's sync applies Q27 (the
-        // template wins, the notice lists what it replaced) and nothing of
+        // The file is the base only when the row already says
+        // the same. Otherwise no base, so the link's sync lets the template
+        // win (it wins the notice lists what it replaced) and nothing of
         // the user's is pushed over a teammate's template, by name or by a
         // kept file id whose file a teammate edited after the unlink.
         let row_hash = seaquel_workspace::shared::plan::row_hash(&RowChange::Connection {
@@ -2489,7 +2488,7 @@ impl Workspace {
     }
 }
 
-// ── The repo list (Decision 43) ──
+// ── The repo list ──
 
 impl Workspace {
     /// Every stored repo, as stored.
@@ -2600,7 +2599,7 @@ impl Workspace {
     ) -> Result<Seqd<()>> {
         core.require_local_files()?;
         debug!(activity = "shared.repoRemove", repo_id = log_id(id); "Remove a repo");
-        // Review R8: whether a project uses the folder, in any spelling,
+        // Whether a project uses the folder, in any spelling,
         // read before the transaction (canonicalizing touches the disk).
         let in_use = match shared_repos::get(self.storage(), id).await? {
             Some(raw) => match repo_field(&raw, "path") {
@@ -2644,11 +2643,11 @@ impl Workspace {
     }
 }
 
-// ── Git under the repo lock (Decision 38) ──
+// ── Git under the repo lock ──
 
 impl Workspace {
     /// Pulls the repo at `path` under its lock. A successful pull sets the
-    /// repo's `lastSyncAt` (Decision 43). The caller then syncs the repo
+    /// repo's `lastSyncAt`. The caller then syncs the repo
     /// (`SyncTarget::Repo`); a conflicted pull's sync answers `conflicted`.
     pub async fn shared_git_pull(
         &self,
@@ -2714,7 +2713,7 @@ impl Workspace {
         core.require_local_files()?;
         let path = repo_path_key(path);
         let _lock = core.repo_lock(Path::new(&path)).await;
-        // `None` keeps the side that deleted the file (probe fix 5).
+        // `None` keeps the side that deleted the file.
         match resolution {
             Some(text) => git.resolve_conflict(&path, file_path, text).await?,
             None => git.resolve_conflict_deleted(&path, file_path).await?,
@@ -2723,7 +2722,7 @@ impl Workspace {
     }
 
     /// [`Workspace::record_last_sync`] after a pull or push that already
-    /// changed the tree or the remote (Task 6 review): a failure is logged
+    /// changed the tree or the remote: a failure is logged
     /// by code, never with the path, and the call still answers its
     /// result. `lastSyncAt` is bookkeeping; the next pull or push sets it.
     async fn record_last_sync_best_effort(&self, core: &Core, origin: &WriteOrigin, path: &str) {

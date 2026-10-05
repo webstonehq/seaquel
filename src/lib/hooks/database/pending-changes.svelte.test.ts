@@ -489,7 +489,7 @@ describe("PendingChangesManager.apply", () => {
     expect(effects.refreshDataTabs).toHaveBeenCalledWith("conn-1");
   });
 
-  // DuckDB helper probe F1: an engine out of process can stop mid-commit,
+  // An engine out of process can stop mid-commit,
   // and Core then answers CONNECTION_CLOSED; whether the commit landed is
   // unknown.
   it("an atomic batch whose connection closed is interrupted: it may have committed", async () => {

@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# Decision 11: the desktop's workspace (storage, the keychain), SSH tunnels,
+# The desktop's workspace (storage, the keychain), SSH tunnels,
 # git for shared projects and the license client, besides every engine.
 # `imports` (phase 5e): Core reads TablePlus's and DBeaver's files (it
 # decodes the plist; `read_tableplus_config` and `plist` left this crate).
@@ -26,10 +26,10 @@ tauri-build = { version = "2", features = [] }
 # workspace, saved rows and forms alike.
 # `ai-native` (phase 6): Core runs the assistant and calls models with
 # seaquel-http's client; `ai-system-proxy` adds the OS proxy settings to it.
-# `duckdb-helper-install` (the DuckDB helper plan, Q4 C): Core's install of
+# `duckdb-helper-install`: Core's install of
 # the `seaquel-duckdb` helper, into the folder the terminal binaries look
 # in, with the remote DuckDB client (`engine-duckdb-remote`).
-# No default features (the desktop DuckDB helper plan, Decision 2): the
+# No default features: the
 # four engines that run in process, and DuckDB through the helper, so the
 # app links no DuckDB (`libduckdb-sys`).
 seaquel-core = { path = "../crates/seaquel-core", default-features = false, features = ["engine-postgres", "engine-mysql", "engine-sqlite", "engine-mssql", "storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports", "ai-native", "ai-system-proxy", "duckdb-helper-install"] }
@@ -73,7 +73,7 @@ tokio = { version = "1", features = ["sync", "time", "macros", "rt-multi-thread"
 seaquel-http = { path = "../crates/seaquel-http", features = ["release-asset", "testing"] }
 # `CoreBuilder::duckdb_helper_releases` (the tests' loopback release
 # server) outside debug builds, so `cargo test --release -p seaquel`
-# compiles (Task 10's P3). Dev-dependency features reach test builds only:
+# compiles. Dev-dependency features reach test builds only:
 # the app's own build still fetches only from GitHub.
 seaquel-core = { path = "../crates/seaquel-core", default-features = false, features = ["duckdb-helper-testing"] }
 

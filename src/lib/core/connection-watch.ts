@@ -1,6 +1,5 @@
 /**
- * One place that hears about connections Core no longer holds (phase 6
- * probe F4 review I1 (b)). Every `CoreClient` the page gets from
+ * One place that hears about connections Core no longer holds. Every `CoreClient` the page gets from
  * `getCoreClient()` goes through `watchClient`: a `db` call that rejects
  * with `CONNECTION_NOT_FOUND`, or a stream (a query stream, a run, a page,
  * a table page, a turn) that ends with it, names the Core connection id

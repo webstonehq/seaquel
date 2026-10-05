@@ -1,4 +1,4 @@
-//! `query_read_only` on MySQL and MariaDB (AI safety plan, Task 2): every
+//! `query_read_only` on MySQL and MariaDB: every
 //! attack goes through the read-only path and is then checked from a normal
 //! session. Runs once per server:
 //! - SEAQUEL_TEST_MYSQL, e.g.
@@ -6,7 +6,7 @@
 //! - SEAQUEL_TEST_MARIADB (MariaDB uses the mysql driver), e.g.
 //!   {"driver":"mysql","connection_string":"mysql://root@127.0.0.1:3307/seaquel_test"}
 //!
-//! Accepted gaps (plan, "Probe results"), not asserted here:
+//! Accepted gaps ("Probe results"), not asserted here:
 //! - `SELECT … INTO OUTFILE/DUMPFILE` still writes a file for a login with
 //!   the FILE privilege: it did on MySQL 8 into `secure_file_priv`, and on
 //!   MariaDB 11 into `/tmp`, where `secure_file_priv` is unset. Fix 14

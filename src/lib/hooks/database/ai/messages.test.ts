@@ -1,6 +1,6 @@
 /**
- * How the page words a turn's or a call's error code (phase 6 Task 7,
- * Decision 15). `errors.json` recorded the TypeScript wording, and
+ * How the page words a turn's or a call's error code.
+ * `errors.json` recorded the TypeScript wording, and
  * `changes.json` left `shown` `$absent` until this task: each case's
  * Core code and message now show as below (the ts-baseline README's
  * "Corrections" records the same table). Every code Core can end a turn

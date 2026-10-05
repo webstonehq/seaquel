@@ -33,7 +33,7 @@ pub struct NativeHttpOptions {
 }
 
 impl NativeHttpOptions {
-    /// 10 s to connect, 120 s idle, 10 minutes per round (Decision 8).
+    /// 10 s to connect, 120 s idle, 10 minutes per round.
     pub fn new(egress: Egress) -> Self {
         Self {
             egress,
@@ -169,7 +169,7 @@ impl NativeHttp {
                 resolver: resolver.clone(),
                 proxy,
                 activity: "ai.http",
-                // Review M2: under `Public` the guard knows only the
+                // Under `Public` the guard knows only the
                 // environment's proxies, so the client takes no others.
                 env_proxies_only: options.egress == Egress::Public,
             },

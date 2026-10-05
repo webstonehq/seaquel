@@ -2,16 +2,16 @@
 //! GitHub's release metadata supplies the asset size and SHA-256 digest; the
 //! executable is installed only after both have been checked.
 //!
-//! **The CLI's DuckDB helper** (the DuckDB helper plan, Q4 C, Decisions 9
-//! and 10). The CLI runs DuckDB in the `seaquel-duckdb` helper, so the
+//! **The CLI's DuckDB helper**.
+//! The CLI runs DuckDB in the `seaquel-duckdb` helper, so the
 //! install also fetches it ([`install_duckdb_helper`]). That goes through
 //! Core's own install (`Core::duckdb_helper_install`, the TUI's and
 //! `seaquel-cli duckdb install`'s): the gzipped asset, size and SHA-256
 //! checked, folders and file 0700, pruning, into
 //! `seaquel_core::storage::data_local_dir(identifier)` + `bin/duckdb/<version>/`,
 //! which follows `SEAQUEL_DATA_DIR` as the terminal binaries do. It runs on
-//! the app's own Core, which runs DuckDB in the same helper (the desktop
-//! DuckDB helper plan, Decision 3), through `duckdb_helper`'s installs, so
+//! the app's own Core, which runs DuckDB in the same helper,
+//! through `duckdb_helper`'s installs, so
 //! the GUI's dialog, its prefetch and this flow share one download.
 
 use std::fs;
@@ -272,7 +272,7 @@ pub fn debug_helper() -> Option<PathBuf> {
 }
 
 /// Whether a debug build may install [`debug_helper`] for `identifier`
-/// (the desktop DuckDB helper plan, Decision 3; the TUI hook's M1 rule):
+/// (the TUI hook's M1 rule):
 /// only into a dev folder (an identifier ending in `.dev`, which `npm run
 /// tauri:dev` passes) or under a non-empty `SEAQUEL_DATA_DIR`. A plain
 /// `npm run tauri dev` runs as `app.seaquel.desktop`, the folder a released
@@ -284,7 +284,7 @@ pub fn may_use_debug_helper(identifier: &str, data_dir_env: Option<&std::ffi::Os
 }
 
 /// Installs the CLI's DuckDB helper through the app's own Core
-/// (Decision 3: one Core installs, so the CLI flow, the GUI's dialog and
+/// (one Core installs, so the CLI flow, the GUI's dialog and
 /// the prefetch share its install lock and a running download). Blocks,
 /// so call it off the main thread, as the CLI's install is.
 pub fn install_duckdb_helper(app: &tauri::AppHandle) -> Result<HelperInstalled, RpcError> {
@@ -300,7 +300,7 @@ pub fn install_duckdb_helper(app: &tauri::AppHandle) -> Result<HelperInstalled, 
 }
 
 /// [`install_duckdb_helper`] with its inputs given: the debug rule applied
-/// to `identifier` and `data_dir_env` at this call site (Task 1 review M3),
+/// to `identifier` and `data_dir_env` at this call site,
 /// `beside` finding a helper built beside the app.
 pub fn install_duckdb_helper_with(
     core: &Core,
@@ -438,7 +438,7 @@ mod tests {
         }
     }
 
-    /// Task 6's review: the helper's folder is `data_local_dir` +
+    /// The helper's folder is `data_local_dir` +
     /// `bin/duckdb`, so with `SEAQUEL_DATA_DIR` set it is
     /// `$SEAQUEL_DATA_DIR/bin/duckdb`, where the terminal binaries look.
     /// The variable is process-wide, so the check runs in a child process
@@ -478,8 +478,7 @@ mod tests {
     }
 
     /// A Core with only the helper's locator, downloading from `releases`:
-    /// the app's main Core as far as the helper goes (no compiled pin, so
-    /// it serves its own files, Task 3's note).
+    /// the app's main Core as far as the helper goes (no compiled pin, so it serves its own files).
     fn test_core(dir: PathBuf, releases: seaquel_core::DuckdbHelperReleases) -> Core {
         seaquel_core::with_plugins(|_| false)
             .duckdb_helper(seaquel_core::DuckdbHelper {
@@ -490,8 +489,7 @@ mod tests {
             .build()
     }
 
-    // Only the debug-only test below uses it (a release-profile test
-    // build, Task 10's P3, would warn).
+    // Only the debug-only test below uses it (a release-profile test build, would warn).
     #[cfg(debug_assertions)]
     fn nowhere() -> seaquel_core::DuckdbHelperReleases {
         seaquel_core::DuckdbHelperReleases::new(
@@ -501,8 +499,8 @@ mod tests {
         .unwrap()
     }
 
-    /// The CLI flow's install, on the app's Core (Decision 3; no second
-    /// Core), puts the helper where the terminal binaries look, through
+    /// The CLI flow's install, on the app's Core (no second Core),
+    /// puts the helper where the terminal binaries look, through
     /// Core's install (size, digest, gzip, 0700), from a release server on
     /// 127.0.0.1. A second install fetches nothing.
     #[test]
@@ -639,8 +637,7 @@ mod tests {
         assert!(failed.contains("couldn't be installed"), "{failed}");
         assert!(failed.contains("seaquel-cli duckdb install"), "{failed}");
         assert!(failed.contains("NETWORK_ERROR"), "{failed}");
-        // A folder the install won't touch: what the user can do about it
-        // (the desktop plan's Task 7 review, item 10).
+        // A folder the install won't touch: what the user can do about it.
         let unsafe_folder =
             helper_report(&Err(RpcError::new("UNSAFE_FOLDER", "core says"))).unwrap();
         assert!(unsafe_folder.contains("install again"), "{unsafe_folder}");
@@ -650,8 +647,7 @@ mod tests {
         );
     }
 
-    /// Decision 3 of the desktop DuckDB helper plan (the TUI hook's M1
-    /// rule): a debug build installs the `seaquel-duckdb` built beside it
+    /// The TUI hook's rule: a debug build installs the `seaquel-duckdb` built beside it
     /// only into a dev folder (an identifier ending in `.dev`, as `npm run
     /// tauri:dev` passes) or under a non-empty `SEAQUEL_DATA_DIR`. A plain
     /// `npm run tauri dev` runs as `app.seaquel.desktop`, whose folder a

@@ -411,7 +411,7 @@ fn a_workflow_gets_its_fields_and_keeps_the_rest_byte_for_byte() {
     );
 }
 
-/// 5d-2 Task 7 probe: Core stored a workflow whose `name` was `5`. A
+/// Core stored a workflow whose `name` was `5`. A
 /// workflow's name must be text, and a missing one is refused too.
 #[test]
 fn a_workflow_name_is_text() {
@@ -432,7 +432,7 @@ fn a_workflow_name_is_text() {
     }
 }
 
-/// 5d-2 Task 7 review: a rename changes only the stored workflow's `name`
+/// A rename changes only the stored workflow's `name`
 /// and `updatedAt`; everything else stays byte for byte, so a rename can't
 /// undo another window's save.
 #[test]
@@ -459,7 +459,7 @@ fn a_workflow_rename_changes_only_its_name_and_time() {
     }
 }
 
-/// 5d-2 Task 7 re-review: a hand-edited row with duplicate keys renames as
+/// A hand-edited row with duplicate keys renames as
 /// the GUI reads it. `JSON.parse` keeps the last `name`; the stored object
 /// is read with duplicates collapsed (the last value, at the first key's
 /// place), so no older `name` is left behind to win on the next read.
@@ -475,7 +475,7 @@ fn a_rename_of_a_row_with_duplicate_keys_leaves_one_name() {
     );
 }
 
-/// 5d-2 Task 7 probe: a theme named with a lone surrogate was refused as
+/// A theme named with a lone surrogate was refused as
 /// "A theme needs a name." It has one; say what's wrong with it.
 #[test]
 fn a_theme_name_with_a_lone_surrogate_is_worded_as_such() {
@@ -506,7 +506,7 @@ fn an_onboarding_background_is_one_the_gui_has() {
     }
 }
 
-/// 5d-2 Task 7 probe: Core took a `rev` up to `i64::MAX`, but the page
+/// Core took a `rev` up to `i64::MAX`, but the page
 /// counts in JavaScript numbers, so after a save at such a value its
 /// `rev + 1` rounded to a number Core refused and the window stopped
 /// saving. A `rev` past 2^53 - 1 is refused.
@@ -893,7 +893,7 @@ fn params_refuse_unknown_fields() {
     assert!(p.date_filter.is_none());
 }
 
-/// Phase 5d-2 review: a size past a web limit is accepted when it's no
+/// A size past a web limit is accepted when it's no
 /// larger than what's stored, item by item; only growth is refused.
 #[test]
 fn over_limit_sizes_can_stay_or_shrink_but_not_grow() {

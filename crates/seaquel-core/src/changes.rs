@@ -1,4 +1,4 @@
-//! `StorageChanged` (phase 5d, Decisions 16 and 17): what a workspace tells
+//! `StorageChanged` (phase 5d): what a workspace tells
 //! its subscribers after every stored write, and the change sequence that
 //! orders writes and reads.
 //!
@@ -25,7 +25,7 @@ pub use seaquel_workspace::library::{
     ChangeSeq, Seqd, StoredKind, MAX_EVENT_IDS, MAX_EVENT_IDS_BYTES, MAX_EVENT_ID_BYTES,
 };
 
-/// Which window or tab made a write (Decision 18): the desktop's webview
+/// Which window or tab made a write: the desktop's webview
 /// label, the web's `X-Seaquel-Origin`. Its `Debug` never shows the value,
 /// and it's never logged. A value that isn't 1–64 of `[A-Za-z0-9_-]` is
 /// dropped ([`WriteOrigin::new`]), so an event never carries one.
@@ -99,7 +99,7 @@ impl fmt::Debug for StorageChange {
 /// [`MAX_EVENT_IDS_BYTES`]. The storage group turns caller-chosen keys into
 /// ids (`appStateSet`'s key, …), so without the byte bounds one user could
 /// make every event, and every socket's queue, as large as a request body
-/// (phase 5d-1 probe, c6).
+/// (c6).
 pub(crate) fn event_ids(ids: Vec<String>) -> Option<Vec<String>> {
     if ids.len() > MAX_EVENT_IDS || ids.iter().any(|id| id.len() > MAX_EVENT_ID_BYTES) {
         return None;

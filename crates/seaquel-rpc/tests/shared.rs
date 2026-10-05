@@ -215,7 +215,7 @@ async fn every_shared_and_imports_method_answers_with_its_own_name() {
     assert_eq!(preview, json!({"importedConnectionIds": []}));
 
     // Importing the directory a project here links is refused per
-    // directory (probe fix 8); a second directory imports as a project,
+    // directory; a second directory imports as a project,
     // then both are unlinked.
     std::fs::create_dir_all(Path::new(&repo).join(".seaquel/projects/ops")).unwrap();
     std::fs::write(
@@ -501,8 +501,8 @@ fn unknown_request_fields_are_refused() {
     }
 }
 
-/// `sharedReposLoadAll` and `sharedReposSaveAll` left the storage group
-/// (Decision 43); the `shared` group's repo calls replace them.
+/// `sharedReposLoadAll` and `sharedReposSaveAll` left the storage group;
+/// the `shared` group's repo calls replace them.
 #[test]
 fn a_retired_storage_method_is_unknown() {
     for (method, params) in [
@@ -529,7 +529,7 @@ fn a_retired_storage_method_is_unknown() {
 }
 
 /// No `Debug` of a new request shows a path, a name, a key, a directory or
-/// an id list (Decision 50).
+/// an id list.
 #[test]
 fn debug_redacts_every_new_params_type() {
     let bodies = [
@@ -643,8 +643,8 @@ async fn git_call(
     Ok(serde_json::to_value(res).unwrap())
 }
 
-/// Pull, push, commit and conflict resolution wait for the repo's lock
-/// (Decision 38), with a workspace and without one (the desktop before
+/// Pull, push, commit and conflict resolution wait for the repo's lock,
+/// with a workspace and without one (the desktop before
 /// storage opens); status doesn't.
 #[tokio::test]
 async fn git_calls_that_change_the_tree_wait_for_the_repo_lock() {
@@ -690,8 +690,8 @@ async fn git_calls_that_change_the_tree_wait_for_the_repo_lock() {
     }
 }
 
-/// With a workspace, a successful push sets the repo's `lastSyncAt`
-/// (Decision 43), through Core.
+/// With a workspace, a successful push sets the repo's `lastSyncAt`,
+/// through Core.
 #[tokio::test]
 async fn a_push_through_the_workspace_records_last_sync() {
     let env = env(true).await;
@@ -828,7 +828,7 @@ async fn deep_calls() {
     .await;
 }
 
-/// Task 6 review: without a workspace the git calls key the lock as the
+/// Without a workspace the git calls key the lock as the
 /// workspace route does (`repo_path_key`), so a path with a trailing
 /// separator waits for the same lock. A `/` alone makes no difference to
 /// a `PathBuf` key, so the separator here is a `\`, which on Unix is part

@@ -62,8 +62,8 @@ export class LabelManager {
     if (!connection) return;
 
     // Already added: nothing to store. Whether the label exists is Core's
-    // check (`LABEL_NOT_FOUND` for one that is neither predefined nor the
-    // project's own, Decision 7), not the page's.
+    // check (`LABEL_NOT_FOUND` for one that is neither predefined nor the project's own),
+    // not the page's.
     if (connection.labelIds.includes(labelId)) return;
 
     // Stored, then shown: a refusal throws (worded for the user) and changes nothing.
@@ -88,7 +88,7 @@ export class LabelManager {
 
   /**
    * Set all labels for a connection. Core refuses an id that is neither
-   * predefined nor the project's own (`LABEL_NOT_FOUND`, Decision 7), where
+   * predefined nor the project's own (`LABEL_NOT_FOUND`), where
    * this used to drop it silently.
    */
   async setConnectionLabels(connectionId: string, labelIds: string[]): Promise<void> {

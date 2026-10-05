@@ -1,5 +1,5 @@
 //! The tools as `tools/list` gives them equal the frozen MCP profile in
-//! `seaquel-ai`'s `tests/fixtures/tool-schemas.json` (Decision 20), byte for
+//! `seaquel-ai`'s `tests/fixtures/tool-schemas.json`, byte for
 //! byte. `seaquel-ai`'s registry is checked against the same file, so the
 //! registry's MCP profile is the schemas MCP hosts already see.
 

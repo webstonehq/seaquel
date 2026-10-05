@@ -1,25 +1,25 @@
-//! The tool registry (Decision 3): each tool once, with its name, its
+//! The tool registry: each tool once, with its name, its
 //! description, its argument type (and so its JSON schema), its parser and
 //! its renderers, for two profiles.
 //!
-//! - [`Profile::Mcp`] is the MCP server's surface, unchanged (Decision 20):
+//! - [`Profile::Mcp`] is the MCP server's surface, unchanged:
 //!   eight tools, each taking `connection`, results up to 4 MB.
 //! - [`Profile::Assistant`] is the chat panel's, bound to the chat's
 //!   connection: `run_query`, `explain_query`, `list_schemas`,
 //!   `list_tables`, `describe_table`, `list_saved_queries` and
-//!   `run_saved_query` (Q4), then the five dashboard tools the page runs
-//!   (client tools, Decision 6). Results answer what MCP answers for that
-//!   connection (Decision 30), within 256 KB.
+//!   `run_saved_query`, then the five dashboard tools the page runs
+//!   (client tools). Results answer what MCP answers for that
+//!   connection, within 256 KB.
 //!
 //! Nothing here runs a query or reads storage: Core does, through the paths
-//! it already has (Decision 4), and hands what it read to [`render`].
+//! it already has, and hands what it read to [`render`].
 //!
 //! **A call in the assistant profile** goes through [`prepare`]: the tool
 //! must exist (and a client tool be offered), its sharing flag must be on
-//! (Decision 22: before the arguments are read), its arguments must parse
-//! (Decision 24: unknown fields refused, serde's message with the field's
+//! (before the arguments are read), its arguments must parse
+//! (unknown fields refused, serde's message with the field's
 //! path) and `max_rows` must be in range. Core then runs
-//! [`read_only_check`] and asks for approval (Decision 30) before it runs
+//! [`read_only_check`] and asks for approval before it runs
 //! anything. Every refusal is a [`ToolError`] that reaches the model as an
 //! error result, `CODE: message`; the wire marks it as an error itself, so
 //! nothing here adds a prefix.
@@ -72,7 +72,7 @@ pub enum Tool {
     RemoveWidget,
 }
 
-/// What a tool needs before it may run (Decision 5).
+/// What a tool needs before it may run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Needs {
     /// Schema sharing: the introspection tools and the saved-query list.
@@ -157,12 +157,12 @@ impl Tool {
         }
     }
 
-    /// A tool the page runs (Decision 6).
+    /// A tool the page runs.
     pub fn is_client(self) -> bool {
         self.needs() == Needs::Client
     }
 
-    /// The assistant asks the user before it runs (Decision 30): the tools
+    /// The assistant asks the user before it runs: the tools
     /// that run SQL.
     pub fn asks_approval(self) -> bool {
         self.needs() == Needs::Data
@@ -427,7 +427,7 @@ impl ToolError {
         )
     }
 
-    /// The user denied the query (Decision 25).
+    /// The user denied the query.
     pub fn denied() -> Self {
         Self::new(DENIED, "User denied query execution")
     }
@@ -594,7 +594,7 @@ impl Call {
 
 /// Parse `input` as `name`'s arguments in `profile`.
 ///
-/// The assistant's are strict (Decision 24): unknown fields are refused,
+/// The assistant's are strict: unknown fields are refused,
 /// and the message is serde's for the first problem, with its path
 /// (`kpi_config.format: unknown variant …`). serde_json's map visits keys
 /// in sorted order (this crate must never be built with `preserve_order`;
@@ -814,8 +814,8 @@ impl fmt::Debug for Gate<'_> {
 
 /// An assistant call's checks before Core does anything with it, in order:
 /// the tool exists (`INVALID_ARGUMENT: Unknown tool: …`), its sharing flag
-/// is on (`SCHEMA_SHARING_OFF`/`DATA_SHARING_OFF`, before the arguments are
-/// read, Decision 22), its arguments parse ([`parse`]) and `max_rows` is in
+/// is on (`SCHEMA_SHARING_OFF`/`DATA_SHARING_OFF`, before the arguments are read),
+/// its arguments parse ([`parse`]) and `max_rows` is in
 /// range.
 pub fn prepare(name: &str, input: &Json, gate: &Gate<'_>) -> Result<Call, ToolError> {
     let tool = Tool::find(Profile::Assistant, name)
@@ -837,7 +837,7 @@ pub fn prepare(name: &str, input: &Json, gate: &Gate<'_>) -> Result<Call, ToolEr
     Ok(call)
 }
 
-/// Core's read-only check of the SQL a call carries (Decision 4: the same
+/// Core's read-only check of the SQL a call carries (the same
 /// token check `query_stream` runs): `run_query`'s and `explain_query`'s
 /// `sql`, and a widget's non-blank `query`. `run_saved_query`'s SQL is
 /// checked when it runs.

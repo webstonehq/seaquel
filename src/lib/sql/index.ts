@@ -11,8 +11,7 @@
  * `db/query-utils.ts`, `engine/sql-scan.ts`, `db/parse-create-table.ts`,
  * `tutorial/sql-parser.ts`, `db/sql-ast-parser.ts` and `db/column-sources.ts`,
  * which phase 2b deleted. The statement checks take the engine as a new
- * argument, because they follow its quoting now (fixes 11, 12 and 14 in
- * `docs/plans/2026-09-27-rust-core-phase-2b-plan.md`).
+ * argument, because they follow its quoting now.
  *
  * Offsets are UTF-16 code units, as JS strings and Monaco count them; the
  * conversion from Rust's byte offsets happens inside the module. Statement
@@ -352,7 +351,7 @@ export function countQuery(sql: string, type: DatabaseType): string {
 
 /**
  * What a statement does and to which object, for the pending-changes
- * sheet's description (phase 5c, Decision 12): `null` when it is none of
+ * sheet's description (phase 5c): `null` when it is none of
  * `ChangeVerb`'s, and if the module fails (logged), which falls back to the
  * change's origin.
  */

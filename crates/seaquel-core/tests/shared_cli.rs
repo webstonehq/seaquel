@@ -1,4 +1,4 @@
-//! Q26: the shared projection and the imports on a workspace built as
+//! The shared projection and the imports on a workspace built as
 //! `seaquel-cli` builds it (read-only storage, a keychain): reads answer,
 //! writes are `STORAGE_READ_ONLY`, and nothing reaches the repo.
 

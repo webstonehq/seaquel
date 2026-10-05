@@ -2,38 +2,22 @@
   "cases": [
     {
       "name": "first page",
-      "input": {
-        "sql": "SELECT * FROM users",
-        "limit": 100,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT * FROM users", "limit": 100, "offset": 0 },
       "output": "SELECT * FROM users ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY"
     },
     {
       "name": "later page",
-      "input": {
-        "sql": "SELECT * FROM users",
-        "limit": 50,
-        "offset": 150
-      },
+      "input": { "sql": "SELECT * FROM users", "limit": 50, "offset": 150 },
       "output": "SELECT * FROM users ORDER BY (SELECT NULL) OFFSET 150 ROWS FETCH NEXT 50 ROWS ONLY"
     },
     {
       "name": "keeps a top-level ORDER BY",
-      "input": {
-        "sql": "SELECT id, name FROM users ORDER BY name",
-        "limit": 10,
-        "offset": 20
-      },
+      "input": { "sql": "SELECT id, name FROM users ORDER BY name", "limit": 10, "offset": 20 },
       "output": "SELECT id, name FROM users ORDER BY name OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
       "name": "lower-case order by across a line break",
-      "input": {
-        "sql": "SELECT id FROM users order\n  by id DESC",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT id FROM users order\n  by id DESC", "limit": 10, "offset": 0 },
       "output": "SELECT id FROM users order\n  by id DESC OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
@@ -47,11 +31,7 @@
     },
     {
       "name": "a column named like ORDER_BY is not ORDER BY",
-      "input": {
-        "sql": "SELECT order_by FROM t",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT order_by FROM t", "limit": 10, "offset": 0 },
       "output": "SELECT order_by FROM t ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
@@ -65,11 +45,7 @@
     },
     {
       "name": "keeps a trailing semicolon",
-      "input": {
-        "sql": "SELECT 1;",
-        "limit": 10,
-        "offset": 5
-      },
+      "input": { "sql": "SELECT 1;", "limit": 10, "offset": 5 },
       "output": "SELECT 1; ORDER BY (SELECT NULL) OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {
@@ -110,11 +86,7 @@
     },
     {
       "name": "ORDER BY inside a bracketed name (read as the query's)",
-      "input": {
-        "sql": "SELECT [order by] FROM t",
-        "limit": 10,
-        "offset": 0
-      },
+      "input": { "sql": "SELECT [order by] FROM t", "limit": 10, "offset": 0 },
       "output": "SELECT [order by] FROM t OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
     },
     {

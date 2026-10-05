@@ -1,4 +1,4 @@
-//! One turn of the assistant (`ai.chat`, Decisions 4–6, 10–13, 22–31).
+//! One turn of the assistant (`ai.chat`).
 //!
 //! **Order.** Core's refusals come first and store nothing: the transport
 //! and egress, the turns-in-flight cap, the message's size and ids, the
@@ -18,7 +18,7 @@
 //!
 //! **Tools.** Before each call the connection's row and the AI settings are
 //! read again, so sharing switched off between two calls refuses the
-//! second (Decision 22). A query tool waits for `respond` unless the turn
+//! second. A query tool waits for `respond` unless the turn
 //! allows all; a client tool waits for the page's answer. A wait ends only
 //! with the answer or the turn's cancel (its stream id's, or the
 //! workspace's `close_all`).
@@ -337,7 +337,7 @@ async fn run(
     // Held text goes out before the ending, unless the turn was cancelled
     // (then `flush` drops it).
     out.flush();
-    // A reply cut for its size says so where it is stored (probe F2): the
+    // A reply cut for its size says so where it is stored: the
     // page shows its own wording for the note, and later turns' history
     // tells the model.
     if matches!(end, End::Done(AiStop::TooLong))
@@ -351,7 +351,7 @@ async fn run(
     let reply_row = t.reply.row(&p.assistant_message_id, &p.chat_id, &now);
     let stored = store_reply(ws, core, &origin, &p.chat_id, reply_row, &now).await;
     let elapsed_ms = executor.monotonic().saturating_sub(started).as_millis() as u64;
-    // Only stored rows go in an ending (review I4): the page has the
+    // Only stored rows go in an ending: the page has the
     // streamed text from the `text` events.
     let (messages, seq, stored_err) = match stored {
         Ok((row, seq)) => (vec![user_row, row], seq, None),
@@ -382,7 +382,7 @@ async fn run(
     }
 }
 
-/// The most a reply's text may hold, its cut note included (probe F2): the
+/// The most a reply's text may hold, its cut note included: the
 /// message limit a stored reply is checked against (`StateLimits`'
 /// `max_message_bytes`, the web's 1 MiB) or Core's own ceiling
 /// (`AiLimits::max_reply_bytes`, 1 MiB by default), whichever is lower.
@@ -404,7 +404,7 @@ fn prefix_within(text: &str, max: usize) -> &str {
     &text[..end]
 }
 
-/// The reply's write (review I4): refused for its size (`CHAT_FULL`, or
+/// The reply's write: refused for its size (`CHAT_FULL`, or
 /// `INVALID_ARGUMENT` past `max_message_bytes`) with tool calls, it is
 /// tried once more without them, keeping its text. Answers the row as
 /// stored and its write's sequence.
@@ -543,7 +543,7 @@ struct Turn<'a> {
     stop: &'a Stop<'a>,
     reply: Reply,
     /// The most text the reply may stream; past it the turn stops reading
-    /// the provider and ends `tooLong` (probe F2).
+    /// the provider and ends `tooLong`.
     text_cap: usize,
     /// Tool calls so far, across rounds.
     calls: usize,
@@ -802,7 +802,7 @@ impl Turn<'_> {
         Ok(result)
     }
 
-    /// The round's text as a part of the reply (Decision 23), before its
+    /// The round's text as a part of the reply, before its
     /// calls.
     fn keep_round_text(&mut self, round: u32, text: &str) {
         if !text.is_empty() {
@@ -865,7 +865,7 @@ impl Turn<'_> {
         call: &ToolCall,
         out: &mut Out<'_>,
     ) -> Result<Result<ToolOutput, ToolError>, End> {
-        // Sharing as it is now (Decision 22), and the names answers use.
+        // Sharing as it is now, and the names answers use.
         let (sharing, name) = super::sharing_now(self.ws, &self.r.row.id).await;
         let gate = Gate {
             sharing,
@@ -956,7 +956,7 @@ impl Turn<'_> {
     }
 
     /// The answer to a waiting call. The turn's cancel ends it; a waiter
-    /// lost without an answer (review M3) fails the turn rather than ending
+    /// lost without an answer fails the turn rather than ending
     /// it silently.
     async fn answer(
         &self,

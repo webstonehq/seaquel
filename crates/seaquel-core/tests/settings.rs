@@ -1,4 +1,4 @@
-//! The `settings` group through Core (phase 5d-2, Decision 20): settings
+//! The `settings` group through Core (phase 5d-2): settings
 //! rows, the AI settings record rewritten from the stored copy with its API
 //! keys in the keychain (desktop) or the vault (web), themes, onboarding,
 //! tutorial progress and import state.
@@ -665,7 +665,7 @@ async fn tutorial_and_import_state_round_trip() {
     );
 }
 
-/// Phase 5d-2 review: a failed update puts the old key back only while the
+/// A failed update puts the old key back only while the
 /// entry still holds this call's key; one another call set meanwhile stays.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_update_keeps_a_key_another_call_set_meanwhile() {

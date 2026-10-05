@@ -1,6 +1,6 @@
 /**
  * The page's DuckDB-WASM instances, each started on first use, each with
- * its own catalog (Decision 12, as amended in Task 6's review):
+ * its own catalog (as amended in Task 6's review):
  *
  * - `pageDuckDb`: the demo's, which its Core drives through the bridge
  *   (`$lib/core/browser`);

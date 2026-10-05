@@ -716,7 +716,7 @@ export class QueryExecutionManager {
             break;
           }
           case "utility":
-            // Rows when it returned columns (Decision 18); otherwise a
+            // Rows when it returned columns; otherwise a
             // utility result, hidden when another result shows.
             if (c.batched) {
               target.totalRows = event.totalRows;

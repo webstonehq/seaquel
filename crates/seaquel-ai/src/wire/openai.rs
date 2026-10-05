@@ -12,7 +12,7 @@ use super::{
 };
 use crate::sse::SseEvent;
 
-/// The prefix that marks a failed tool call's result (Decision 4): the
+/// The prefix that marks a failed tool call's result: the
 /// format has no error flag.
 pub const TOOL_ERROR_PREFIX: &str = "Error: ";
 

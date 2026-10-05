@@ -3,11 +3,7 @@
     "name": "anthropic/no-existing-query",
     "note": "A request with an empty editor; the reply's ```sql block is inserted, then the tab runs (bug 9).",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -36,12 +32,7 @@
           "model": "model-1",
           "max_tokens": 2048,
           "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
-          "messages": [
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
-          ]
+          "messages": [{ "role": "user", "content": "users who signed up this month" }]
         }
       }
     ],
@@ -55,11 +46,7 @@
     "name": "openai/no-existing-query",
     "note": "A request with an empty editor; the reply's ```sql block is inserted, then the tab runs (bug 9).",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible"
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -79,10 +66,7 @@
       {
         "method": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
-        "headers": {
-          "authorization": "Bearer <key>",
-          "content-type": "application/json"
-        },
+        "headers": { "authorization": "Bearer <key>", "content-type": "application/json" },
         "body": {
           "model": "model-1",
           "messages": [
@@ -90,10 +74,7 @@
               "role": "system",
               "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
             },
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
+            { "role": "user", "content": "users who signed up this month" }
           ]
         }
       }
@@ -108,11 +89,7 @@
     "name": "anthropic/existing-query",
     "note": "The editor's text goes with the request.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -160,11 +137,7 @@
     "name": "openai/existing-query",
     "note": "The editor's text goes with the request.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible"
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -184,10 +157,7 @@
       {
         "method": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
-        "headers": {
-          "authorization": "Bearer <key>",
-          "content-type": "application/json"
-        },
+        "headers": { "authorization": "Bearer <key>", "content-type": "application/json" },
         "body": {
           "model": "model-1",
           "messages": [
@@ -213,11 +183,7 @@
     "name": "anthropic/no-code-block",
     "note": "A reply without a fence is inserted whole, trimmed.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -246,12 +212,7 @@
           "model": "model-1",
           "max_tokens": 2048,
           "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
-          "messages": [
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
-          ]
+          "messages": [{ "role": "user", "content": "users who signed up this month" }]
         }
       }
     ],
@@ -265,11 +226,7 @@
     "name": "openai/no-code-block",
     "note": "A reply without a fence is inserted whole, trimmed.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible"
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -289,10 +246,7 @@
       {
         "method": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
-        "headers": {
-          "authorization": "Bearer <key>",
-          "content-type": "application/json"
-        },
+        "headers": { "authorization": "Bearer <key>", "content-type": "application/json" },
         "body": {
           "model": "model-1",
           "messages": [
@@ -300,10 +254,7 @@
               "role": "system",
               "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
             },
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
+            { "role": "user", "content": "users who signed up this month" }
           ]
         }
       }
@@ -318,11 +269,7 @@
     "name": "anthropic/two-blocks",
     "note": "Two fenced blocks: the first.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -351,12 +298,7 @@
           "model": "model-1",
           "max_tokens": 2048,
           "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
-          "messages": [
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
-          ]
+          "messages": [{ "role": "user", "content": "users who signed up this month" }]
         }
       }
     ],
@@ -370,11 +312,7 @@
     "name": "openai/two-blocks",
     "note": "Two fenced blocks: the first.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible"
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -394,10 +332,7 @@
       {
         "method": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
-        "headers": {
-          "authorization": "Bearer <key>",
-          "content-type": "application/json"
-        },
+        "headers": { "authorization": "Bearer <key>", "content-type": "application/json" },
         "body": {
           "model": "model-1",
           "messages": [
@@ -405,10 +340,7 @@
               "role": "system",
               "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
             },
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
+            { "role": "user", "content": "users who signed up this month" }
           ]
         }
       }
@@ -423,11 +355,7 @@
     "name": "anthropic/schema-off",
     "note": "The active connection doesn't share its schema.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -456,12 +384,7 @@
           "model": "model-1",
           "max_tokens": 2048,
           "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
-          "messages": [
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
-          ]
+          "messages": [{ "role": "user", "content": "users who signed up this month" }]
         }
       }
     ],
@@ -475,11 +398,7 @@
     "name": "openai/schema-off",
     "note": "The active connection doesn't share its schema.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible"
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -499,10 +418,7 @@
       {
         "method": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
-        "headers": {
-          "authorization": "Bearer <key>",
-          "content-type": "application/json"
-        },
+        "headers": { "authorization": "Bearer <key>", "content-type": "application/json" },
         "body": {
           "model": "model-1",
           "messages": [
@@ -510,10 +426,7 @@
               "role": "system",
               "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
             },
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
+            { "role": "user", "content": "users who signed up this month" }
           ]
         }
       }
@@ -528,11 +441,7 @@
     "name": "anthropic/http-429",
     "note": "A 429.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -561,12 +470,7 @@
           "model": "model-1",
           "max_tokens": 2048,
           "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
-          "messages": [
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
-          ]
+          "messages": [{ "role": "user", "content": "users who signed up this month" }]
         }
       }
     ],
@@ -583,11 +487,7 @@
     "name": "openai/http-429",
     "note": "A 429.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible"
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -607,10 +507,7 @@
       {
         "method": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
-        "headers": {
-          "authorization": "Bearer <key>",
-          "content-type": "application/json"
-        },
+        "headers": { "authorization": "Bearer <key>", "content-type": "application/json" },
         "body": {
           "model": "model-1",
           "messages": [
@@ -618,10 +515,7 @@
               "role": "system",
               "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
             },
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
+            { "role": "user", "content": "users who signed up this month" }
           ]
         }
       }
@@ -639,11 +533,7 @@
     "name": "anthropic/http-500",
     "note": "A 500: a toast with the body, and the body logged (bug 12).",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -672,12 +562,7 @@
           "model": "model-1",
           "max_tokens": 2048,
           "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
-          "messages": [
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
-          ]
+          "messages": [{ "role": "user", "content": "users who signed up this month" }]
         }
       }
     ],
@@ -696,11 +581,7 @@
     "name": "openai/http-500",
     "note": "A 500: a toast with the body, and the body logged (bug 12).",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible"
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -720,10 +601,7 @@
       {
         "method": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
-        "headers": {
-          "authorization": "Bearer <key>",
-          "content-type": "application/json"
-        },
+        "headers": { "authorization": "Bearer <key>", "content-type": "application/json" },
         "body": {
           "model": "model-1",
           "messages": [
@@ -731,10 +609,7 @@
               "role": "system",
               "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
             },
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
+            { "role": "user", "content": "users who signed up this month" }
           ]
         }
       }
@@ -752,11 +627,7 @@
     "name": "anthropic/network-error",
     "note": "`fetch` throws.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -765,12 +636,7 @@
       "existingQuery": "",
       "schema": "SCHEMA"
     },
-    "responses": [
-      {
-        "networkError": true,
-        "body": ""
-      }
-    ],
+    "responses": [{ "networkError": true, "body": "" }],
     "requests": [
       {
         "method": "POST",
@@ -784,12 +650,7 @@
           "model": "model-1",
           "max_tokens": 2048,
           "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
-          "messages": [
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
-          ]
+          "messages": [{ "role": "user", "content": "users who signed up this month" }]
         }
       }
     ],
@@ -806,11 +667,7 @@
     "name": "openai/network-error",
     "note": "`fetch` throws.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible"
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -819,20 +676,12 @@
       "existingQuery": "",
       "schema": "SCHEMA"
     },
-    "responses": [
-      {
-        "networkError": true,
-        "body": ""
-      }
-    ],
+    "responses": [{ "networkError": true, "body": "" }],
     "requests": [
       {
         "method": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
-        "headers": {
-          "authorization": "Bearer <key>",
-          "content-type": "application/json"
-        },
+        "headers": { "authorization": "Bearer <key>", "content-type": "application/json" },
         "body": {
           "model": "model-1",
           "messages": [
@@ -840,10 +689,7 @@
               "role": "system",
               "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
             },
-            {
-              "role": "user",
-              "content": "users who signed up this month"
-            }
+            { "role": "user", "content": "users who signed up this month" }
           ]
         }
       }
@@ -863,11 +709,7 @@
     "name": "anthropic/empty-content",
     "note": "A reply with no content blocks: an empty string is inserted.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true,
       "model": "model-1",
       "engine": "postgres",
@@ -896,12 +738,7 @@
           "model": "model-1",
           "max_tokens": 2048,
           "system": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block.",
-          "messages": [
-            {
-              "role": "user",
-              "content": "list every table please"
-            }
-          ]
+          "messages": [{ "role": "user", "content": "list every table please" }]
         }
       }
     ],
@@ -915,11 +752,7 @@
     "name": "anthropic/no-key",
     "note": "No key: the error, no request.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": false,
       "model": "model-1",
       "engine": "postgres",
@@ -965,9 +798,7 @@
       {
         "method": "POST",
         "url": "http://localhost:11434/v1/chat/completions",
-        "headers": {
-          "content-type": "application/json"
-        },
+        "headers": { "content-type": "application/json" },
         "body": {
           "model": "model-1",
           "messages": [
@@ -975,10 +806,7 @@
               "role": "system",
               "content": "You are a helpful SQL assistant for a PostgreSQL database. Always use PostgreSQL-compatible syntax.\n\nDatabase schema:\n\nTable: users\n  id integer NOT NULL\n  email text NOT NULL\n  name text\n  INDEX users_pkey (id)\n  INDEX users_email_idx (email)\n\nTable: orders\n  id integer NOT NULL\n  user_id integer NOT NULL\n  total numeric(10,2)\n  created_at timestamp with time zone NOT NULL\n  INDEX orders_user_created_idx (user_id, created_at)\n\nTable: users\n  id integer NOT NULL\n  email text\n\nTable: active_users\n  id integer\n  email text\n\nTable: empty\n\nProvide clear, concise SQL queries and explanations. When writing SQL, wrap it in a markdown code block."
             },
-            {
-              "role": "user",
-              "content": "list every table please"
-            }
+            { "role": "user", "content": "list every table please" }
           ]
         }
       }
@@ -993,11 +821,7 @@
     "name": "none/no-model",
     "note": "No model chosen, providers configured: the message, no request.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true,
       "model": null,
       "engine": "postgres",

@@ -1,4 +1,4 @@
-//! Core runs a turn (phase 6 Task 4): the loop, approvals and client
+//! Core runs a turn: the loop, approvals and client
 //! tools, keys, the chat writes, timeouts and cancels, against the mock
 //! provider. The fixture replays are in `ai_replay.rs`.
 
@@ -678,7 +678,7 @@ async fn max_tokens_is_stored_and_done_says_so() {
 }
 
 /// A provider that streams `delta` again and again until the client goes
-/// (probe F2: a misbehaving provider), after the start of a text block.
+/// (a misbehaving provider), after the start of a text block.
 fn endless_text(delta: &str) -> Reply {
     use seaquel_ai::testing::scripts::anthropic_event;
     let start = anthropic_text("")[..2].to_vec();
@@ -714,7 +714,7 @@ fn assert_cut(stored: &str, streamed: &str, cap: usize) {
     assert_eq!(text, streamed);
 }
 
-/// Probe F2: a reply past the message limit (`max_message_bytes`, the
+/// A reply past the message limit (`max_message_bytes`, the
 /// web's 1 MiB) is cut on a character boundary, stored with the note, and
 /// the turn ends `tooLong`; Core stops reading the provider's stream.
 #[tokio::test]
@@ -877,8 +877,7 @@ async fn a_provider_error_stores_what_streamed_and_carries_it() {
     assert_eq!(&w.messages("chat-1").await, messages);
 }
 
-/// A message limit too small for the cut note (probe F2 changed this case:
-/// the reply used to stream in full and fail to store): the reply is cut
+/// A message limit too small for the cut note (the reply used to stream in full and fail to store): the reply is cut
 /// at the limit itself, stored without the note, and the turn ends
 /// `tooLong`.
 #[tokio::test]
@@ -1157,8 +1156,6 @@ async fn logs_hold_usage_and_no_key_prompt_sql_or_reply() {
         }
     }
 }
-
-// ── Review fixes ──
 
 /// I1: a stream id a turn runs under can't be taken by a second turn or a
 /// query stream, and the first turn stays cancellable.
@@ -1507,7 +1504,7 @@ async fn a_turn_after_close_all_is_workspace_closed() {
     assert!(w.http.sent().is_empty());
 }
 
-// ── The key in a provider's message (Task 8 review) ──
+// ── The key in a provider's message ──
 
 /// A turn with the visitor's key: the mock's answer echoes it.
 fn keyed(id: &str, stream: &str) -> seaquel_core::ai::ChatParams {
@@ -1573,7 +1570,7 @@ async fn the_key_is_redacted_before_the_message_is_cut() {
     assert_eq!(&shown[1020..], "<red");
 }
 
-// ── The inline prompt's mentions (phase 7a Task 7) ──
+// ── The inline prompt's mentions ──
 
 /// The TUI's Ask AI completes `@` names and sends the request as typed:
 /// Core resolves the mentions for `ai.generate` as it does for a turn (a
@@ -1650,7 +1647,7 @@ async fn generate_resolves_mentions_as_a_turn_does() {
     assert!(first.contains("Saved query: Paid totals"), "{first}");
     assert_eq!(user(1), "no mention here");
 
-    // Schema sharing off (Decision 24 of phase 7a): the request goes byte
+    // Schema sharing off: the request goes byte
     // for byte as typed, with no context.
     let typed = "top payers in @invoices like @\"Paid totals\"";
     w.ws.ai_generate(&w.core, generate_on("conn-2", typed))

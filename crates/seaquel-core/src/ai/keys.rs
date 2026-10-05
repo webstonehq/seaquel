@@ -1,4 +1,4 @@
-//! A provider's API key (Decision 7): the one the call supplies (web,
+//! A provider's API key: the one the call supplies (web,
 //! demo), else the workspace's keychain entry `ai-api-key:<providerId>`
 //! (desktop), read by Core so the key never reaches the page. It is held
 //! for the call only, and never logged, put in an error or stored.

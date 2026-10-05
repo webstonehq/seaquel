@@ -1,5 +1,5 @@
 /**
- * Settings → AI in the demo (phase 6 Task 8, Q2 B): the visitor's key is
+ * Settings → AI in the demo: the visitor's key is
  * kept in this page's memory for the session, never sent to Core with the
  * provider, never in storage, and sent with each `ai` call naming its
  * provider (`CoreAi`'s vault is the page's session keys). A reload (a new

@@ -53,7 +53,7 @@ interface RunningTurn {
  * UI state: the AI panel, view switching, and the assistant's view model.
  *
  * The assistant runs in Core (phase 6): a turn is one `ai.chat`, and this
- * shows its events: the reply's text and tool lines (Q7), the approval
+ * shows its events: the reply's text and tool lines, the approval
  * card (answered with `respond`), the dashboard tools (run here, answered
  * with `respond`), and the rows Core stored (`done.messages`, by `seq`).
  * It decides nothing about the turn: not what the model is sent, which
@@ -85,7 +85,7 @@ export class UIStateManager {
 
   /**
    * Whether "Allow all" was given on `connectionId` this session, and the
-   * connection still points where it did then (review M4). Reads only:
+   * connection still points where it did then. Reads only:
    * `forgetStaleAllowAll` drops what no longer holds.
    */
   isAllowAll(connectionId: string): boolean {
@@ -115,7 +115,7 @@ export class UIStateManager {
   }
 
   /**
-   * Stop: the turn is cancelled in Core, which stores what streamed (Q8).
+   * Stop: the turn is cancelled in Core, which stores what streamed.
    * Nothing is answered: a waiting approval or client tool is dropped with
    * the turn.
    */
@@ -129,7 +129,7 @@ export class UIStateManager {
     if (chatId && turn) {
       this._settleReply(chatId, turn.assistantMessageId);
       // Core stores what streamed, after the stream ended here: read the
-      // chat once the turn ends (review M5), and hear Core's own-origin
+      // chat once the turn ends, and hear Core's own-origin
       // `chatMessages` event for it, which usually comes after that read.
       this.aiChatManager.refetchAfterTurnFor(chatId);
       this.aiChatManager.awaitOwnStore(chatId);
@@ -152,8 +152,8 @@ export class UIStateManager {
 
   /**
    * Send a message in the active chat (created first, through Core, when
-   * there's none). A chat the web's budget filled takes no more (Q17).
-   * What was typed goes as it is: Core resolves `@mentions` (Decision 13).
+   * there's none). A chat the web's budget filled takes no more.
+   * What was typed goes as it is: Core resolves `@mentions`.
    */
   async sendAIMessage(content: string): Promise<boolean> {
     const chatId = await this.aiChatManager.ensureActiveChat();
@@ -370,7 +370,7 @@ export class UIStateManager {
         this.aiChatManager.applyTurnRows(chatId, event.messages, event.seq);
         this._settleReply(chatId, id);
         if (event.stop === "maxTokens") update((msg) => ({ ...msg, truncated: true }));
-        // Core cut it for its size (probe F2); the stored row says so too.
+        // Core cut it for its size; the stored row says so too.
         if (event.stop === "tooLong") update((msg) => ({ ...msg, cut: true }));
         this.aiChatManager.updateChatTimestamp(chatId);
         return;
@@ -398,7 +398,7 @@ export class UIStateManager {
     this._updateMessage(chatId, id, (msg) => ({ ...msg, error: aiErrorText(code, message) }));
   }
 
-  /** Answer the turn (after a microtask: never from inside an event handler, Decision 17). */
+  /** Answer the turn (after a microtask: never from inside an event handler). */
   private _respond(turn: RunningTurn, callId: string, decision: AiDecision) {
     queueMicrotask(() => {
       if (turn.controller.signal.aborted) return;

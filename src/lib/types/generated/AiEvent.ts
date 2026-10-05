@@ -4,7 +4,7 @@ import type { ChangeSeq } from "./ChangeSeq";
 import type { PersistedAIMessage } from "./PersistedAIMessage";
 
 /**
- * What a turn tells the page (Decision 11), in order: one `started`, then
+ * What a turn tells the page, in order: one `started`, then
  * `text` (coalesced), `toolCall`/`toolDone`, `approvalRequired` and
  * `clientTool` as they come, and exactly one `done` or `error`. A
  * cancelled turn ends with neither.

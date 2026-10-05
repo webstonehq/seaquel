@@ -1,5 +1,5 @@
 -- Frozen: the schema a fresh metadata database had after its first launch on v2026.9.1.
--- Made by docs/plans/artifacts/2026-09-29-freeze-storage-baseline.mjs.txt from that release's schema.ts, db.ts and
+-- Made by docs/plans/artifacts/2026-09-29-freeze-storage-baseline.mjs.txt (in git history at ae7f269) from that release's schema.ts, db.ts and
 -- MigrationManager; migrated_at is fixed. See ../README.md.
 
 CREATE TABLE schema_version (

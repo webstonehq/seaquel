@@ -1,15 +1,14 @@
-//! `{{param}}` extraction and substitution (Task 4). Port of
+//! `{{param}}` extraction and substitution. Port of
 //! `src/lib/db/query-params.ts` (deleted in phase 2b), with literal and comment
 //! boundaries taken from the tokenizer in [`crate::scan`]. The fix 13 rules are
-//! the recorder's `params-model.ts`, kept as
-//! `docs/plans/artifacts/2026-09-27-sql-recorder-params-model.ts.txt`.
+//! the recorder's `params-model.ts` (in git history).
 //!
 //! Per engine (`substituteParameters`):
 //!
 //! - **Postgres and SQLite, bound** (fix 13):
 //!   `$n` numbered by first use. Inside a `'…'` literal `' || $n || '`, inside
 //!   `E'…'` `' || $n || E'` so the rest keeps its escapes. Inside a
-//!   `$tag$…$tag$` string the value's raw text (open question 4: an accepted
+//!   `$tag$…$tag$` string the value's raw text (an accepted
 //!   injection path, since the user writes both the query and the value; the
 //!   tag check only stops a value from closing the string). Comments and
 //!   quoted names are copied as they are.
@@ -508,14 +507,14 @@ pub fn substituted_size_bound(sql: &str, values: &[(String, Value)]) -> usize {
 ///
 /// A value is copied once per use on the engines that inline it (SQL
 /// Server, DuckDB, forced inline) and bound once per use on MySQL, so a big
-/// value used many times multiplies (phase 5b probe, N3). Each `{{name}}` in
+/// value used many times multiplies (N3). Each `{{name}}` in
 /// the text counts its value's cost: twice its text (every quote or
 /// backslash doubled) plus room for the quoting around it, with a decimal
 /// exponent written out as [`plain_decimal`] does (its length computed, not
 /// built). A name without a value is NULL; of duplicate names the last
 /// counts, as in [`substitute`]. Each name's cost is worked out the first
 /// time a statement uses it, so the work is the statements' length plus
-/// the values they use, never statements × values (phase 5b review, C1).
+/// the values they use, never statements × values.
 pub struct SizeBound<'v, 'a> {
     values: &'v Values<'a>,
     costs: HashMap<&'a str, usize>,
@@ -1202,7 +1201,7 @@ fn substitute_duckdb(sql: &str, values: &Values<'_>) -> Result<Substituted, Subs
 
 // --- Bound values as DuckDB literals ------------------------------------------
 
-/// A bound value as a self-contained DuckDB literal (phase 8, Decision 9): the
+/// A bound value as a self-contained DuckDB literal (phase 8): the
 /// browser's DuckDB-WASM can't bind a `bigint`, so its driver writes every
 /// bound `?` as one of these. Each form holds its value exactly and types it
 /// as the native driver's bind does:

@@ -1,7 +1,7 @@
 /**
  * The library's wire rows (`LibraryService`) as the view models hold them,
- * and the patches the view models send: only the fields that changed
- * (Decision 2), so another window's edit to another field survives.
+ * and the patches the view models send: only the fields that changed,
+ * so another window's edit to another field survives.
  */
 import type {
   AIChat,
@@ -335,7 +335,7 @@ export function chatFromWire(wire: WireChat): AIChat {
 }
 
 export function messageFromWire(wire: ChatMessages["messages"][number]): AIMessage {
-  // A reply Core cut for its size (probe F2) ends with its note: shown as
+  // A reply Core cut for its size ends with its note: shown as
   // the page's own wording instead.
   const { content, cut } =
     wire.role === "assistant" ? splitCutNote(wire.content) : { content: wire.content, cut: false };
@@ -348,7 +348,7 @@ export function messageFromWire(wire: ChatMessages["messages"][number]): AIMessa
     query: wire.query,
     dashboardId: wire.dashboardId,
   };
-  // Q7: a reply's stored tool calls (`parts`, Decision 23) as its lines.
+  // A reply's stored tool calls (`parts`) as its lines.
   const segments = segmentsFromParts(wire.parts);
   if (segments) message.segments = segments;
   if (cut) message.cut = true;

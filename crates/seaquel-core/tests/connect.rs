@@ -416,7 +416,7 @@ async fn an_unreadable_db_password_fails_before_connecting() {
     assert_eq!(f.core.connection_count(), 0);
 }
 
-/// Phase 7a probe F4: a store that isn't there (a headless Linux host with
+/// A store that isn't there (a headless Linux host with
 /// no Secret Service) isn't a refusal: the connect fails with its own code,
 /// before anything opens, so the interface asks for the password instead.
 /// A refusal among the reads still wins.
@@ -498,7 +498,7 @@ async fn an_unreadable_key_passphrase_fails_before_the_tunnel() {
     assert_eq!(f.core.connection_count(), 0);
 }
 
-/// A workspace with no secret store (the web, probe F5): a saved row whose
+/// A workspace with no secret store (the web): a saved row whose
 /// save flag is on and that gets no supplied password connects with none,
 /// as a form does, instead of failing with `NO_SECRET_STORE`. The vault
 /// supplies what it has; a trust-auth database needs nothing.
@@ -1137,7 +1137,7 @@ async fn two_connections_from_one_row_each_own_a_tunnel() {
     assert_eq!(f.core.ssh_tunnel_count(), 0);
 }
 
-// ── Live: the Decision 6 cases that needed a live check ──
+// ── Live: the connect fixes that needed a live check ──
 
 /// Connect `req`, run `SELECT 1`, disconnect: `Ok` or the connect error.
 async fn try_round_trip(f: &Fixture, req: ConnectRequest) -> Result<(), CoreError> {

@@ -306,7 +306,7 @@ pub fn parse_columns(result: &QueryResult, flavor: Flavor) -> Vec<SchemaColumn> 
 
 /// MariaDB stores a `JSON` column as `longtext` with a column CHECK
 /// `json_valid(`col`)` named after the column, so its catalog says
-/// `longtext`. Such a column is reported as `json` (phase 5c, Decision 19:
+/// `longtext`. Such a column is reported as `json` (phase 5c:
 /// Core binds a JSON column's arrays and numbers as JSON). Both the
 /// constraint's name and the clause must name the column exactly; a
 /// `longtext` with any other check stays `longtext`.

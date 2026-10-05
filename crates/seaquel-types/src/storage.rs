@@ -1,8 +1,7 @@
 //! The metadata storage's row types: what `seaquel-storage` saves and loads.
 //!
 //! Their JSON is the contract the TypeScript repositories in
-//! `src/lib/storage/repos/` had, field for field, frozen in
-//! `crates/seaquel-storage/tests/fixtures/row-shapes.json`:
+//! `src/lib/storage/repos/` had, field for field:
 //!
 //! - camelCase keys, and a field the TypeScript left out when unset is
 //!   skipped, while one it sent as `null` is sent as `null`;
@@ -753,8 +752,8 @@ pub struct PersistedDashboardVersion {
     pub created_at: String,
 }
 
-/// A dashboard version without its snapshot (`dashboardVersionsList` and
-/// `dashboardUpdate`'s new version, phase 5d-2 Task 7): what the version
+/// A dashboard version without its snapshot (`dashboardVersionsList` and `dashboardUpdate`'s new version):
+/// what the version
 /// history shows. `dashboardVersionGet` answers one version whole.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -773,7 +772,7 @@ pub struct PersistedDashboardVersionMeta {
     pub bytes: u64,
 }
 
-/// A saved workflow without its body (`workflowsList`, phase 5d-2 Task 7):
+/// A saved workflow without its body (`workflowsList`):
 /// what the workflow sidebar shows. `workflowGet` answers one workflow
 /// whole. `name` is `""` when the stored JSON has no text `name`; the
 /// times are `None` when it has no text time. `Debug` leaves the name out.
@@ -841,8 +840,8 @@ pub struct PersistedAIMessage {
     pub query: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dashboard_id: Option<String>,
-    /// A reply's tool calls (`ai_messages.parts`, migration `0007`; phase
-    /// 6, Decision 23): a list of `{round, type: "text", text}` and
+    /// A reply's tool calls (`ai_messages.parts`, migration `0007`; phase 6):
+    /// a list of `{round, type: "text", text}` and
     /// `{round, type: "tool", callId, name, input, ok, result,
     /// resultBytes?}`. Absent for a message without tool calls, for every
     /// user message, and for rows an older release wrote.

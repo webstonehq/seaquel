@@ -1,5 +1,4 @@
-//! What the server says when a DuckDB connection's helper can't be used
-//! (the DuckDB helper plan, Decision 13).
+//! What the server says when a DuckDB connection's helper can't be used.
 //!
 //! `seaquel-cli` runs DuckDB in the `seaquel-duckdb` helper, which it
 //! downloads separately. The MCP server can't ask the user anything, so a
@@ -10,7 +9,7 @@
 //! When the helper is installed (it passes the start's check) but still
 //! refused, installing again wouldn't help (`seaquel-cli duckdb install`
 //! finds it intact and fetches nothing), so the error points at
-//! `seaquel-cli duckdb status` instead (Task 7's `after_install` rule, in
+//! `seaquel-cli duckdb status` instead (the TUI's `after_install` rule, in
 //! the CLI's terms).
 //!
 //! Neither text names the connection or a path.

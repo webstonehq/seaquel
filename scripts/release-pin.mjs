@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// The DuckDB helper's pin in a release job (the desktop DuckDB helper plan,
-// Q1 B, Decision 4, Task 9). Each `release.yml` matrix job builds, signs and
+// The DuckDB helper's pin in a release job.
+// Each `release.yml` matrix job builds, signs and
 // gzips its target's helper first, then:
 //
 //   node scripts/release-pin.mjs export --target <triple>

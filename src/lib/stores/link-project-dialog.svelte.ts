@@ -1,8 +1,8 @@
 /**
- * The link dialog (Q30): on a project's first link, which of its
+ * The link dialog: on a project's first link, which of its
  * connections are written to the repo as templates. Every connection is
- * ticked except the ones marked local-only; only ticked ones are exported
- * (Decision 53), the rest stay local.
+ * ticked except the ones marked local-only; only ticked ones are exported,
+ * the rest stay local.
  */
 
 /** A connection as the dialog lists it. */

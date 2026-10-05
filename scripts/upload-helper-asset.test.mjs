@@ -1,5 +1,5 @@
-// The helper's upload into the draft (the desktop DuckDB helper plan, Task 9
-// review I2), against a fake Octokit: the bytes uploaded are the bytes the
+// The helper's upload into the draft,
+// against a fake Octokit: the bytes uploaded are the bytes the
 // app was pinned to, an earlier upload is replaced, and GitHub's answer is
 // checked.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

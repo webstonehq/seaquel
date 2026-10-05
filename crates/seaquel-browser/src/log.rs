@@ -1,4 +1,4 @@
-//! The module's log (phase 8, Decision 18): WARN and above, to the page's
+//! The module's log (phase 8): WARN and above, to the page's
 //! console. The rules are the server's (`seaquel-server`'s `startup.rs`):
 //! records carry activities, ids, counts, kinds and codes, never SQL, values,
 //! names or file contents, and the formatter bounds what a record can hold:

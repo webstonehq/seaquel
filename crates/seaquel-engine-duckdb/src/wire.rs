@@ -1,4 +1,4 @@
-//! The DuckDB helper's wire (the DuckDB helper plan, Decisions 3 and 5):
+//! The DuckDB helper's wire:
 //! frames on the helper's stdin and stdout, shared by the client (`remote`)
 //! and the helper (`helper`).
 //!
@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use crate::decode::Kind;
 
 /// The protocol version both sides speak; `hello` carries it. 2: schema
-/// frames carry the columns' kinds ([`schema_payload`], Checkpoint H-1).
+/// frames carry the columns' kinds ([`schema_payload`]).
 pub(crate) const PROTOCOL: u32 = 2;
 
 /// The largest `len` a frame may have: its kind, call id and payload.
@@ -59,7 +59,7 @@ pub(crate) const STREAM_CREDIT: u32 = 2;
 /// Read-only calls (`readOnly`, `explainReadOnly`) a helper runs at once,
 /// each on a DuckDB clone and a thread of its own; past it the helper
 /// answers `TOO_MANY_REQUESTS`. The client sends at most this many and
-/// queues the rest (the desktop DuckDB helper plan, Decision 5), so the
+/// queues the rest, so the
 /// helper's refusal is only a backstop.
 #[cfg_attr(not(any(feature = "remote", feature = "helper")), allow(dead_code))]
 pub(crate) const MAX_READ_ONLY_CALLS: usize = 16;

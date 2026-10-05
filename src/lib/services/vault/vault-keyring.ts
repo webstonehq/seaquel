@@ -29,7 +29,7 @@ const LICENSE_KEY_ID = "";
 /**
  * A stored secret the vault's key can't decrypt (a reset vault, a corrupt
  * row): thrown only by the strict getters, which tell it apart from "no
- * secret stored" (F4 re-review M-a).
+ * secret stored".
  */
 export class VaultEntryUnreadableError extends Error {
   constructor() {
@@ -142,7 +142,7 @@ export class VaultKeyringService implements KeyringService {
   setAIApiKeyForProvider(id: string, key: string): Promise<void> {
     return this.setSecret("ai-api-key-provider", id, key);
   }
-  /** `quiet`: an unlock this starts isn't announced (an assistant send, probe F1). */
+  /** `quiet`: an unlock this starts isn't announced (an assistant send). */
   getAIApiKeyForProvider(id: string, options?: UnlockOptions): Promise<string | null> {
     return this.getSecret("ai-api-key-provider", id, options);
   }

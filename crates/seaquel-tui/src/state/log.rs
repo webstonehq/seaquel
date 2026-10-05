@@ -1,4 +1,4 @@
-//! The command log's lines (Decision 13): what Core reports, kept in memory
+//! The command log's lines: what Core reports, kept in memory
 //! only (the last [`MAX_LINES`]), never written to a file or the log. Its
 //! lines hold SQL, so `Debug` shows only the count.
 

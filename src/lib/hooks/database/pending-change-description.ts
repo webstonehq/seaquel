@@ -4,7 +4,7 @@ import { changeSummary, detectQueryType, type ChangeSummary, type QueryType } fr
 
 /**
  * A pending change's description in the sheet, from what the statement does
- * (`ChangeSummary`, read by Core's scanner: phase 5c, Decision 12). The
+ * (`ChangeSummary`, read by Core's scanner: phase 5c). The
  * English and the origin fallback stay here.
  *
  * Without a summary, a statement that reads as an INSERT, UPDATE or DELETE

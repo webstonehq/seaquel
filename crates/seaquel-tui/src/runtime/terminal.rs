@@ -1,4 +1,4 @@
-//! The terminal's lifecycle (Decision 18). Entering turns on raw mode, the
+//! The terminal's lifecycle. Entering turns on raw mode, the
 //! alternate screen, mouse capture (unless `--no-mouse`) and, where the
 //! terminal answers the query, the kitty keyboard protocol's
 //! disambiguation flag (so Ctrl+Enter is a key of its own). [`restore`]
@@ -20,28 +20,28 @@
 //! - **Ctrl+Z** and an outside **SIGTSTP** (Unix): [`suspend`] restores,
 //!   stops the process (SIGSTOP), and on SIGCONT enters again; the loop then
 //!   draws on a fresh `Terminal`, never through `Terminal::clear()` (spike
-//!   S5: its cursor query hangs where nothing answers). An outside SIGSTOP
+//! Its cursor query hangs where nothing answers). An outside SIGSTOP
 //!   can't be caught: the terminal stays raw until SIGCONT.
 //! - **`$EDITOR`** (Ctrl+O): [`outside`] restores, runs the editor, and
 //!   enters again whatever the editor did (one that can't start, or exits
 //!   with an error, included); the loop then draws on a fresh `Terminal`.
 //!   The event reader is stopped first (`input.rs`), or it would take the
 //!   editor's keys.
-//! - **The terminal closes** (its window, an SSH session; probe F5): the
+//! - **The terminal closes** (its window, an SSH session): the
 //!   kernel sends SIGHUP and every write to it fails with EIO. Whichever
 //!   the loop meets first ends it (`Exit::Signal`, or an EIO from a draw
 //!   or the event reader, which [`gone`] tells apart, as
 //!   `Exit::TerminalClosed`); the restore writes fail harmlessly, and Core's
 //!   connections close and the state file is written as on any other
-//!   exit (bounded: the tasks are aborted and closing gets at most
-//!   `SETTLE_WITHIN`, review I1). Nothing that writes to the terminal or
+//!   exit (bounded: the tasks are aborted and closing gets at most `SETTLE_WITHIN`).
+//!  Nothing that writes to the terminal or
 //!   stderr may panic on the
 //!   way out: stderr lines go through `crate::say`, and a `Terminal` is
 //!   given up through [`release`], never ratatui's `Drop` (its
 //!   `eprintln!`).
 //! - **SIGKILL:** nothing can; `reset` fixes the shell.
 //! - **Windows console close:** the process ends; crossterm restores on
-//!   drop where it can. (Not probed, Q12.)
+//!   drop where it can. (Not probed.)
 //!
 //! Tests: `tests/terminal.rs` runs the binary under `script` for SIGTERM,
 //! SIGHUP and both panics; the probe covers Ctrl+Z and real terminals.
@@ -171,8 +171,8 @@ pub fn new_terminal() -> io::Result<Tui> {
 }
 
 /// Gives up a `Terminal`. ratatui's `Drop` shows the cursor and, when that
-/// fails, `eprintln!`s, which panics on a closed terminal (and aborts if
-/// it's already unwinding; probe F5). So the cursor is shown here, and a
+/// fails, `eprintln!`s, which panics on a closed terminal (and aborts if it's already unwinding).
+/// So the cursor is shown here, and a
 /// terminal that can't take it is forgotten rather than dropped.
 pub fn release<B: ratatui::backend::Backend>(mut terminal: Terminal<B>) {
     if terminal.show_cursor().is_err() {
@@ -259,7 +259,7 @@ pub fn install_panic_hook(log: Option<PathBuf>) {
         restore();
         previous(info);
         // Never `eprintln!` here: on a closed terminal it panics inside the
-        // hook, which aborts (probe F5).
+        // hook, which aborts.
         crate::say(crate::state::text::crashed(log.as_deref()));
     }));
 }

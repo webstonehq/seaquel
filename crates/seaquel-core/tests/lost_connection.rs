@@ -1,5 +1,5 @@
-//! A connection lost without being asked to close (the desktop DuckDB
-//! helper plan, Decision 7): a driver whose `Driver::closed()` resolves with
+//! A connection lost without being asked to close:
+//! a driver whose `Driver::closed()` resolves with
 //! an error is taken out of Core and announced once as `ConnectionClosed`
 //! with `CONNECTION_CLOSED` and the driver's message. One that ends as
 //! asked (a disconnect, a close) announces nothing. A mock engine stands in

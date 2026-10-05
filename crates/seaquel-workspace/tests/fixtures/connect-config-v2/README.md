@@ -1,13 +1,18 @@
 # connect-config fixtures, v2
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`.
+
+The v1 files (`../connect-config`) and the test comparing v2 with them (the diff report below) were deleted on 2026-10-04; git history keeps them. Each case's `changedBy`, `v1` and `v1Notes` stay as the record of what changed.
+
 These files say what Core's connection builder should produce once phase 5a fixes the recorded quirks (the phase 5a plan, Decision 6). Every case in `../connect-config` is here under the same id: the 107 saved-row cases from phase 4 and the 53 form cases (`form-add.json`, `form-test.json`) from phase 5a, Task 1. 160 in all.
 
 **v2 is written, not recorded.** Each case keeps its v1 input, except that a form's SSL mode that came only from the wizard's old `disable` default is now unset (settled choice I, below). Its expected output is v1's unless a row of Decision 6 changes it, and then `changedBy` names the rows. The owner settled three open choices on 2026-10-01 (A, B and I); they are folded into the rows below and listed under "Settled choices". There is no TypeScript that behaves this way, so nothing can regenerate these files. Edit them by hand, and only when the intended behaviour changes. Say why under "Changes" at the end.
 
 **How they're used.**
 - Phase 5a, Task 2 replays every case through `Workspace::connect` or `Workspace::test`.
-- The frozen v1 files become a diff report: a case must differ from v1 exactly when its `changedBy` is non-empty.
-- `docs/plans/artifacts/2026-10-01-check-connect-config-v2.mjs.txt` checks that, and that the ids match v1 one to one.
+- The frozen v1 files were a diff report: a case had to differ from v1 exactly when its `changedBy` was non-empty, and the ids matched v1 one to one. `tests/connect_config.rs` checked that until v1 was deleted (above).
 
 `Saved` and `Form` go through one builder, so a saved row and a form that describe the same connection now get the same config. v1's disagreements between autoReconnect and the reconnect tab are gone. v1 compared against `case[case.gui]`, and so does v2.
 

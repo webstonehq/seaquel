@@ -1,6 +1,6 @@
 //! DuckDB's own text against the decoded cells: `values.rs` runs it on
 //! the driver its suite tests, `remote.rs` on the remote driver (the DuckDB
-//! helper plan's Checkpoint H-1: a session that resets
+//! A session that resets
 //! `arrow_lossless_conversion` must not change what the remote driver
 //! decodes).
 

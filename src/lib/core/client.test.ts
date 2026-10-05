@@ -1,5 +1,5 @@
 /**
- * `wellFormed` (phase 5b, Decision 3): a run's text goes to Core with each
+ * `wellFormed` (phase 5b): a run's text goes to Core with each
  * lone surrogate replaced by U+FFFD, which keeps every UTF-16 offset, so the
  * cursor still picks the statement it picked in the editor.
  */

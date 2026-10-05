@@ -1,7 +1,7 @@
 /**
- * AI chats through Core (phase 5d-2, Decision 24; phase 6): a chat is
+ * AI chats through Core (phase 5d-2; phase 6): a chat is
  * created at once with Core's id, and a turn's messages are Core's to
- * store (the page sends none). The web's per-chat budget (Q17) fills a
+ * store (the page sends none). The web's per-chat budget fills a
  * chat: Core refuses the turn with `CHAT_FULL`, the refused turn stays on
  * screen, sending stops there, and a chat already full opens that way.
  */

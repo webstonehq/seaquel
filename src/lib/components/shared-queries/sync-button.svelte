@@ -34,7 +34,7 @@
 
 	let showCommitDialog = $state(false);
 	let commitMessage = $state("");
-	/** "Sync all" with uncommitted changes: commit first, then pull and push (Decision 38). */
+	/** "Sync all" with uncommitted changes: commit first, then pull and push. */
 	let syncAfterCommit = $state(false);
 
 	async function handlePull() {

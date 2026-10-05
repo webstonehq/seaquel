@@ -3,11 +3,7 @@
     "name": "models/anthropic/ok",
     "note": "Two models.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true
     },
     "responses": [
@@ -21,10 +17,7 @@
       {
         "method": "GET",
         "url": "https://api.anthropic.com/v1/models",
-        "headers": {
-          "anthropic-version": "2023-06-01",
-          "x-api-key": "<key>"
-        },
+        "headers": { "anthropic-version": "2023-06-01", "x-api-key": "<key>" },
         "body": null
       }
     ],
@@ -36,11 +29,7 @@
     "name": "test/anthropic/ok",
     "note": "Two models.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true
     },
     "responses": [
@@ -54,10 +43,7 @@
       {
         "method": "GET",
         "url": "https://api.anthropic.com/v1/models",
-        "headers": {
-          "anthropic-version": "2023-06-01",
-          "x-api-key": "<key>"
-        },
+        "headers": { "anthropic-version": "2023-06-01", "x-api-key": "<key>" },
         "body": null
       }
     ],
@@ -69,11 +55,7 @@
     "name": "models/anthropic/no-key",
     "note": "No key: nothing is requested.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": false
     },
     "responses": [],
@@ -86,11 +68,7 @@
     "name": "test/anthropic/no-key",
     "note": "No key: nothing is requested.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": false
     },
     "responses": [],
@@ -103,11 +81,7 @@
     "name": "models/anthropic/401",
     "note": "Refused.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true
     },
     "responses": [
@@ -121,10 +95,7 @@
       {
         "method": "GET",
         "url": "https://api.anthropic.com/v1/models",
-        "headers": {
-          "anthropic-version": "2023-06-01",
-          "x-api-key": "<key>"
-        },
+        "headers": { "anthropic-version": "2023-06-01", "x-api-key": "<key>" },
         "body": null
       }
     ],
@@ -136,11 +107,7 @@
     "name": "test/anthropic/401",
     "note": "Refused.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "Anthropic",
-        "type": "anthropic"
-      },
+      "provider": { "id": "prov-1", "name": "Anthropic", "type": "anthropic" },
       "key": true
     },
     "responses": [
@@ -154,10 +121,7 @@
       {
         "method": "GET",
         "url": "https://api.anthropic.com/v1/models",
-        "headers": {
-          "anthropic-version": "2023-06-01",
-          "x-api-key": "<key>"
-        },
+        "headers": { "anthropic-version": "2023-06-01", "x-api-key": "<key>" },
         "body": null
       }
     ],
@@ -188,9 +152,7 @@
       {
         "method": "GET",
         "url": "http://localhost:11434/v1/models",
-        "headers": {
-          "authorization": "Bearer <key>"
-        },
+        "headers": { "authorization": "Bearer <key>" },
         "body": null
       }
     ],
@@ -221,9 +183,7 @@
       {
         "method": "GET",
         "url": "http://localhost:11434/v1/models",
-        "headers": {
-          "authorization": "Bearer <key>"
-        },
+        "headers": { "authorization": "Bearer <key>" },
         "body": null
       }
     ],
@@ -251,12 +211,7 @@
       }
     ],
     "requests": [
-      {
-        "method": "GET",
-        "url": "http://localhost:11434/v1/models",
-        "headers": {},
-        "body": null
-      }
+      { "method": "GET", "url": "http://localhost:11434/v1/models", "headers": {}, "body": null }
     ],
     "result": ["model-1", "model-2"],
     "unusedResponses": 0,
@@ -282,12 +237,7 @@
       }
     ],
     "requests": [
-      {
-        "method": "GET",
-        "url": "http://localhost:11434/v1/models",
-        "headers": {},
-        "body": null
-      }
+      { "method": "GET", "url": "http://localhost:11434/v1/models", "headers": {}, "body": null }
     ],
     "result": true,
     "unusedResponses": 0,
@@ -297,11 +247,7 @@
     "name": "models/openai/default-url",
     "note": "No base URL: chat defaults to api.openai.com, but the model list asks nothing (the scripted answer goes unused).",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible"
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible" },
       "key": true
     },
     "responses": [
@@ -320,11 +266,7 @@
     "name": "test/openai/default-url",
     "note": "No base URL: chat defaults to api.openai.com, but the model list asks nothing (the scripted answer goes unused).",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible"
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible" },
       "key": true
     },
     "responses": [
@@ -343,12 +285,7 @@
     "name": "models/openai/empty-url",
     "note": "An empty base URL: same.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible",
-        "baseUrl": ""
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible", "baseUrl": "" },
       "key": true
     },
     "responses": [
@@ -367,12 +304,7 @@
     "name": "test/openai/empty-url",
     "note": "An empty base URL: same.",
     "input": {
-      "provider": {
-        "id": "prov-1",
-        "name": "OpenAI",
-        "type": "openai-compatible",
-        "baseUrl": ""
-      },
+      "provider": { "id": "prov-1", "name": "OpenAI", "type": "openai-compatible", "baseUrl": "" },
       "key": true
     },
     "responses": [
@@ -399,20 +331,12 @@
       },
       "key": true
     },
-    "responses": [
-      {
-        "body": "<html>",
-        "status": 200,
-        "contentType": "text/html"
-      }
-    ],
+    "responses": [{ "body": "<html>", "status": 200, "contentType": "text/html" }],
     "requests": [
       {
         "method": "GET",
         "url": "http://localhost:11434/v1/models",
-        "headers": {
-          "authorization": "Bearer <key>"
-        },
+        "headers": { "authorization": "Bearer <key>" },
         "body": null
       }
     ],
@@ -434,20 +358,12 @@
       },
       "key": true
     },
-    "responses": [
-      {
-        "body": "<html>",
-        "status": 200,
-        "contentType": "text/html"
-      }
-    ],
+    "responses": [{ "body": "<html>", "status": 200, "contentType": "text/html" }],
     "requests": [
       {
         "method": "GET",
         "url": "http://localhost:11434/v1/models",
-        "headers": {
-          "authorization": "Bearer <key>"
-        },
+        "headers": { "authorization": "Bearer <key>" },
         "body": null
       }
     ],
@@ -467,19 +383,12 @@
       },
       "key": true
     },
-    "responses": [
-      {
-        "networkError": true,
-        "body": ""
-      }
-    ],
+    "responses": [{ "networkError": true, "body": "" }],
     "requests": [
       {
         "method": "GET",
         "url": "http://localhost:11434/v1/models",
-        "headers": {
-          "authorization": "Bearer <key>"
-        },
+        "headers": { "authorization": "Bearer <key>" },
         "body": null
       }
     ],
@@ -499,19 +408,12 @@
       },
       "key": true
     },
-    "responses": [
-      {
-        "networkError": true,
-        "body": ""
-      }
-    ],
+    "responses": [{ "networkError": true, "body": "" }],
     "requests": [
       {
         "method": "GET",
         "url": "http://localhost:11434/v1/models",
-        "headers": {
-          "authorization": "Bearer <key>"
-        },
+        "headers": { "authorization": "Bearer <key>" },
         "body": null
       }
     ],

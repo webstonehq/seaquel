@@ -1,5 +1,5 @@
 {
-  "about": "Hand-written expectations for the intended changes from the TypeScript DuckDB adapter (src/lib/db/duckdb.ts, which the browser demo keeps); see 'Task 17' in docs/plans/2026-09-26-rust-core-phase-2-plan.md and this directory's README. The recorder never writes this file; its 'scratch' block is what record mode builds on a copy of e2e/test-databases/duckdb/seaquel_test.duckdb (the copy must keep that file name: the catalog, the file name up to its first dot, is 'seaquel_test', and the setup runs USE seaquel_test), and what tests/smoke.rs builds. The cases were generated from a model of the fixed dialect, with every catalog query run live on the scratch objects. Fix 1: catalog filters are bound ($1 = the schema as the tree lists it, $2 = the table) instead of passed through validateIdentifier, which rejected any name with a space or a quote; the row count names catalog, schema and table with \" doubled; the DDL quote doubles \" (CREATE TABLE, ADD COLUMN, ALTER TABLE). Fix 2: indexes come from duckdb_indexes(), one row per key: 'expressions' cast to VARCHAR[] and unnested in order, a key that is one double-quoted identifier un-quoted, any other expression kept as DuckDB prints it; type 'art'. PRIMARY KEY and UNIQUE constraints have no duckdb_indexes() row, so they aren't listed (they can't be dropped with DROP INDEX either). Fix 3: the overview's size is the sum of block_size * total_blocks from pragma_database_size() over the listed catalogs, formatted like the SQLite port's format_bytes ('0 bytes' for an in-memory database), instead of 'In-memory' and 0. Fix 4: DuckDB has no ALTER TABLE ... ADD FOREIGN KEY and rejects constraints in ADD COLUMN, so every added foreign key is a comment line after the statements, in the SQLite note's wording with DuckDB as the engine (ddl.rs supports_add_foreign_key: false, unsupported_notes: Some(\"DuckDB\"), inline_foreign_keys_on_added_columns: false). Fix 5: Estimated Cardinality is read when it is a number or a string of digits after trimming, dropping a leading '~', a trailing 'row'/'rows' and '_' or ',' separators; anything else leaves planRows unset. Fix 6: catalogs are told apart. The system and temp catalogs are left out; the default catalog's (current_database()) schemas are listed as they are ('main', 'fx_sales'); every other attached catalog's schemas are listed as 'catalog.schema' ('fx_aux.main'); a catalog or schema name holding '.' or '\"' is double-quoted in that listing ('\"fx.a.b\"', '\"fx.we\"\"ird\".main'), so a default-catalog schema named fx_aux.main ('\"fx_aux.main\"') can't collide with the attached one. The introspection queries match that same expression, so a table in one catalog no longer picks up the columns, primary keys, foreign keys or indexes of its namesake in another (the TS columns query even failed there: its primary-key scalar subquery returned two rows). Foreign keys report the schema as listed. Row counts use the catalog and schema columns of the fixed table sizes query. DDL splits a listed schema quote-aware with fix 14's parser (the port's Dialect::quote_schema): 'fx_aux.main' is \"fx_aux\".\"main\". The default catalog is current_database(), so it follows a USE. Fix 7: a failing foreign-key query no longer fails the table's metadata: the columns come back without foreign keys (TsEngineClient had no try/catch). A case with 'replaces' supersedes the recorded case of that name (the parity tests assert the recorded TypeScript output differs); its 'input' is null when the recorded input applies, and holds the fixed query's rows otherwise. Kinds and where the port checks them are in the README. Fixes 8-15 were found while recording and accepted as fixes. Fix 8: DROP INDEX is qualified with the table's original schema (\"schema\".\"index\"; ddl.rs qualify_drop_index: true); unqualified, DuckDB looked in main only. Fix 9: DuckDB rejects ADD COLUMN ... NOT NULL, so a NOT NULL column is added with its default and then made NOT NULL by its own ALTER COLUMN ... SET NOT NULL statement; without a default, SET NOT NULL fails on a table with rows, so the column is added nullable and a comment line says to fill it and run SET NOT NULL. Fix 10: removed indexes are dropped before the column changes (AlterTableOptions drop_indexes_first: true, from MSSQL fix 13). DuckDB refuses RENAME COLUMN, DROP COLUMN, ALTER COLUMN TYPE and SET/DROP NOT NULL on a table that has any CREATE INDEX index, whichever column it is on; while indexes the edit keeps remain, each such statement is a comment line that carries it and names the indexes to drop first, and a later statement on a column whose rename became a note (its default, a new index on it) is a note too. DROP COLUMN and TYPE on a column in a PRIMARY KEY or UNIQUE constraint are notes as well, whatever the indexes, and so is DROP COLUMN of a column that comes before a PRIMARY KEY or UNIQUE column (the constraint's ART index depends on a later column). These rules read the definition's isPrimaryKey and isUnique; edit mode sets isUnique false today, so the port must report UNIQUE columns. Everything else (ADD COLUMN, SET/DROP DEFAULT, index drops and creates) runs. Kept indexes are not dropped and recreated (an expression key can't be recreated from the definition). Fix 11: a foreign key in CREATE TABLE references the table's own schema, never \"\" (DuckDB can't parse REFERENCES \"\".\"t\" and rejects cross-schema foreign keys anyway). In an attached catalog it can't be created at all (cross-database), so it is a comment line, as in fix 4. Fix 12: the column types leave out bare ARRAY, LIST, MAP, STRUCT and UNION, which DuckDB rejects without type arguments; full types such as INTEGER[] or STRUCT(a INT) still come through the SQL pane of the table editor. Fix 13: a FILTER operator's Expression is its filter (FILTER nodes only). Fix 14: relationName is the last part of DuckDB 1.5's catalog.schema.table name, double quotes removed (\"\" un-doubled), so a table named a.b stays a.b. Fix 15: the overview is named after current_database() (the query's database_name column), 'DuckDB Database' only without a row.",
+  "about": "Hand-written expectations for the intended changes from the TypeScript DuckDB adapter (src/lib/db/duckdb.ts, which the browser demo keeps); see 'Task 17' in docs/plans/2026-09-26-rust-core-phase-2-plan.md, now in git history at ae7f269 and this directory's README. The recorder never writes this file; its 'scratch' block is what record mode builds on a copy of e2e/test-databases/duckdb/seaquel_test.duckdb (the copy must keep that file name: the catalog, the file name up to its first dot, is 'seaquel_test', and the setup runs USE seaquel_test), and what tests/smoke.rs builds. The cases were generated from a model of the fixed dialect, with every catalog query run live on the scratch objects. Fix 1: catalog filters are bound ($1 = the schema as the tree lists it, $2 = the table) instead of passed through validateIdentifier, which rejected any name with a space or a quote; the row count names catalog, schema and table with \" doubled; the DDL quote doubles \" (CREATE TABLE, ADD COLUMN, ALTER TABLE). Fix 2: indexes come from duckdb_indexes(), one row per key: 'expressions' cast to VARCHAR[] and unnested in order, a key that is one double-quoted identifier un-quoted, any other expression kept as DuckDB prints it; type 'art'. PRIMARY KEY and UNIQUE constraints have no duckdb_indexes() row, so they aren't listed (they can't be dropped with DROP INDEX either). Fix 3: the overview's size is the sum of block_size * total_blocks from pragma_database_size() over the listed catalogs, formatted like the SQLite port's format_bytes ('0 bytes' for an in-memory database), instead of 'In-memory' and 0. Fix 4: DuckDB has no ALTER TABLE ... ADD FOREIGN KEY and rejects constraints in ADD COLUMN, so every added foreign key is a comment line after the statements, in the SQLite note's wording with DuckDB as the engine (ddl.rs supports_add_foreign_key: false, unsupported_notes: Some(\"DuckDB\"), inline_foreign_keys_on_added_columns: false). Fix 5: Estimated Cardinality is read when it is a number or a string of digits after trimming, dropping a leading '~', a trailing 'row'/'rows' and '_' or ',' separators; anything else leaves planRows unset. Fix 6: catalogs are told apart. The system and temp catalogs are left out; the default catalog's (current_database()) schemas are listed as they are ('main', 'fx_sales'); every other attached catalog's schemas are listed as 'catalog.schema' ('fx_aux.main'); a catalog or schema name holding '.' or '\"' is double-quoted in that listing ('\"fx.a.b\"', '\"fx.we\"\"ird\".main'), so a default-catalog schema named fx_aux.main ('\"fx_aux.main\"') can't collide with the attached one. The introspection queries match that same expression, so a table in one catalog no longer picks up the columns, primary keys, foreign keys or indexes of its namesake in another (the TS columns query even failed there: its primary-key scalar subquery returned two rows). Foreign keys report the schema as listed. Row counts use the catalog and schema columns of the fixed table sizes query. DDL splits a listed schema quote-aware with fix 14's parser (the port's Dialect::quote_schema): 'fx_aux.main' is \"fx_aux\".\"main\". The default catalog is current_database(), so it follows a USE. Fix 7: a failing foreign-key query no longer fails the table's metadata: the columns come back without foreign keys (TsEngineClient had no try/catch). A case with 'replaces' supersedes the recorded case of that name (the parity tests assert the recorded TypeScript output differs); its 'input' is null when the recorded input applies, and holds the fixed query's rows otherwise. Kinds and where the port checks them are in the README. Fixes 8-15 were found while recording and accepted as fixes. Fix 8: DROP INDEX is qualified with the table's original schema (\"schema\".\"index\"; ddl.rs qualify_drop_index: true); unqualified, DuckDB looked in main only. Fix 9: DuckDB rejects ADD COLUMN ... NOT NULL, so a NOT NULL column is added with its default and then made NOT NULL by its own ALTER COLUMN ... SET NOT NULL statement; without a default, SET NOT NULL fails on a table with rows, so the column is added nullable and a comment line says to fill it and run SET NOT NULL. Fix 10: removed indexes are dropped before the column changes (AlterTableOptions drop_indexes_first: true, from MSSQL fix 13). DuckDB refuses RENAME COLUMN, DROP COLUMN, ALTER COLUMN TYPE and SET/DROP NOT NULL on a table that has any CREATE INDEX index, whichever column it is on; while indexes the edit keeps remain, each such statement is a comment line that carries it and names the indexes to drop first, and a later statement on a column whose rename became a note (its default, a new index on it) is a note too. DROP COLUMN and TYPE on a column in a PRIMARY KEY or UNIQUE constraint are notes as well, whatever the indexes, and so is DROP COLUMN of a column that comes before a PRIMARY KEY or UNIQUE column (the constraint's ART index depends on a later column). These rules read the definition's isPrimaryKey and isUnique; edit mode sets isUnique false today, so the port must report UNIQUE columns. Everything else (ADD COLUMN, SET/DROP DEFAULT, index drops and creates) runs. Kept indexes are not dropped and recreated (an expression key can't be recreated from the definition). Fix 11: a foreign key in CREATE TABLE references the table's own schema, never \"\" (DuckDB can't parse REFERENCES \"\".\"t\" and rejects cross-schema foreign keys anyway). In an attached catalog it can't be created at all (cross-database), so it is a comment line, as in fix 4. Fix 12: the column types leave out bare ARRAY, LIST, MAP, STRUCT and UNION, which DuckDB rejects without type arguments; full types such as INTEGER[] or STRUCT(a INT) still come through the SQL pane of the table editor. Fix 13: a FILTER operator's Expression is its filter (FILTER nodes only). Fix 14: relationName is the last part of DuckDB 1.5's catalog.schema.table name, double quotes removed (\"\" un-doubled), so a table named a.b stays a.b. Fix 15: the overview is named after current_database() (the query's database_name column), 'DuckDB Database' only without a row.",
   "scratch": {
     "setup": [
       "CREATE TYPE fx_mood AS ENUM ('sad', 'ok', 'happy')",
@@ -291,10 +291,7 @@
       "name": "fix 1: columns of a table with spaces in its names, a composite foreign key and a default",
       "fix": 1,
       "kind": "columns",
-      "input": {
-        "schema": "fx_sales",
-        "table": "fx order lines"
-      },
+      "input": { "schema": "fx_sales", "table": "fx order lines" },
       "output": [
         {
           "name": "line no",
@@ -341,10 +338,7 @@
       "name": "fix 1: columns of a table with a quote in its name and a column named say \"hi\"",
       "fix": 1,
       "kind": "columns",
-      "input": {
-        "schema": "main",
-        "table": "fx it's"
-      },
+      "input": { "schema": "main", "table": "fx it's" },
       "output": [
         {
           "name": "id",
@@ -367,10 +361,7 @@
       "name": "fix 6: columns of a table whose fx_aux namesake also has a primary key (the adapter's query failed)",
       "fix": 6,
       "kind": "columns",
-      "input": {
-        "schema": "main",
-        "table": "categories"
-      },
+      "input": { "schema": "main", "table": "categories" },
       "output": [
         {
           "name": "id",
@@ -408,10 +399,7 @@
       "name": "fix 6: columns of a table in an attached catalog",
       "fix": 6,
       "kind": "columns",
-      "input": {
-        "schema": "fx_aux.main",
-        "table": "users"
-      },
+      "input": { "schema": "fx_aux.main", "table": "users" },
       "output": [
         {
           "name": "id",
@@ -433,10 +421,7 @@
       "name": "fix 6: columns of an attached table with a foreign key (it references the schema as listed)",
       "fix": 6,
       "kind": "columns",
-      "input": {
-        "schema": "fx_aux.main",
-        "table": "fx_items"
-      },
+      "input": { "schema": "fx_aux.main", "table": "fx_items" },
       "output": [
         {
           "name": "id",
@@ -463,10 +448,7 @@
       "name": "fix 6: columns of a non-main schema in an attached catalog",
       "fix": 6,
       "kind": "columns",
-      "input": {
-        "schema": "fx_aux.fx_sales",
-        "table": "regions"
-      },
+      "input": { "schema": "fx_aux.fx_sales", "table": "regions" },
       "output": [
         {
           "name": "code",
@@ -488,10 +470,7 @@
       "name": "fix 6: columns of a non-main schema with a composite primary key",
       "fix": 6,
       "kind": "columns",
-      "input": {
-        "schema": "fx_sales",
-        "table": "orders"
-      },
+      "input": { "schema": "fx_sales", "table": "orders" },
       "output": [
         {
           "name": "region_code",
@@ -534,10 +513,7 @@
       "name": "fix 6: columns of a default-catalog schema with dots in its name, listed quoted",
       "fix": 6,
       "kind": "columns",
-      "input": {
-        "schema": "\"fx.a.b\"",
-        "table": "things"
-      },
+      "input": { "schema": "\"fx.a.b\"", "table": "things" },
       "output": [
         {
           "name": "id",
@@ -559,10 +535,7 @@
       "name": "fix 6: columns of a default-catalog schema named fx_aux.main, which doesn't collide with the attached fx_aux.main",
       "fix": 6,
       "kind": "columns",
-      "input": {
-        "schema": "\"fx_aux.main\"",
-        "table": "users"
-      },
+      "input": { "schema": "\"fx_aux.main\"", "table": "users" },
       "output": [
         {
           "name": "dotted_id",
@@ -577,10 +550,7 @@
       "name": "fix 6: columns of an attached catalog whose name has a dot and a quote",
       "fix": 6,
       "kind": "columns",
-      "input": {
-        "schema": "\"fx.we\"\"ird\".main",
-        "table": "items"
-      },
+      "input": { "schema": "\"fx.we\"\"ird\".main", "table": "items" },
       "output": [
         {
           "name": "id",
@@ -696,18 +666,8 @@
         ]
       },
       "output": [
-        {
-          "name": "idx_orders_status",
-          "columns": ["status"],
-          "unique": false,
-          "type": "art"
-        },
-        {
-          "name": "idx_orders_user",
-          "columns": ["user_id"],
-          "unique": false,
-          "type": "art"
-        }
+        { "name": "idx_orders_status", "columns": ["status"], "unique": false, "type": "art" },
+        { "name": "idx_orders_user", "columns": ["user_id"], "unique": false, "type": "art" }
       ]
     },
     {
@@ -765,10 +725,7 @@
       "name": "fix 2: indexes: expression keys keep DuckDB's text; a unique two-column index (fx_sales.orders)",
       "fix": 2,
       "kind": "indexes",
-      "input": {
-        "schema": "fx_sales",
-        "table": "orders"
-      },
+      "input": { "schema": "fx_sales", "table": "orders" },
       "output": [
         {
           "name": "fx_orders_expr_idx",
@@ -788,10 +745,7 @@
       "name": "fix 1: indexes: a table and key with spaces and quotes, an index name with \" (fx_sales.fx order lines)",
       "fix": 1,
       "kind": "indexes",
-      "input": {
-        "schema": "fx_sales",
-        "table": "fx order lines"
-      },
+      "input": { "schema": "fx_sales", "table": "fx order lines" },
       "output": [
         {
           "name": "fx lines \"odd\" idx",
@@ -805,20 +759,14 @@
       "name": "fix 2: indexes: PRIMARY KEY and UNIQUE constraints have no duckdb_indexes() row (main.users)",
       "fix": 2,
       "kind": "indexes",
-      "input": {
-        "schema": "main",
-        "table": "users"
-      },
+      "input": { "schema": "main", "table": "users" },
       "output": []
     },
     {
       "name": "fix 6: indexes: an attached catalog's index (fx_aux.main.users)",
       "fix": 6,
       "kind": "indexes",
-      "input": {
-        "schema": "fx_aux.main",
-        "table": "users"
-      },
+      "input": { "schema": "fx_aux.main", "table": "users" },
       "output": [
         {
           "name": "fx_aux_users_nickname_idx",
@@ -832,18 +780,8 @@
       "name": "fix 6: indexes: an attached catalog whose name has a dot and a quote (\"fx.we\"\"ird\".main.items)",
       "fix": 6,
       "kind": "indexes",
-      "input": {
-        "schema": "\"fx.we\"\"ird\".main",
-        "table": "items"
-      },
-      "output": [
-        {
-          "name": "items_note_idx",
-          "columns": ["note"],
-          "unique": false,
-          "type": "art"
-        }
-      ]
+      "input": { "schema": "\"fx.we\"\"ird\".main", "table": "items" },
+      "output": [{ "name": "items_note_idx", "columns": ["note"], "unique": false, "type": "art" }]
     },
     {
       "name": "fix 6: catalogs told apart: attached tables are listed under catalog.schema",
@@ -853,111 +791,33 @@
       "input": {
         "columns": ["schema_name", "table_name", "table_type"],
         "rows": [
-          {
-            "schema_name": "\"fx.a.b\"",
-            "table_name": "things",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "\"fx_aux.main\"",
-            "table_name": "users",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "fx_sales",
-            "table_name": "fx order lines",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "fx_sales",
-            "table_name": "fx_region_totals",
-            "table_type": "VIEW"
-          },
-          {
-            "schema_name": "fx_sales",
-            "table_name": "orders",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "fx_sales",
-            "table_name": "regions",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "all_types",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "categories",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "fx it's",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "fx_types",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "order_items",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "orders",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "products",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "main",
-            "table_name": "users",
-            "table_type": "BASE TABLE"
-          },
+          { "schema_name": "\"fx.a.b\"", "table_name": "things", "table_type": "BASE TABLE" },
+          { "schema_name": "\"fx_aux.main\"", "table_name": "users", "table_type": "BASE TABLE" },
+          { "schema_name": "fx_sales", "table_name": "fx order lines", "table_type": "BASE TABLE" },
+          { "schema_name": "fx_sales", "table_name": "fx_region_totals", "table_type": "VIEW" },
+          { "schema_name": "fx_sales", "table_name": "orders", "table_type": "BASE TABLE" },
+          { "schema_name": "fx_sales", "table_name": "regions", "table_type": "BASE TABLE" },
+          { "schema_name": "main", "table_name": "all_types", "table_type": "BASE TABLE" },
+          { "schema_name": "main", "table_name": "categories", "table_type": "BASE TABLE" },
+          { "schema_name": "main", "table_name": "fx it's", "table_type": "BASE TABLE" },
+          { "schema_name": "main", "table_name": "fx_types", "table_type": "BASE TABLE" },
+          { "schema_name": "main", "table_name": "order_items", "table_type": "BASE TABLE" },
+          { "schema_name": "main", "table_name": "orders", "table_type": "BASE TABLE" },
+          { "schema_name": "main", "table_name": "products", "table_type": "BASE TABLE" },
+          { "schema_name": "main", "table_name": "users", "table_type": "BASE TABLE" },
           {
             "schema_name": "\"fx.we\"\"ird\".main",
             "table_name": "items",
             "table_type": "BASE TABLE"
           },
-          {
-            "schema_name": "fx_aux.fx_sales",
-            "table_name": "regions",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "fx_aux.main",
-            "table_name": "categories",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "fx_aux.main",
-            "table_name": "fx_items",
-            "table_type": "BASE TABLE"
-          },
-          {
-            "schema_name": "fx_aux.main",
-            "table_name": "users",
-            "table_type": "BASE TABLE"
-          }
+          { "schema_name": "fx_aux.fx_sales", "table_name": "regions", "table_type": "BASE TABLE" },
+          { "schema_name": "fx_aux.main", "table_name": "categories", "table_type": "BASE TABLE" },
+          { "schema_name": "fx_aux.main", "table_name": "fx_items", "table_type": "BASE TABLE" },
+          { "schema_name": "fx_aux.main", "table_name": "users", "table_type": "BASE TABLE" }
         ]
       },
       "output": [
-        {
-          "name": "things",
-          "schema": "\"fx.a.b\"",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
+        { "name": "things", "schema": "\"fx.a.b\"", "type": "table", "columns": [], "indexes": [] },
         {
           "name": "users",
           "schema": "\"fx_aux.main\"",
@@ -979,76 +839,16 @@
           "columns": [],
           "indexes": []
         },
-        {
-          "name": "orders",
-          "schema": "fx_sales",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "regions",
-          "schema": "fx_sales",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "all_types",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "categories",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "fx it's",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "fx_types",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "order_items",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "orders",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "products",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "users",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
+        { "name": "orders", "schema": "fx_sales", "type": "table", "columns": [], "indexes": [] },
+        { "name": "regions", "schema": "fx_sales", "type": "table", "columns": [], "indexes": [] },
+        { "name": "all_types", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "categories", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "fx it's", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "fx_types", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "order_items", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "orders", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "products", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "users", "schema": "main", "type": "table", "columns": [], "indexes": [] },
         {
           "name": "items",
           "schema": "\"fx.we\"\"ird\".main",
@@ -1077,13 +877,7 @@
           "columns": [],
           "indexes": []
         },
-        {
-          "name": "users",
-          "schema": "fx_aux.main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        }
+        { "name": "users", "schema": "fx_aux.main", "type": "table", "columns": [], "indexes": [] }
       ]
     },
     {
@@ -1092,13 +886,7 @@
       "kind": "schema",
       "input": {},
       "output": [
-        {
-          "name": "things",
-          "schema": "\"fx.a.b\"",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
+        { "name": "things", "schema": "\"fx.a.b\"", "type": "table", "columns": [], "indexes": [] },
         {
           "name": "users",
           "schema": "\"fx_aux.main\"",
@@ -1120,76 +908,16 @@
           "columns": [],
           "indexes": []
         },
-        {
-          "name": "orders",
-          "schema": "fx_sales",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "regions",
-          "schema": "fx_sales",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "all_types",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "categories",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "fx it's",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "fx_types",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "order_items",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "orders",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "products",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
-        {
-          "name": "users",
-          "schema": "main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        },
+        { "name": "orders", "schema": "fx_sales", "type": "table", "columns": [], "indexes": [] },
+        { "name": "regions", "schema": "fx_sales", "type": "table", "columns": [], "indexes": [] },
+        { "name": "all_types", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "categories", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "fx it's", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "fx_types", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "order_items", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "orders", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "products", "schema": "main", "type": "table", "columns": [], "indexes": [] },
+        { "name": "users", "schema": "main", "type": "table", "columns": [], "indexes": [] },
         {
           "name": "items",
           "schema": "\"fx.we\"\"ird\".main",
@@ -1218,13 +946,7 @@
           "columns": [],
           "indexes": []
         },
-        {
-          "name": "users",
-          "schema": "fx_aux.main",
-          "type": "table",
-          "columns": [],
-          "indexes": []
-        }
+        { "name": "users", "schema": "fx_aux.main", "type": "table", "columns": [], "indexes": [] }
       ]
     },
     {
@@ -1825,12 +1547,7 @@
         "kind": "overview",
         "columns": ["database_name", "table_count", "index_count", "total_size_bytes"],
         "rows": [
-          {
-            "database_name": "memory",
-            "table_count": 2,
-            "index_count": 1,
-            "total_size_bytes": 0
-          }
+          { "database_name": "memory", "table_count": 2, "index_count": 1, "total_size_bytes": 0 }
         ]
       },
       "output": {
@@ -2366,20 +2083,8 @@
             }
           ],
           "indexes": [
-            {
-              "id": "i1",
-              "name": "t_a_idx",
-              "columns": ["a"],
-              "unique": false,
-              "type": "art"
-            },
-            {
-              "id": "i2",
-              "name": "t_b_idx",
-              "columns": ["b"],
-              "unique": false,
-              "type": "art"
-            }
+            { "id": "i1", "name": "t_a_idx", "columns": ["a"], "unique": false, "type": "art" },
+            { "id": "i2", "name": "t_b_idx", "columns": ["b"], "unique": false, "type": "art" }
           ],
           "foreignKeys": []
         },
@@ -2441,20 +2146,8 @@
             }
           ],
           "indexes": [
-            {
-              "id": "i1",
-              "name": "t_a_idx",
-              "columns": ["a"],
-              "unique": false,
-              "type": "art"
-            },
-            {
-              "id": "i2",
-              "name": "t_b_idx",
-              "columns": ["b"],
-              "unique": false,
-              "type": "art"
-            }
+            { "id": "i1", "name": "t_a_idx", "columns": ["a"], "unique": false, "type": "art" },
+            { "id": "i2", "name": "t_b_idx", "columns": ["b"], "unique": false, "type": "art" }
           ],
           "foreignKeys": []
         },
@@ -2482,13 +2175,7 @@
             }
           ],
           "indexes": [
-            {
-              "id": "i1",
-              "name": "t_a_idx",
-              "columns": ["a"],
-              "unique": false,
-              "type": "art"
-            }
+            { "id": "i1", "name": "t_a_idx", "columns": ["a"], "unique": false, "type": "art" }
           ],
           "foreignKeys": []
         }
@@ -2524,20 +2211,8 @@
             }
           ],
           "indexes": [
-            {
-              "id": "i1",
-              "name": "t_a_idx",
-              "columns": ["a"],
-              "unique": false,
-              "type": "art"
-            },
-            {
-              "id": "i2",
-              "name": "t_b_idx",
-              "columns": ["b"],
-              "unique": false,
-              "type": "art"
-            }
+            { "id": "i1", "name": "t_a_idx", "columns": ["a"], "unique": false, "type": "art" },
+            { "id": "i2", "name": "t_b_idx", "columns": ["b"], "unique": false, "type": "art" }
           ],
           "foreignKeys": []
         },
@@ -2565,27 +2240,9 @@
             }
           ],
           "indexes": [
-            {
-              "id": "i1",
-              "name": "t_a_idx",
-              "columns": ["a"],
-              "unique": false,
-              "type": "art"
-            },
-            {
-              "id": "i2",
-              "name": "t_b_idx",
-              "columns": ["b"],
-              "unique": false,
-              "type": "art"
-            },
-            {
-              "id": "i3",
-              "name": "t_b2_idx",
-              "columns": ["b2"],
-              "unique": false,
-              "type": "art"
-            }
+            { "id": "i1", "name": "t_a_idx", "columns": ["a"], "unique": false, "type": "art" },
+            { "id": "i2", "name": "t_b_idx", "columns": ["b"], "unique": false, "type": "art" },
+            { "id": "i3", "name": "t_b2_idx", "columns": ["b2"], "unique": false, "type": "art" }
           ],
           "foreignKeys": []
         }
@@ -2849,112 +2506,32 @@
       "replaces": "column-types.json: getColumnTypes",
       "input": null,
       "output": [
-        {
-          "name": "VARCHAR",
-          "category": "String",
-          "hasLength": true
-        },
-        {
-          "name": "TEXT",
-          "category": "String"
-        },
-        {
-          "name": "INTEGER",
-          "category": "Numeric"
-        },
-        {
-          "name": "BIGINT",
-          "category": "Numeric"
-        },
-        {
-          "name": "HUGEINT",
-          "category": "Numeric"
-        },
-        {
-          "name": "SMALLINT",
-          "category": "Numeric"
-        },
-        {
-          "name": "TINYINT",
-          "category": "Numeric"
-        },
-        {
-          "name": "UINTEGER",
-          "category": "Numeric"
-        },
-        {
-          "name": "UBIGINT",
-          "category": "Numeric"
-        },
-        {
-          "name": "UHUGEINT",
-          "category": "Numeric"
-        },
-        {
-          "name": "USMALLINT",
-          "category": "Numeric"
-        },
-        {
-          "name": "UTINYINT",
-          "category": "Numeric"
-        },
-        {
-          "name": "DOUBLE",
-          "category": "Numeric"
-        },
-        {
-          "name": "FLOAT",
-          "category": "Numeric"
-        },
-        {
-          "name": "DECIMAL",
-          "category": "Numeric",
-          "hasPrecision": true
-        },
-        {
-          "name": "BIGNUM",
-          "category": "Numeric"
-        },
-        {
-          "name": "DATE",
-          "category": "Date/Time"
-        },
-        {
-          "name": "TIME",
-          "category": "Date/Time"
-        },
-        {
-          "name": "TIMESTAMP",
-          "category": "Date/Time"
-        },
-        {
-          "name": "TIMESTAMP WITH TIME ZONE",
-          "category": "Date/Time"
-        },
-        {
-          "name": "INTERVAL",
-          "category": "Date/Time"
-        },
-        {
-          "name": "BOOLEAN",
-          "category": "Boolean"
-        },
-        {
-          "name": "JSON",
-          "category": "JSON"
-        },
-        {
-          "name": "BLOB",
-          "category": "Binary"
-        },
-        {
-          "name": "BIT",
-          "category": "Binary"
-        },
-        {
-          "name": "UUID",
-          "category": "UUID"
-        }
+        { "name": "VARCHAR", "category": "String", "hasLength": true },
+        { "name": "TEXT", "category": "String" },
+        { "name": "INTEGER", "category": "Numeric" },
+        { "name": "BIGINT", "category": "Numeric" },
+        { "name": "HUGEINT", "category": "Numeric" },
+        { "name": "SMALLINT", "category": "Numeric" },
+        { "name": "TINYINT", "category": "Numeric" },
+        { "name": "UINTEGER", "category": "Numeric" },
+        { "name": "UBIGINT", "category": "Numeric" },
+        { "name": "UHUGEINT", "category": "Numeric" },
+        { "name": "USMALLINT", "category": "Numeric" },
+        { "name": "UTINYINT", "category": "Numeric" },
+        { "name": "DOUBLE", "category": "Numeric" },
+        { "name": "FLOAT", "category": "Numeric" },
+        { "name": "DECIMAL", "category": "Numeric", "hasPrecision": true },
+        { "name": "BIGNUM", "category": "Numeric" },
+        { "name": "DATE", "category": "Date/Time" },
+        { "name": "TIME", "category": "Date/Time" },
+        { "name": "TIMESTAMP", "category": "Date/Time" },
+        { "name": "TIMESTAMP WITH TIME ZONE", "category": "Date/Time" },
+        { "name": "INTERVAL", "category": "Date/Time" },
+        { "name": "BOOLEAN", "category": "Boolean" },
+        { "name": "JSON", "category": "JSON" },
+        { "name": "BLOB", "category": "Binary" },
+        { "name": "BIT", "category": "Binary" },
+        { "name": "UUID", "category": "UUID" }
       ]
     },
     {
@@ -3599,18 +3176,8 @@
                   "id": "node-7",
                   "nodeType": "HASH_JOIN",
                   "children": [
-                    {
-                      "id": "node-8",
-                      "nodeType": "CTE_SCAN",
-                      "children": [],
-                      "planRows": 16
-                    },
-                    {
-                      "id": "node-9",
-                      "nodeType": "CTE_SCAN",
-                      "children": [],
-                      "planRows": 16
-                    }
+                    { "id": "node-8", "nodeType": "CTE_SCAN", "children": [], "planRows": 16 },
+                    { "id": "node-9", "nodeType": "CTE_SCAN", "children": [], "planRows": 16 }
                   ],
                   "planRows": 15,
                   "joinType": "INNER",
@@ -3640,13 +3207,7 @@
             {
               "id": "node-1",
               "nodeType": "PROJECTION",
-              "children": [
-                {
-                  "id": "node-2",
-                  "nodeType": "DUMMY_SCAN",
-                  "children": []
-                }
-              ],
+              "children": [{ "id": "node-2", "nodeType": "DUMMY_SCAN", "children": [] }],
               "planRows": 1
             },
             {
@@ -3657,12 +3218,7 @@
                   "id": "node-4",
                   "nodeType": "FILTER",
                   "children": [
-                    {
-                      "id": "node-5",
-                      "nodeType": "REC_CTE_SCAN",
-                      "children": [],
-                      "planRows": 1
-                    }
+                    { "id": "node-5", "nodeType": "REC_CTE_SCAN", "children": [], "planRows": 1 }
                   ],
                   "planRows": 1,
                   "filter": "(n < 3)"
@@ -3687,14 +3243,7 @@
         "plan": {
           "id": "node-0",
           "nodeType": "FILTER",
-          "children": [
-            {
-              "id": "node-1",
-              "nodeType": "RANGE",
-              "children": [],
-              "planRows": 1000
-            }
-          ],
+          "children": [{ "id": "node-1", "nodeType": "RANGE", "children": [], "planRows": 1000 }],
           "planRows": 200,
           "filter": "((x % 7) = 0)"
         },

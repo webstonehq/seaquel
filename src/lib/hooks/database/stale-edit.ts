@@ -6,7 +6,7 @@ import { cellText } from "$lib/values";
  * When the key no longer matches (the row was deleted or its key changed
  * since it was loaded, or the key didn't compare as sent), the statement
  * affects 0 rows and the edit is lost. Core fails it with
- * `NO_ROWS_AFFECTED` (phase 5c, Decision 4), whose message holds no key;
+ * `NO_ROWS_AFFECTED` (phase 5c), whose message holds no key;
  * these helpers word it for the user from the change's table and key.
  *
  * Engines count differently. MySQL/MariaDB count matched rows, not changed

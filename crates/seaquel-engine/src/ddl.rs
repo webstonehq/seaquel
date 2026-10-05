@@ -1914,7 +1914,7 @@ mod tests {
         format!("[{}]", name.replace(']', "]]"))
     }
 
-    /// Task 18: a column's UNIQUE checked or unchecked in edit mode. The
+    /// A column's UNIQUE checked or unchecked in edit mode. The
     /// default rules keep the TypeScript behaviour (no statement).
     #[test]
     fn unique_checked_and_unchecked() {
@@ -1992,7 +1992,7 @@ mod tests {
         );
     }
 
-    /// Task 18: unchecking drops the column's unique index from the
+    /// Unchecking drops the column's unique index from the
     /// definition (MySQL, SQLite), a constraint's SQLite autoindex is a
     /// note, and nothing is emitted when the same edit removes the index
     /// under Indexes (the index section drops it).
@@ -2071,7 +2071,7 @@ mod tests {
         );
     }
 
-    /// Task 18: an added UNIQUE column gets its constraint after the ADD
+    /// An added UNIQUE column gets its constraint after the ADD
     /// COLUMN; a primary key column's UNIQUE is ignored; a dropped UNIQUE
     /// comes before a type change of its column, an added one after it.
     #[test]

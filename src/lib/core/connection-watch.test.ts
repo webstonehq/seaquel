@@ -1,5 +1,5 @@
 /**
- * Phase 6 probe F4 review I1 (b): every `db` call and stream that fails
+ * Every `db` call and stream that fails
  * with `CONNECTION_NOT_FOUND` is reported once, centrally, with the Core
  * connection id it named, so the page can mark that connection
  * disconnected and reconnect it. The failed call itself is never retried.

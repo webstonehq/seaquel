@@ -1,5 +1,9 @@
 # MSSQL dialect fixtures
 
+The JSON files here were reformatted to one case per line on 2026-10-04, with no value changed.
+
+`docs/plans/` (the plans, and the recorders' copies in `docs/plans/artifacts/`) was deleted on 2026-10-04. The paths under it named below are in git history: `git show ae7f269:<path>`. The same day, the `about` text of `bugfixes.json` (no test reads it) gained ", now in git history at ae7f269" after the plan it names; nothing else in the file changed.
+
 > **Frozen.** These fixtures were recorded from the TypeScript `MssqlAdapter`
 > (`src/lib/db/mssql.ts`), which was deleted in phase 2 (Task 19). They can
 > no longer be re-recorded or checked against it; the Rust parity tests still
@@ -7,12 +11,12 @@
 > change, and say why in the same change.
 
 They were recorded by the phase 2 recorder against SQL Server 2022 on
-127.0.0.1:1433. The corpus is kept at
+127.0.0.1:1433. The corpus was kept at
 `docs/plans/artifacts/2026-09-27-mssql-fixture-corpus.ts.txt`, with its
 ShowPlan capture (`2026-09-27-mssql-showplan-capture.ts.txt`) and the types it
 used for the Node `mssql` package (`2026-09-27-mssql-showplan-types.d.ts.txt`).
 
-A reference copy of the recorder is in `docs/plans/artifacts/`, renamed to
+A reference copy of the recorder was in `docs/plans/artifacts/`, renamed to
 `.txt` so no tooling runs it: `2026-09-27-recorder-dialect-fixtures.test.ts.txt`
 is the vitest entry point, and the other `2026-09-27-recorder-*` files are its
 helpers, npm wrapper and tsconfig.
@@ -76,8 +80,8 @@ expected output of each bug fix; its `about` lists fixes 1–15. A case with
 recorded TypeScript output differs). Its `input` is null, so the recorded
 input applies, except for fix 10, whose input holds the fixed query's rows.
 
-The cases were written by a script, and a copy of it is in
-[`docs/plans/artifacts/2026-09-27-mssql-alter-model.py.txt`](../../../../docs/plans/artifacts/2026-09-27-mssql-alter-model.py.txt).
+The cases were written by a script, and a copy of it was in
+`docs/plans/artifacts/2026-09-27-mssql-alter-model.py.txt`.
 It includes `create_sql` and `alter_sql`, models of the fixed CREATE TABLE and ALTER generators, and
 `paginate_sql`, a model of the fixed pagination tokenizer. Every expected
 ALTER statement was run against real tables inside rolled-back transactions.

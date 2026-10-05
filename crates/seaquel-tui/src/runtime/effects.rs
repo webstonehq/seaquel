@@ -313,7 +313,7 @@ impl Runner {
             }
             Effect::Generate(call) => {
                 // One request at a time: dropping the last drops its HTTP
-                // request (phase 6 S1).
+                // request.
                 if let Some(handle) = self.generate.take() {
                     handle.abort();
                 }
@@ -441,7 +441,7 @@ impl Runner {
             Effect::SaveState(remembered) => {
                 // Disk I/O (and an fsync) off the loop.
                 // The number is taken now, in the order the saves were
-                // asked for, so the latest one wins (review I3).
+                // asked for, so the latest one wins.
                 if let Some(dir) = self.data_dir.clone() {
                     let seq = state_file::next_seq();
                     self.tasks.spawn(async move {
@@ -502,7 +502,7 @@ impl Runner {
                 });
             }
             Effect::Apply(call) => {
-                // Always answered (review M6): with no Core, at once; a task
+                // Always answered: with no Core, at once; a task
                 // dropped before Core answers, `CANCELLED`.
                 let guard = ApplyGuard::new(self.tx.clone(), call.op);
                 let Some(session) = self.session.clone() else {
@@ -555,7 +555,7 @@ fn stamp(started: Instant) -> Stamp {
 
 /// An apply's answer, sent once: dropped before [`ApplyGuard::send`] (the
 /// task aborted, or no Core to run it), it answers `CANCELLED`, so the
-/// model's `committing` always clears (review M6).
+/// model's `committing` always clears.
 pub struct ApplyGuard {
     tx: UnboundedSender<Msg>,
     op: u64,
@@ -606,7 +606,7 @@ mod tests {
         }
     }
 
-    // Review M6: an apply always answers.
+    // An apply always answers.
     #[tokio::test]
     async fn an_apply_with_no_core_answers_with_an_error() {
         let (mut runner, mut inbox) = Runner::detached();

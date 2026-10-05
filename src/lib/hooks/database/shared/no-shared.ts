@@ -1,5 +1,5 @@
 /**
- * Web and the demo have no shared projects and no imports (Decision 48):
+ * Web and the demo have no shared projects and no imports:
  * every call answers `NOT_SUPPORTED`, as Core does for a workspace without
  * `LocalFiles`. The GUI hides the entry points there, so these only stand
  * in for a call that slips through.

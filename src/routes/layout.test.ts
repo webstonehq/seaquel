@@ -1,6 +1,6 @@
 /**
  * The root layout in a build that isn't the desktop app, the web build or
- * the demo (Task 6 review, I2), e.g. `npm run dev` opened in Chrome: an
+ * the demo, e.g. `npm run dev` opened in Chrome: an
  * error page saying how to run the demo, and nothing of the app. No module
  * loads, no Core opens and nothing calls a transport, so no socket starts
  * its retry loop.

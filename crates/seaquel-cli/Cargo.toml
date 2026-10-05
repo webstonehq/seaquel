@@ -14,16 +14,15 @@ path = "src/main.rs"
 # features: Core's defaults link native DuckDB). No `git` and no
 # `license-*`: the CLI doesn't check licenses (decision 14 of the design
 # doc). `imports` (phase 5e): the CLI's Core is built like the desktop's,
-# with `LocalFiles` and the import paths, though no command uses them yet
-# (Q26).
+# with `LocalFiles` and the import paths, though no command uses them yet.
 seaquel-core = { path = "../seaquel-core", default-features = false, features = ["storage", "secrets", "ssh", "workspace", "imports"] }
 seaquel-mcp = { path = "../seaquel-mcp" }
-# What the terminal binaries share (phase 7a, Decision 22): the data dir,
+# What the terminal binaries share (phase 7a): the data dir,
 # the Core builder (every engine, DuckDB through the helper,
 # `TokioExecutor`), the test hooks, the log filter, the shutdown signals
 # and the version (its `build.rs` reads the app's). With its
 # `duckdb-helper-install`: `seaquel-cli duckdb install` downloads the DuckDB
-# helper (the DuckDB helper plan, Task 8), which brings seaquel-http and
+# helper, which brings seaquel-http and
 # reqwest (+0.7 MB; CI's reqwest ban on the CLI went with it).
 seaquel-terminal = { path = "../seaquel-terminal", features = ["duckdb-helper-install"] }
 clap = { workspace = true }
@@ -41,7 +40,7 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true, features = ["process", "io-util", "time"] }
-# `duckdb install`'s tests (the DuckDB helper plan, Task 8): `MockReleases`
+# `duckdb install`'s tests: `MockReleases`
 # on 127.0.0.1 serves the release metadata and the asset. Never the real
 # network.
 seaquel-http = { path = "../seaquel-http", features = ["release-asset", "testing"] }
