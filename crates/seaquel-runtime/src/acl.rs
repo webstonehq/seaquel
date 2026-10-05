@@ -239,6 +239,13 @@ impl Problem {
     }
 }
 
+/// Pushes `ace` unless `aces` already holds the same entry.
+fn push_new(aces: &mut Vec<Ace>, ace: Ace) {
+    if !aces.contains(&ace) {
+        aces.push(ace);
+    }
+}
+
 impl Security {
     /// [`Security::problem_at`] for [`Level::Private`].
     pub fn problem(&self, user: &str) -> Option<Problem> {
@@ -248,9 +255,12 @@ impl Security {
     /// The root's repair: the same entries, in canonical order (denies
     /// first) and all explicit, with [`rights::REPLACE`] taken out of every
     /// allow to another principal (generic rights expanded first, so read
-    /// and add stay) and allows left with nothing dropped. Set protected,
-    /// so the parent's entries don't come back. `None` when an entry can't
-    /// be rewritten as it is (a callback entry, an unknown type).
+    /// and add stay) and allows left with nothing dropped. An entry the
+    /// same as one already kept goes (an inherited entry and an explicit
+    /// one for the same principal are the same once explicit), as Windows
+    /// merges them when it stores the DACL. Set protected, so the parent's
+    /// entries don't come back. `None` when an entry can't be rewritten as
+    /// it is (a callback entry, an unknown type).
     pub fn root_repair(&self, user: &str) -> Option<Vec<Ace>> {
         let inherit = flags::OBJECT_INHERIT | flags::CONTAINER_INHERIT;
         let Some(dacl) = &self.dacl else {
@@ -263,10 +273,13 @@ impl Security {
         for ace in dacl {
             let explicit = ace.flags & !flags::INHERITED;
             match ace.kind {
-                AceKind::Deny => denies.push(Ace {
-                    flags: explicit,
-                    ..ace.clone()
-                }),
+                AceKind::Deny => push_new(
+                    &mut denies,
+                    Ace {
+                        flags: explicit,
+                        ..ace.clone()
+                    },
+                ),
                 AceKind::Allow => {
                     let mask = if trusted(&ace.sid, user) {
                         ace.mask
@@ -274,11 +287,14 @@ impl Security {
                         expand_generic(ace.mask) & !rights::REPLACE
                     };
                     if mask != 0 {
-                        allows.push(Ace {
-                            flags: explicit,
-                            mask,
-                            ..ace.clone()
-                        });
+                        push_new(
+                            &mut allows,
+                            Ace {
+                                flags: explicit,
+                                mask,
+                                ..ace.clone()
+                            },
+                        );
                     }
                 }
                 AceKind::AllowCallback | AceKind::DenyCallback | AceKind::Other => return None,
@@ -773,6 +789,24 @@ mod tests {
                 .map(explicit)
                 .collect::<Vec<_>>()
         );
+    }
+
+    /// A folder whose parent gave it an entry it also has explicitly (a
+    /// temp folder under a profile): once explicit they're the same entry,
+    /// kept once, as Windows stores them.
+    #[test]
+    fn a_roots_repair_keeps_each_entry_once() {
+        let explicit = |a: Ace| Ace {
+            flags: a.flags & !flags::INHERITED,
+            ..a
+        };
+        let mut aces = profile_default();
+        aces.extend(profile_default().into_iter().map(explicit));
+        aces.push(Ace::allow(AUTHENTICATED, MODIFY, OI_CI));
+        aces.push(Ace::allow(AUTHENTICATED, MODIFY, OI_CI | flags::INHERITED));
+        let mut want: Vec<Ace> = profile_default().into_iter().map(explicit).collect();
+        want.push(Ace::allow(AUTHENTICATED, MODIFY & !rights::DELETE, OI_CI));
+        assert_eq!(sec(USER, aces).root_repair(USER), Some(want));
     }
 
     #[test]
