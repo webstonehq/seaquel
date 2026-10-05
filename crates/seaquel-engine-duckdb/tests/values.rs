@@ -195,20 +195,26 @@ async fn list_columns_decode_in_linear_time() {
         let sql = format!(
             "SELECT i, [i, i + 1, NULL] AS l, {{'a': i, 'b': [i]}} AS s FROM range({rows}) t(i)"
         );
-        let started = Instant::now();
-        let r = driver.query(&sql, vec![]).await.unwrap();
-        let took = started.elapsed();
-        assert_eq!(r.rows.len(), rows);
-        assert_eq!(
-            r.rows[rows - 1][1],
-            Value::Array(vec![
-                Value::Int(rows as i64 - 1),
-                Value::Int(rows as i64),
-                Value::Null
-            ])
-        );
-        eprintln!("LIST/STRUCT decode: {rows} rows in {took:?}");
-        timings.push(took);
+        // The fastest of three: one stall on a busy runner (a Windows run
+        // once took 1.5 s for 100k rows, 4.6x the 25k rate) isn't the
+        // decoder's.
+        let mut best = Duration::MAX;
+        for _ in 0..3 {
+            let started = Instant::now();
+            let r = driver.query(&sql, vec![]).await.unwrap();
+            best = best.min(started.elapsed());
+            assert_eq!(r.rows.len(), rows);
+            assert_eq!(
+                r.rows[rows - 1][1],
+                Value::Array(vec![
+                    Value::Int(rows as i64 - 1),
+                    Value::Int(rows as i64),
+                    Value::Null
+                ])
+            );
+        }
+        eprintln!("LIST/STRUCT decode: {rows} rows in {best:?}");
+        timings.push(best);
     }
     // Doubling the rows must not quadruple the time. Generous: shared CI.
     let per_row = |i: usize, rows: u32| timings[i] / rows;
