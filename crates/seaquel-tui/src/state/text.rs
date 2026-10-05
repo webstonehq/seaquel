@@ -546,27 +546,6 @@ pub fn rolled_back(code: &str) -> String {
     format!("ROLLBACK; {code}")
 }
 
-/// A destructive statement's reason, worded.
-pub fn destructive_reason(
-    reason: seaquel_core::sql::statements::DestructiveReason,
-) -> &'static str {
-    use seaquel_core::sql::statements::DestructiveReason as R;
-    match reason {
-        R::DropTable => "drops a table",
-        R::DropIndex => "drops an index",
-        R::DropView => "drops a view",
-        R::DropSchema => "drops a schema",
-        R::DropDatabase => "drops a database",
-        R::DropSequence => "drops a sequence",
-        R::DropFunction => "drops a function",
-        R::DropColumn => "drops a column",
-        R::Truncate => "empties a table",
-        R::DeleteNoWhere => "DELETE without WHERE",
-        R::UpdateNoWhere => "UPDATE without WHERE",
-        R::MergeDelete => "MERGE that deletes",
-    }
-}
-
 pub const HELP_TITLE: &str = "Keybindings";
 pub const HELP_FOOTER: &str = "esc close";
 

@@ -22,12 +22,10 @@ use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
 use seaquel_core::{Core, CoreError, DuckdbHelperProgress, DuckdbHelperStatus};
-use seaquel_terminal::{shutdown_signal, ShutdownSignal, TestHooks};
+use seaquel_terminal::TestHooks;
 
+use crate::session::{stopped, TEST_HOOKS_PREFIX};
 use crate::VERSION;
-
-/// The prefix of the CLI's test hooks (`SEAQUEL_CLI_TEST_DUCKDB_RELEASES`, …).
-const TEST_HOOKS_PREFIX: &str = "SEAQUEL_CLI_TEST";
 
 /// How long a stopped install may take to clean up before the process
 /// exits anyway. A `.part` left past it (a read blocked on a pipe or a
@@ -141,17 +139,6 @@ fn status(core: &Core) -> ExitCode {
             eprintln!("seaquel-cli duckdb status: {}: {}", e.code, e.message);
             ExitCode::FAILURE
         }
-    }
-}
-
-/// Resolves when SIGINT or SIGTERM (Ctrl+C on Windows) arrives; never when
-/// no handler could be installed (the default action stays).
-async fn stopped() {
-    if shutdown_signal(&[ShutdownSignal::Interrupt, ShutdownSignal::Terminate])
-        .await
-        .is_none()
-    {
-        std::future::pending::<()>().await;
     }
 }
 

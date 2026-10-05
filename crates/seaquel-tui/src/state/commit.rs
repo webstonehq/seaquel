@@ -401,7 +401,7 @@ pub fn destructive(model: &Model) -> Vec<Destructive> {
         .filter_map(|e| match &e.plan {
             Plan::Planned(p) => destructive_reason(&p.sql, engine).map(|r| Destructive {
                 sql: p.sql.clone(),
-                reason: text::destructive_reason(r).to_string(),
+                reason: seaquel_terminal::destructive_reason(r).to_string(),
             }),
             _ => None,
         })

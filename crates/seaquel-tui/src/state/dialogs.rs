@@ -114,21 +114,6 @@ impl fmt::Debug for Notice {
     }
 }
 
-/// The `SHA256:…` fingerprint in an `UNKNOWN_HOST_KEY` message: what
-/// follows the last `Fingerprint: ` (Core's label), the base64 after
-/// `SHA256:` only, since Core may wrap the SSH layer's message (a `)`).
-/// An earlier `SHA256:` (in a host name) never counts. (A structured field
-/// is a follow-up.)
-pub fn fingerprint(message: &str) -> Option<String> {
-    let label = "Fingerprint: SHA256:";
-    let at = message.rfind(label)? + label.len();
-    let rest = &message[at..];
-    let len = rest
-        .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=')))
-        .unwrap_or(rest.len());
-    (len > 0).then(|| format!("SHA256:{}", &rest[..len]))
-}
-
 /// A failed connect as the problem dialog words it: Core's message under a
 /// title that says what to do.
 pub fn problem(error: &CallError, retry: Option<(SecretKind, Pending)>) -> Problem {
@@ -157,32 +142,6 @@ pub fn problem(error: &CallError, retry: Option<(SecretKind, Pending)>) -> Probl
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_fingerprint_comes_from_core_s_message() {
-        let message = "The host key for 127.0.0.1:2222 is not in known_hosts.\n\
-                       Fingerprint: SHA256:abcDEF123+/xyz";
-        assert_eq!(
-            fingerprint(message).as_deref(),
-            Some("SHA256:abcDEF123+/xyz")
-        );
-        assert_eq!(fingerprint("no fingerprint here"), None);
-        // Core wraps the SSH layer's message: what follows isn't part of it.
-        assert_eq!(
-            fingerprint("SSH tunnel failed (Fingerprint: SHA256:xBaw+q/E=)").as_deref(),
-            Some("SHA256:xBaw+q/E=")
-        );
-        assert_eq!(fingerprint("Fingerprint: SHA256:"), None);
-        // Only what follows "Fingerprint: " counts: an earlier SHA256: (a
-        // host or user name could hold one) doesn't.
-        assert_eq!(
-            fingerprint("host SHA256:decoy is not in known_hosts.\nFingerprint: SHA256:real")
-                .as_deref(),
-            Some("SHA256:real")
-        );
-        assert_eq!(fingerprint("SHA256:alone, no label"), None);
-        assert_eq!(fingerprint("Fingerprint: MD5:aa"), None);
-    }
 
     #[test]
     fn each_code_is_worded() {

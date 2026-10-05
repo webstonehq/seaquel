@@ -433,9 +433,10 @@ fn failed(model: &mut Model, row: &ConnItem, pending: Pending, e: &CallError) ->
             }
         }
         "UNKNOWN_HOST_KEY" => {
-            if let (Some(fingerprint), Some(tunnel)) =
-                (dialogs::fingerprint(&e.message), &row.tunnel)
-            {
+            if let (Some(fingerprint), Some(tunnel)) = (
+                seaquel_terminal::host_key_fingerprint(&e.message),
+                &row.tunnel,
+            ) {
                 model.modal = Some(Modal::Trust(TrustPrompt {
                     pending,
                     host: tunnel.host.clone(),

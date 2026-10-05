@@ -541,7 +541,7 @@ impl Session {
                     .into_iter()
                     .map(|d| Destructive {
                         sql: d.sql,
-                        reason: crate::state::text::destructive_reason(d.reason).to_string(),
+                        reason: seaquel_terminal::destructive_reason(d.reason).to_string(),
                     })
                     .collect(),
                 total: destructive_total,
@@ -837,7 +837,7 @@ fn run_msg(event: seaquel_core::domain::run::RunEvent) -> RunMsg {
                     list.into_iter()
                         .map(|d| Destructive {
                             sql: d.sql,
-                            reason: crate::state::text::destructive_reason(d.reason).to_string(),
+                            reason: seaquel_terminal::destructive_reason(d.reason).to_string(),
                         })
                         .collect(),
                     total,

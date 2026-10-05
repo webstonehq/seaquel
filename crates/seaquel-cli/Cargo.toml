@@ -2,7 +2,7 @@
 name = "seaquel-cli"
 version = "0.1.0"
 edition = "2021"
-description = "The `seaquel-cli` binary, a release asset the desktop app can download and install. `mcp` serves Seaquel's MCP server over stdio; `duckdb` installs its DuckDB helper."
+description = "The `seaquel-cli` binary, a release asset the desktop app can download and install. `mcp` serves Seaquel's MCP server over stdio; `duckdb` installs its DuckDB helper; `conn`, `schema`, `saved` and `query` read saved connections and run SQL."
 
 [[bin]]
 name = "seaquel-cli"
@@ -15,7 +15,10 @@ path = "src/main.rs"
 # `license-*`: the CLI doesn't check licenses (decision 14 of the design
 # doc). `imports` (phase 5e): the CLI's Core is built like the desktop's,
 # with `LocalFiles` and the import paths, though no command uses them yet.
-seaquel-core = { path = "../seaquel-core", default-features = false, features = ["storage", "secrets", "ssh", "workspace", "imports"] }
+# `ai`: `query`'s cells (`seaquel_core::ai::tools::format`, MCP's cell
+# rendering), the registry only, no model client. seaquel-mcp turns it on
+# already; named here so a package-by-package clippy doesn't depend on that.
+seaquel-core = { path = "../seaquel-core", default-features = false, features = ["storage", "secrets", "ssh", "workspace", "imports", "ai"] }
 seaquel-mcp = { path = "../seaquel-mcp" }
 # What the terminal binaries share (phase 7a): the data dir,
 # the Core builder (every engine, DuckDB through the helper,
@@ -32,12 +35,30 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-std", "
 # Logs, rmcp's `tracing` events and Core's `log` records alike, go to stderr
 # only: stdout carries the MCP protocol.
 tracing-subscriber = { workspace = true }
+# The read commands (`conn`, `schema`, `saved`, `query`): cells, their JSON
+# (lists in a fixed key order) and the table's layout, and the run's stream
+# id.
+seaquel-types = { path = "../seaquel-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+futures = { workspace = true }
+unicode-width = { workspace = true }
+# Masked password prompts on the terminal (`/dev/tty`, the console on
+# Windows).
+rpassword = "7"
+zeroize = "1"
+
+[target.'cfg(unix)'.dependencies]
+# A prompt stopped by a signal puts the terminal's settings back (echo on)
+# with `tcsetattr`; the read itself runs on a thread nothing waits for.
+libc = "0.2"
 
 [dev-dependencies]
 rmcp = { workspace = true, features = ["client", "transport-child-process"] }
-seaquel-types = { path = "../seaquel-types" }
-serde_json = { workspace = true }
 sqlx = { workspace = true }
+# `async_trait` for the keychain notice's test store, which never answers.
+seaquel-runtime = { path = "../seaquel-runtime" }
 tempfile = "3"
 tokio = { workspace = true, features = ["process", "io-util", "time"] }
 # `duckdb install`'s tests: `MockReleases`

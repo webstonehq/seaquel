@@ -58,11 +58,11 @@ pub async fn resolve(st: &Storage, selection: &Selection) -> Result<Vec<Exposed>
     let mut ids: Vec<&str> = Vec::new();
 
     for wanted in &selection.connections {
-        let row = find_connection(&rows, &projects, wanted)?;
+        let row = find_connection(&rows, &projects, wanted, Subject::Flag("--connection"))?;
         ids.push(&row.id);
     }
     for wanted in &selection.projects {
-        let project = find_project(&projects, wanted)?;
+        let project = find_project(&projects, wanted, Subject::Flag("--project"))?;
         ids.extend(
             rows.iter()
                 .filter(|r| r.project_id == project.id)
@@ -91,7 +91,7 @@ fn project_name(projects: &[PersistedProject], id: &str) -> String {
 }
 
 /// What [`lookup`] found.
-pub(crate) enum Found<'a, T> {
+pub enum Found<'a, T> {
     One(&'a T),
     None,
     /// Every item with the name, when no id matched and more than one name
@@ -102,7 +102,7 @@ pub(crate) enum Found<'a, T> {
 /// The item whose id is `wanted`, else the one whose name is. Exact and
 /// case-sensitive; a name several items share is [`Found::Many`]. Used for
 /// `--connection`, `--project`, a tool's `connection` and a saved query.
-pub(crate) fn lookup<'a, T>(
+pub fn lookup<'a, T>(
     items: impl IntoIterator<Item = &'a T> + Clone,
     wanted: &str,
     id: impl Fn(&T) -> &str,
@@ -119,22 +119,56 @@ pub(crate) fn lookup<'a, T>(
     }
 }
 
-fn find_connection<'a>(
+/// How [`find_connection`] and [`find_project`] name what was asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Subject<'a> {
+    /// A flag: `--connection "x": …. Pass --connection with the id instead`
+    /// (the MCP server's startup).
+    Flag(&'a str),
+    /// A noun, for a command whose argument isn't that flag:
+    /// `Connection "x": …. Pass the id instead.`
+    Noun(&'a str),
+}
+
+impl<'a> Subject<'a> {
+    fn prefix(self) -> &'a str {
+        match self {
+            Subject::Flag(s) | Subject::Noun(s) => s,
+        }
+    }
+
+    /// What to do about a name several rows share.
+    fn pass_the_id(self) -> String {
+        match self {
+            Subject::Flag(flag) => format!("Pass {flag} with the id instead"),
+            Subject::Noun(_) => "Pass the id instead.".to_string(),
+        }
+    }
+}
+
+/// The saved connection whose id is `wanted`, else the one whose name is
+/// (`--connection`'s rule, and `seaquel-cli`'s commands'), its errors
+/// worded with `subject`.
+pub fn find_connection<'a>(
     rows: &'a [PersistedConnection],
     projects: &[PersistedProject],
     wanted: &str,
+    subject: Subject<'_>,
 ) -> Result<&'a PersistedConnection, ToolError> {
     match lookup(rows, wanted, |r| &r.id, |r| &r.name) {
         Found::One(row) => Ok(row),
         Found::None => Err(ToolError::new(
             CONNECTION_NOT_FOUND,
-            format!("--connection {wanted:?}: no saved connection has this name or id"),
+            format!(
+                "{} {wanted:?}: no saved connection has this name or id",
+                subject.prefix()
+            ),
         )),
         Found::Many(many) => Err(ToolError::new(
             AMBIGUOUS_CONNECTION,
             format!(
-                "--connection {wanted:?}: {} saved connections have this name: {}. Pass \
-                 --connection with the id instead",
+                "{} {wanted:?}: {} saved connections have this name: {}. {}",
+                subject.prefix(),
                 many.len(),
                 many.iter()
                     .map(|r| format!(
@@ -143,32 +177,41 @@ fn find_connection<'a>(
                         project_name(projects, &r.project_id)
                     ))
                     .collect::<Vec<_>>()
-                    .join(" and ")
+                    .join(" and "),
+                subject.pass_the_id()
             ),
         )),
     }
 }
 
-fn find_project<'a>(
+/// The project whose id is `wanted`, else the one whose name is
+/// (`--project`'s rule, and `seaquel-cli`'s commands'), its errors worded
+/// with `subject`.
+pub fn find_project<'a>(
     projects: &'a [PersistedProject],
     wanted: &str,
+    subject: Subject<'_>,
 ) -> Result<&'a PersistedProject, ToolError> {
     match lookup(projects, wanted, |p| &p.id, |p| &p.name) {
         Found::One(project) => Ok(project),
         Found::None => Err(ToolError::new(
             PROJECT_NOT_FOUND,
-            format!("--project {wanted:?}: no project has this name or id"),
+            format!(
+                "{} {wanted:?}: no project has this name or id",
+                subject.prefix()
+            ),
         )),
         Found::Many(many) => Err(ToolError::new(
             AMBIGUOUS_PROJECT,
             format!(
-                "--project {wanted:?}: {} projects have this name (ids {}). Pass --project \
-                 with the id instead",
+                "{} {wanted:?}: {} projects have this name (ids {}). {}",
+                subject.prefix(),
                 many.len(),
                 many.iter()
                     .map(|p| format!("{:?}", p.id))
                     .collect::<Vec<_>>()
-                    .join(" and ")
+                    .join(" and "),
+                subject.pass_the_id()
             ),
         )),
     }
@@ -189,5 +232,59 @@ pub async fn global_sharing(st: &Storage) -> Sharing {
             log::warn!("Couldn't read the AI settings, using the defaults: {e}");
             DEFAULT_SHARING
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn find_connection_is_public_and_names_both_ids() {
+        let rows: Vec<PersistedConnection> = ["a", "b"]
+            .iter()
+            .map(|id| {
+                serde_json::from_value(serde_json::json!({
+                    "id": id, "projectId": "p1", "name": "twin", "type": "sqlite",
+                    "host": "", "port": 0, "databaseName": "", "username": "",
+                    "savePassword": false, "saveSshPassword": false,
+                    "saveSshKeyPassphrase": false, "labelIds": [],
+                }))
+                .unwrap()
+            })
+            .collect();
+        let flag = Subject::Flag("--connection");
+        let e = super::find_connection(&rows, &[], "twin", flag).unwrap_err();
+        assert_eq!(e.code, AMBIGUOUS_CONNECTION);
+        assert!(
+            e.message.contains("\"a\"") && e.message.contains("\"b\""),
+            "{}",
+            e.message
+        );
+        assert!(
+            e.message.starts_with("--connection \"twin\": ")
+                && e.message
+                    .ends_with(". Pass --connection with the id instead"),
+            "{}",
+            e.message
+        );
+        assert_eq!(
+            super::find_connection(&rows, &[], "a", flag).unwrap().id,
+            "a"
+        );
+
+        let noun = Subject::Noun("Connection");
+        let e = super::find_connection(&rows, &[], "twin", noun).unwrap_err();
+        assert!(
+            e.message.starts_with("Connection \"twin\": ")
+                && e.message.ends_with(". Pass the id instead."),
+            "{}",
+            e.message
+        );
+        let e = super::find_connection(&rows, &[], "nope", noun).unwrap_err();
+        assert_eq!(
+            e.message,
+            "Connection \"nope\": no saved connection has this name or id"
+        );
     }
 }

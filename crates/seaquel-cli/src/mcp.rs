@@ -46,10 +46,8 @@ use seaquel_terminal::{log_filter_holding, shutdown_signal, ShutdownSignal, Test
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+use crate::session::TEST_HOOKS_PREFIX;
 use crate::{LogLevel, McpArgs, VERSION};
-
-/// The prefix of the CLI's test hooks (`SEAQUEL_CLI_TEST_SECRETS`, …).
-const TEST_HOOKS_PREFIX: &str = "SEAQUEL_CLI_TEST";
 
 pub fn run(args: McpArgs) -> ExitCode {
     init_logging(args.log_level);

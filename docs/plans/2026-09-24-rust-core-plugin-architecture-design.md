@@ -1,8 +1,9 @@
 # Rust Core and Plugin Architecture
 
 **Date:** 2026-09-24
-**Status:** Implemented through phase 8, phase 7a and the DuckDB helper.
-Phase 7b (the CLI's commands) isn't planned yet. CLAUDE.md is the detailed
+**Status:** Implemented through phase 8, phase 7a, the DuckDB helper and
+phase 7b part 1 (the CLI's read commands). Phase 7b part 2 (`conn
+add|import`, `export`, `ask`) isn't planned yet. CLAUDE.md is the detailed
 reference for how each part works today; this file keeps the shape of the
 design and the decisions that still constrain new code.
 
@@ -45,7 +46,13 @@ design and the decisions that still constrain new code.
   downloaded on first use.
 - **Desktop DuckDB helper.** The desktop app runs DuckDB in the same helper,
   and the in-process driver is gone.
-- **Phase 7b, CLI commands.** Not planned yet (see "Open work").
+- **Phase 7b, part 1, the CLI's read commands.** `seaquel-cli conn
+  list|test`, `schema`, `saved list|show` and `query`, on read-only storage
+  as `mcp` uses it: connects carry no origin and runs record no history.
+  `query` runs SQL as typed, guarded only by Core's `CONFIRM_REQUIRED`
+  (asked in a terminal, `--yes` elsewhere). Plan:
+  `2026-10-04-cli-read-commands.md`.
+- **Phase 7b, part 2.** Not planned yet (see "Open work").
 
 ## Problem
 
@@ -79,7 +86,7 @@ and the MCP server in the same release.
 | 7 | Multi-tenancy | One process-wide `Core`, a `Workspace` per user. Web keeps an LRU of per-user workspaces; desktop, TUI and MCP open one each |
 | 8 | GUI state | Tabs, panes and layout belong to the interface. Core stores them as opaque per-window blobs and never parses them; the TUI keeps its own state file |
 | 9 | Web auth | Better Auth, signup, team and account routes stay in SvelteKit/Node |
-| 10 | Terminal binaries | Two: `seaquel-cli` (`mcp`, `duckdb`) and `seaquel-tui`, sharing `seaquel-terminal`. Neither can be named `seaquel`, which the app owns on every platform |
+| 10 | Terminal binaries | Two: `seaquel-cli` (`mcp`, `duckdb`, and the read commands `conn`, `schema`, `saved`, `query`) and `seaquel-tui`, sharing `seaquel-terminal`. Neither can be named `seaquel`, which the app owns on every platform |
 | 11 | Migration | Strangler pattern, one subsystem at a time, shipping at every step. Done |
 | 12 | Demo | Core compiled to wasm32 in the page, with DuckDB-WASM through the DuckDB crate's `browser` driver and storage as in-memory SQLite saved to IndexedDB |
 | 13 | Web licensing | `seaquel-license` behind `/internal/license/*`, reachable from loopback with a per-boot secret only |
@@ -327,10 +334,20 @@ vitest.
 
 ## Open work
 
-- **Phase 7b, the CLI's commands:** `conn list|test|add|import`, `query`,
-  `schema`, `saved`, `export`, `ask`. Connection create and edit in the TUI
-  follow `conn add`. Keychain writes from these go through
+- **Phase 7b, part 2, the rest of the CLI's commands:** `conn add|import`
+  (a writable second-process open for those two only), `export` (the GUI's
+  CSV, JSON and SQL formats moved into Rust first) and `ask` (a model client
+  in the CLI, and a rule for whether its SQL runs). Connection create and
+  edit in the TUI follow `conn add`. Keychain writes from these go through
   `connectionCreate`/`connectionUpdate`, as the TUI's password save does.
+- **CLI follow-ups from part 1:** restoring the console's echo on Windows
+  after a password prompt stopped by Ctrl+C (Unix restores it), zeroizing
+  `SuppliedSecrets` in `seaquel-types` (the CLI zeroizes what it types, not
+  the copy it hands Core), a password environment variable or flag for
+  scripts, recording CLI runs in history (it would need writable
+  storage), and a `--read-only` flag on `query` (today it runs with the
+  user's full access to every saved connection, without the MCP server's
+  limits).
 - **The app installing the TUI** as it installs the CLI.
 - **MCP write and dashboard tools**, behind a per-connection opt-in stored
   in the workspace, never a model-controlled flag.

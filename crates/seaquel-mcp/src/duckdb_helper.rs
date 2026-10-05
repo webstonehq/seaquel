@@ -50,10 +50,12 @@ fn install_fixes(status: &DuckdbHelperStatus) -> bool {
     )
 }
 
-/// `e`, reworded when it is `c`'s DuckDB helper that is missing or refused.
-/// Other errors, and a Core with no helper locator, keep Core's words.
-pub(crate) fn connect_error(core: &Core, c: &Exposed, version: &str, e: ToolError) -> ToolError {
-    if c.engine != DUCKDB || e.code != ENGINE_NOT_INSTALLED {
+/// `e`, reworded when it is a DuckDB connection's helper that is missing
+/// or refused (`engine` is the saved row's `type`). For `seaquel-cli`'s
+/// commands as for the MCP tools. Other errors, and a Core with no helper
+/// locator, keep Core's words.
+pub fn reword_connect_error(core: &Core, engine: &str, version: &str, e: ToolError) -> ToolError {
+    if engine != DUCKDB || e.code != ENGINE_NOT_INSTALLED {
         return e;
     }
     match core.duckdb_helper_status() {
@@ -66,6 +68,11 @@ pub(crate) fn connect_error(core: &Core, c: &Exposed, version: &str, e: ToolErro
         }
         _ => e,
     }
+}
+
+/// [`reword_connect_error`] for an exposed connection.
+pub(crate) fn connect_error(core: &Core, c: &Exposed, version: &str, e: ToolError) -> ToolError {
+    reword_connect_error(core, &c.engine, version, e)
 }
 
 impl McpServer {

@@ -1213,7 +1213,7 @@ fn check_and_go(model: &mut Model, pending: PendingRun, engine: SqlEngine) -> Ve
         .filter_map(|sql| {
             destructive_reason(&sql, engine).map(|r| Destructive {
                 sql,
-                reason: text::destructive_reason(r).to_string(),
+                reason: seaquel_terminal::destructive_reason(r).to_string(),
             })
         })
         .collect();

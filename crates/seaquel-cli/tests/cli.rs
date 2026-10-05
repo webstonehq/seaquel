@@ -50,3 +50,33 @@ fn mcp_help_lists_the_exposure_and_log_flags() {
         assert!(stdout.contains(flag), "{stdout}");
     }
 }
+
+#[test]
+fn help_lists_the_new_commands() {
+    let out = cli(&["--help"]);
+    assert!(out.status.success());
+    let help = text(&out.stdout);
+    for command in ["conn", "schema", "saved", "query", "mcp", "duckdb"] {
+        assert!(help.contains(command), "{command}: {help}");
+    }
+}
+
+/// `query` takes its SQL from one source: two at once is a usage error.
+#[test]
+fn query_refuses_two_sql_sources() {
+    let out = cli(&["query", "-c", "x", "SELECT 1", "--saved", "q"]);
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out.stderr));
+    let out = cli(&["query", "-c", "x", "--project", "p", "SELECT 1"]);
+    assert_eq!(out.status.code(), Some(2), "--project needs --saved");
+}
+
+/// A `--limit` past Core's page cap is a usage error naming the flag,
+/// before anything opens or connects.
+#[test]
+fn query_refuses_a_limit_past_the_page_cap() {
+    let out = cli(&["query", "-c", "x", "--limit", "100000", "SELECT 1"]);
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out.stderr));
+    let err = text(&out.stderr);
+    assert!(err.contains("--limit"), "{err}");
+    assert!(out.stdout.is_empty());
+}

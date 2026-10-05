@@ -649,6 +649,67 @@ be used: save it in the app first.
 SSH tunnels work for hosts the app already trusts. The server never adds a
 host key, so for a new bastion, connect once in the app and accept its key.
 
+### Other commands
+
+`seaquel-cli` can also list your saved connections and queries and run SQL
+from a terminal or a script. These commands use the app's data the same way
+the server does: they never change it, and they refuse with "Open the Seaquel
+app once, then run this again." when the app has an update to make first.
+Connections, projects and saved queries are named by id or exact name.
+
+```bash
+seaquel-cli conn list --project Main
+seaquel-cli conn test "prod replica"
+seaquel-cli schema "prod replica" public.orders
+seaquel-cli saved list
+seaquel-cli saved show "monthly revenue" > revenue.sql
+seaquel-cli query -c "prod replica" "SELECT id, total FROM orders LIMIT 5"
+seaquel-cli query -c local --saved "by customer" --param id=42
+seaquel-cli query -c local --yes < cleanup.sql
+```
+
+- `conn list` prints the saved connections, of every project or one. It never
+  prints a connection string or a password.
+- `conn test` connects, disconnects and prints `ok`.
+- `schema` lists a connection's tables and views, or the columns and indexes
+  of the one you name (`table` or `schema.table`).
+- `saved list` prints the saved queries and the `{{parameters}}` each uses.
+  `saved show` prints one query's SQL as saved.
+- `query` runs SQL on a saved connection. The SQL comes from the argument,
+  `-f FILE`, `--saved NAME` or stdin. Each `{{name}}` needs a
+  `--param name=value`, which is bound as text. A SELECT shows its first 1,000
+  rows and the total count; `--limit N` changes that (up to 99,999) and
+  `--limit 0` prints every row. Runs don't show up in the app's history.
+
+`query` is not read-only: it runs the SQL as you wrote it. If the SQL holds a
+destructive statement, such as a DROP, a TRUNCATE, or a DELETE or UPDATE
+without a WHERE, it lists those statements and asks before running anything.
+Outside a terminal it refuses instead, and `--yes` runs them without asking.
+
+`query` runs with your full access to every saved connection. The limits the
+MCP server applies (only the connections you name, read-only queries, each
+connection's AI sharing settings) don't apply to it. Keep that in mind when an
+AI agent has a shell on your machine: it can run `seaquel-cli query` too.
+
+In a terminal, a command asks for a password the app doesn't save, and for an
+SSH host it hasn't seen it shows the key's fingerprint and asks whether to
+trust it (yes adds it to `~/.ssh/known_hosts`). When stdin isn't a terminal,
+for example when SQL is piped in, or with `--no-input`, it asks nothing and
+fails with a message instead.
+
+Output is a table when stdout is a terminal and JSON otherwise; `--format
+table` or `--format json` picks one. Lists are a JSON array. `query` writes one
+JSON object per statement, one per line, with the statement's position in the
+text (`statement`, counting from 0), its columns and rows, the total count, the
+rows affected or its error. As a table, two statements' tables are separated
+by a blank line, and an error names its statement counting from 1. With a
+table, the row counts and timings go to stderr, as do prompts and other
+errors, so stdout holds only results. The exit code is 0 on success, 1 if anything failed (one failed
+statement is enough; the ones after it still run), 2 for a mistake on the
+command line and 130 after Ctrl+C. On PostgreSQL, MySQL, MariaDB and DuckDB,
+Ctrl+C also cancels the running statement on the database. On SQL Server and
+SQLite the statement stops when the command closes its connection and exits.
+
 ## Terminal UI
 
 `seaquel-tui` is Seaquel in a terminal, laid out like lazygit: numbered panels
