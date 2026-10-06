@@ -208,6 +208,10 @@ fn each_setting_value_is_checked() {
     assert!(!ok("pending_changes_enabled", "maybe") && !ok("pending_changes_enabled", "1"));
     assert!(ok("skippedUpdateVersion", "2030.1.2"));
     assert!(!ok("skippedUpdateVersion", "2030.1.3\0"));
+    assert!(ok("updateChannel", "stable") && ok("updateChannel", "beta"));
+    for v in ["", "Beta", "nightly", "beta ", "stable\0"] {
+        assert!(!ok("updateChannel", v), "{v}");
+    }
     for key in ["query_version_limit", "dashboard_version_limit"] {
         for v in ["0", "10", "100", "100000", "007"] {
             assert!(ok(key, v), "{key} {v}");

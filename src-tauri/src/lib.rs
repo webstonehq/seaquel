@@ -27,6 +27,9 @@ mod cli_install;
 mod duckdb_helper;
 mod helper_pin;
 mod logging;
+mod update_channel;
+
+use update_channel::{PendingDownload, UpdateChannel};
 
 /// How often the desktop's workspace polls for commits another process made
 /// to `seaquel.db` (about 0.6 s p50, 0.9 s max, 13 µs a poll).
@@ -162,12 +165,14 @@ fn license_base_url() -> &'static str {
     })
 }
 
+/// The update downloaded in the background, waiting for `install_update`.
 struct PendingUpdate {
-    bytes: Mutex<Option<Vec<u8>>>,
+    download: Mutex<Option<PendingDownload>>,
 }
 
-/// The desktop's workspace. Storage opens on the first `core_call` that
-/// needs it, not at startup:
+/// The desktop's workspace. Storage opens on the first call that needs it:
+/// a `core_call`, or the startup update check reading `updateChannel`
+/// ([`update_channel()`]). Either way:
 ///
 /// - a failure that retrying can't fix (`LEGACY_STORAGE`, `STORAGE_CORRUPT`,
 ///   or `NO_DATA_DIR`) is kept, and every storage call answers with it so the
@@ -856,46 +861,88 @@ fn get_data_dir(app: tauri::AppHandle) -> Result<String, CommandError> {
     Ok(path.to_string_lossy().to_string())
 }
 
+/// `install_update`'s answer when there is no downloaded update it can
+/// install on the channel the user is on now (none pending, or one from
+/// another channel).
+fn update_stale() -> CommandError {
+    log::warn!(activity = "app.update", error_code = "UPDATE_STALE"; "Downloaded update no longer matches the update channel");
+    CommandError {
+        message:
+            "The downloaded update no longer matches the update channel. Check for updates again."
+                .to_string(),
+        code: "UPDATE_STALE".to_string(),
+    }
+}
+
 #[tauri::command]
 async fn install_update(
     app: tauri::AppHandle,
     pending: tauri::State<'_, PendingUpdate>,
 ) -> Result<(), CommandError> {
     info!(activity = "app.update"; "Installing update");
-    let bytes = pending.bytes.lock().map_err(|e| {
-        error!(activity = "app.update", error_code = "LOCK_ERROR"; "Failed to lock update state");
-        CommandError {
-            message: format!("Failed to lock update state: {}", e),
-            code: "LOCK_ERROR".to_string(),
-        }
-    })?.take();
-    if let Some(bytes) = bytes {
-        // Re-check for update to get the Update object needed for install
-        if let Some(update) = app.updater().map_err(|e| {
-            error!(activity = "app.update", error_code = "UPDATE_ERROR"; "Failed to get updater");
-            CommandError {
-                message: format!("Failed to get updater: {}", e),
-                code: "UPDATE_ERROR".to_string(),
-            }
-        })?.check().await.map_err(|e| {
+    let download = pending
+        .download
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
+    // Nothing pending: another window's check on a new channel dropped the
+    // download this window still shows, or it was never there.
+    let Some(download) = download else {
+        return Err(update_stale());
+    };
+    // Re-check for update to get the Update object needed for install,
+    // on the channel the user is on now.
+    let channel = update_channel(&app).await;
+    let checked = match channel_updater(&app, channel) {
+        Ok(updater) => updater.check().await.map_err(|e| {
             error!(activity = "app.update", error_code = "UPDATE_ERROR"; "Failed to check for update");
             CommandError {
                 message: format!("Failed to check for update: {}", e),
                 code: "UPDATE_ERROR".to_string(),
             }
-        })? {
-            update.install(&bytes).map_err(|e| {
-                error!(activity = "app.update", error_code = "UPDATE_ERROR"; "Failed to install update");
-                CommandError {
-                    message: format!("Failed to install update: {}", e),
-                    code: "UPDATE_ERROR".to_string(),
-                }
-            })?;
-            info!(activity = "app.update"; "Update installed, restarting");
-            app.restart();
+        }),
+        Err(e) => {
+            error!(activity = "app.update", error_code = "UPDATE_ERROR"; "Failed to get updater");
+            Err(CommandError {
+                message: format!("Failed to get updater: {}", e),
+                code: "UPDATE_ERROR".to_string(),
+            })
         }
+    };
+    // A check that failed says nothing about the download: keep it, so the
+    // next click retries without downloading again. Don't overwrite one a
+    // newer background download stored meanwhile.
+    let update = match checked {
+        Ok(update) => update,
+        Err(e) => {
+            let mut d = pending
+                .download
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if d.is_none() {
+                *d = Some(download);
+            }
+            return Err(e);
+        }
+    };
+    // The bytes are installed only as the version they were downloaded as,
+    // and only on the channel that downloaded them: nothing newer on this
+    // channel now (a beta download, then a switch to stable) is stale too.
+    let Some(update) = update else {
+        return Err(update_stale());
+    };
+    if !download.matches(channel, &update.version) {
+        return Err(update_stale());
     }
-    Ok(())
+    update.install(&download.bytes).map_err(|e| {
+        error!(activity = "app.update", error_code = "UPDATE_ERROR"; "Failed to install update");
+        CommandError {
+            message: format!("Failed to install update: {}", e),
+            code: "UPDATE_ERROR".to_string(),
+        }
+    })?;
+    info!(activity = "app.update"; "Update installed, restarting");
+    app.restart();
 }
 
 #[tauri::command]
@@ -903,8 +950,21 @@ async fn check_for_update_command(
     app: tauri::AppHandle,
 ) -> Result<Option<UpdateInfo>, CommandError> {
     debug!(activity = "app.update"; "Checking for updates");
-    let update = app
-        .updater()
+    let channel = update_channel(&app).await;
+    // Drop a download made on the other channel; `install_update` refuses
+    // one anyway, and `check_for_update` drops one that finishes after a
+    // switch.
+    {
+        let pending = app.state::<PendingUpdate>();
+        let mut d = pending
+            .download
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if d.as_ref().is_some_and(|p| p.channel != channel) {
+            *d = None;
+        }
+    }
+    let update = channel_updater(&app, channel)
         .map_err(|e| CommandError {
             message: format!("Failed to get updater: {}", e),
             code: "UPDATE_ERROR".to_string(),
@@ -1097,7 +1157,7 @@ pub fn run() {
         // user asks, so no config check.
         .manage(core)
         .manage(PendingUpdate {
-            bytes: Mutex::new(None),
+            download: Mutex::new(None),
         })
         .manage(duckdb_helper::HelperInstalls::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -1212,7 +1272,8 @@ pub fn run() {
             });
 
             // Before any command can run, so `core_call` always finds it.
-            // Storage itself opens on the first call that needs it.
+            // Storage itself opens on the first call that needs it (the
+            // update check below reads `updateChannel` from it).
             let data_dir = seaquel_core::storage::data_dir(&app.config().identifier)
                 .map_err(|e| RpcError::from(CoreError::from(e)));
             let keychain = KeychainStore::new(seaquel_core::secrets::DESKTOP_SERVICE);
@@ -1229,8 +1290,52 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+/// The channel the user chose (`updateChannel`), or this build's default
+/// when it's unset or storage can't be read: an update check never fails
+/// on storage.
+async fn update_channel(app: &tauri::AppHandle) -> UpdateChannel {
+    let core = app.state::<Core>();
+    let desktop = app.state::<DesktopWorkspace>();
+    let stored = match desktop.workspace(&core).await {
+        Ok(ws) => match ws
+            .get_setting(seaquel_core::domain::state::SettingKey::UpdateChannel.as_str())
+            .await
+        {
+            Ok(s) => s.value,
+            Err(e) => {
+                log::warn!(activity = "app.update", code = e.code.as_str(); "Can't read the update channel; using this build's default");
+                None
+            }
+        },
+        // `workspace` has logged why.
+        Err(e) => {
+            debug!(activity = "app.update", code = e.code.as_str(); "Storage isn't open; using this build's default update channel");
+            None
+        }
+    };
+    UpdateChannel::resolve(stored.as_deref(), &update_channel::app_version())
+}
+
+/// The updater for `channel`'s feed.
+fn channel_updater(
+    app: &tauri::AppHandle,
+    channel: UpdateChannel,
+) -> tauri_plugin_updater::Result<tauri_plugin_updater::Updater> {
+    // The plugin compares against `package_info().version`, which Windows
+    // builds rewrite for MSI (`update_channel::app_version`): every feed
+    // entry would count as newer there, older stables included.
+    let current = update_channel::app_version();
+    app.updater_builder()
+        .endpoints(vec![channel.endpoint()])?
+        .version_comparator(move |_rewritten, release| {
+            update_channel::is_newer(&release.version, &current)
+        })
+        .build()
+}
+
 async fn check_for_update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
-    if let Some(update) = app.updater()?.check().await? {
+    let channel = update_channel(&app).await;
+    if let Some(update) = channel_updater(&app, channel)?.check().await? {
         let mut downloaded = 0;
         let mut total_size: Option<u64> = None;
 
@@ -1258,14 +1363,25 @@ async fn check_for_update(app: tauri::AppHandle) -> tauri_plugin_updater::Result
             size: total_size,
         };
 
+        // The user may have switched channels while it downloaded: keep it
+        // only for the channel it came from.
+        if update_channel(&app).await != channel {
+            info!(activity = "app.update"; "Update channel changed during the download; dropping it");
+            return Ok(());
+        }
+
         info!(activity = "app.update"; "Update downloaded, notifying frontend");
 
         // Store the bytes for later installation
         let pending = app.state::<PendingUpdate>();
         *pending
-            .bytes
+            .download
             .lock()
-            .expect("Failed to lock pending update bytes") = Some(bytes);
+            .unwrap_or_else(PoisonError::into_inner) = Some(PendingDownload {
+            channel,
+            version: update.version.clone(),
+            bytes,
+        });
 
         let _ = app.emit("update-downloaded", info);
     }

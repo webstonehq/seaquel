@@ -390,6 +390,10 @@ pub enum SettingKey {
     /// A version string.
     #[serde(rename = "skippedUpdateVersion")]
     SkippedUpdateVersion,
+    /// `stable` or `beta`: which feed the desktop updater asks. Unset is
+    /// the app's own default (a pre-release build follows beta).
+    #[serde(rename = "updateChannel")]
+    UpdateChannel,
     /// A whole number from 0 to 100,000, as text; 0 keeps every version.
     #[serde(rename = "query_version_limit")]
     QueryVersionLimit,
@@ -408,10 +412,11 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [SettingKey; 8] = [
+    pub const ALL: [SettingKey; 9] = [
         SettingKey::EditorKeybindingMode,
         SettingKey::PendingChangesEnabled,
         SettingKey::SkippedUpdateVersion,
+        SettingKey::UpdateChannel,
         SettingKey::QueryVersionLimit,
         SettingKey::DashboardVersionLimit,
         SettingKey::LicenseNudge,
@@ -425,6 +430,7 @@ impl SettingKey {
             SettingKey::EditorKeybindingMode => "editorKeybindingMode",
             SettingKey::PendingChangesEnabled => "pending_changes_enabled",
             SettingKey::SkippedUpdateVersion => "skippedUpdateVersion",
+            SettingKey::UpdateChannel => "updateChannel",
             SettingKey::QueryVersionLimit => "query_version_limit",
             SettingKey::DashboardVersionLimit => "dashboard_version_limit",
             SettingKey::LicenseNudge => "license_nudge",
@@ -488,6 +494,7 @@ pub fn check_setting_set(
     let ok = match k {
         SettingKey::EditorKeybindingMode => ["default", "vim", "emacs"].contains(&v),
         SettingKey::PendingChangesEnabled => v == "true" || v == "false",
+        SettingKey::UpdateChannel => v == "stable" || v == "beta",
         SettingKey::SkippedUpdateVersion => short(v, "version", lib).is_ok(),
         _ if v.contains('\0') => false,
         SettingKey::QueryVersionLimit | SettingKey::DashboardVersionLimit => is_version_limit(v),

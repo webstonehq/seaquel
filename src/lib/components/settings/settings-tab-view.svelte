@@ -12,6 +12,7 @@
 	import SettingsIcon from "@lucide/svelte/icons/settings";
 	import PaletteIcon from "@lucide/svelte/icons/palette";
 	import InfoIcon from "@lucide/svelte/icons/info";
+	import DownloadIcon from "@lucide/svelte/icons/download";
 	import SunMoonIcon from "@lucide/svelte/icons/sun-moon";
 	import SwatchBookIcon from "@lucide/svelte/icons/swatch-book";
 	import BlocksIcon from "@lucide/svelte/icons/blocks";
@@ -29,6 +30,7 @@
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 
 	import AppInfoSection from "./general/app-info-section.svelte";
+	import UpdatesSection from "./general/updates-section.svelte";
 	import LicenseSection from "./general/license-section.svelte";
 	import QueryHistorySection from "./general/query-history-section.svelte";
 	import ThemeSection from "./appearance/theme-section.svelte";
@@ -100,6 +102,7 @@
 			icon: SettingsIcon,
 			items: [
 				{ id: "app-info", name: m.settings_app_info(), icon: InfoIcon },
+				...(isTauri() ? [{ id: "updates" as const, name: m.settings_updates(), icon: DownloadIcon }] : []),
 				...(isTauri() ? [{ id: "license" as const, name: m.settings_license(), icon: KeyIcon }] : []),
 				...(isWeb() ? [{ id: "team" as const, name: "Team", icon: UsersIcon }] : []),
 				...(isWeb() ? [{ id: "airgap" as const, name: "Offline bundle", icon: WifiOffIcon }] : []),
@@ -292,6 +295,10 @@
 		}}>
 			{#if shouldShowSection("app-info")}
 				<AppInfoSection {tab} />
+			{/if}
+
+			{#if isTauri() && shouldShowSection("updates")}
+				<UpdatesSection />
 			{/if}
 
 			{#if shouldShowSection("license")}

@@ -261,8 +261,8 @@ jobs:
 
             > These binaries follow Seaquel's [pricing terms](https://seaquel.app/pricing): free for personal use, license required for commercial use. The source is MIT licensed and can be built and run for free, for both personal and commercial use.
           releaseDraft: true
-          # A pre-release: the website's update check skips
-          # pre-releases, so publishing the draft reaches no installed app.
+          # A pre-release: the website's stable update check skips
+          # pre-releases, so publishing the draft reaches only Beta-channel apps.
           # Promoting it to the latest release, after the manual checks, is
           # the deliberate step.
           prerelease: true
@@ -377,9 +377,9 @@ jobs:
   # its CLI and TUI, and its latest.json entry (scripts/check-release.mjs).
   # The title is the gate: tauri-action creates the draft "NOT CHECKED: …",
   # and only a pass here makes it "Release <tag>" (a failure makes it "NOT
-  # READY …"). The release is a pre-release, which the update check skips;
-  # promoting it to latest after the manual checks is the step that reaches
-  # users, and there is no fallback build to ship instead.
+  # READY …"). The release is a pre-release, which the stable update check skips (the beta
+  # check offers it); promoting it to latest after the manual checks is the step
+  # that reaches stable users, and there is no fallback build to ship instead.
   check-release:
     needs: [publish-tauri, publish-cli, fix-updater-manifest]
     if: always()

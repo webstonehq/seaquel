@@ -16,9 +16,10 @@
 // The title is the gate: `tauri-action` creates the draft as
 // "NOT CHECKED: Release <tag>", and the job sets "Release <tag>" only when
 // this passes ("NOT READY (check-release failed): …" when it doesn't). The
-// release is a pre-release (I3), which the website's update check skips;
-// promoting it to the latest release, after the manual checks, is the
-// deliberate step that reaches users.
+// release is a pre-release (I3), which the website's stable update check
+// skips (the beta check offers it to Beta-channel apps); promoting it to the
+// latest release, after the manual checks, is the deliberate step that
+// reaches stable users.
 //
 //   node scripts/check-release.mjs --tag v2026.10.0 --dir release-check \
 //     --job publish-tauri=success --job publish-cli=success ...

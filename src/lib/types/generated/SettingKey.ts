@@ -4,4 +4,4 @@
  * The app-state keys the `settings` group reads and writes, by their
  * stored key text. Any other key is refused.
  */
-export type SettingKey = "editorKeybindingMode" | "pending_changes_enabled" | "skippedUpdateVersion" | "query_version_limit" | "dashboard_version_limit" | "license_nudge" | "lastActiveProjectId" | "connectionStringSecretsNotice";
+export type SettingKey = "editorKeybindingMode" | "pending_changes_enabled" | "skippedUpdateVersion" | "updateChannel" | "query_version_limit" | "dashboard_version_limit" | "license_nudge" | "lastActiveProjectId" | "connectionStringSecretsNotice";

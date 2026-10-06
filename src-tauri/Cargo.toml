@@ -63,6 +63,9 @@ sha2 = "0.10"
 tauri-plugin-deep-link = "2"
 tauri-plugin-log = "2"
 log = { version = "0.4", features = ["kv"] }
+# The type of `PackageInfo::version` (tauri doesn't re-export it): a
+# pre-release build follows the beta update channel (update_channel.rs).
+semver = "1"
 
 [dev-dependencies]
 # The assistant's tests: the mock provider and the loopback-only client.
