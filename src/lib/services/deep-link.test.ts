@@ -18,7 +18,7 @@ vi.mock("$lib/stores/deep-link-dialog.svelte.js", () => ({
   deepLinkDialogStore: { prompt: vi.fn(async () => false) },
 }));
 
-const { handleDeepLink } = await import("./deep-link");
+const { handleDeepLink, parseSettingsLink } = await import("./deep-link");
 const { importSelectedProjects } = await import("./shared-project-import");
 const { sharedProjectImportStore } = await import("$lib/stores/shared-project-import.svelte.js");
 const { m } = await import("$lib/paraglide/messages.js");
@@ -93,6 +93,7 @@ function fakeDb({ linked = true } = {}) {
     },
     queryTabs: { loadQuery: vi.fn((id: string) => calls.push(["open", id])) },
     dashboardTabs: { add: vi.fn() },
+    settingsTabs: { open: vi.fn(() => "settings") },
     ui: { setActiveView: vi.fn() },
   };
   return { db, calls };
@@ -177,5 +178,36 @@ describe("connection deep links", () => {
     await importSelectedProjects(db as never);
     expect(calls).toEqual([]);
     expect(db.projects.importProjects).not.toHaveBeenCalled();
+  });
+});
+
+describe("settings deep links", () => {
+  it("parses a known app settings section", () => {
+    expect(parseSettingsLink("seaquel://settings/updates")).toBe("updates");
+    expect(parseSettingsLink("seaquel://settings/license/")).toBe("license");
+  });
+
+  it("ignores other links, unknown sections and extra path", () => {
+    expect(parseSettingsLink(link(PATH))).toBeNull();
+    expect(parseSettingsLink("seaquel://settings")).toBeNull();
+    expect(parseSettingsLink("seaquel://settings/nope")).toBeNull();
+    expect(parseSettingsLink("seaquel://settings/updates/more")).toBeNull();
+    expect(parseSettingsLink("seaquel://settings/constructor")).toBeNull();
+    expect(parseSettingsLink("https://seaquel.app/settings/updates")).toBeNull();
+  });
+
+  it("opens app settings at the section and nothing else", async () => {
+    const { db, calls } = fakeDb();
+    await handleDeepLink("seaquel://settings/updates", db as never);
+    expect(db.settingsTabs.open).toHaveBeenCalledWith("app", "updates");
+    expect(calls).toEqual([]);
+    expect(db.sharedRepos.scan).not.toHaveBeenCalled();
+  });
+
+  it("an unknown section does nothing", async () => {
+    const { db } = fakeDb();
+    await handleDeepLink("seaquel://settings/nope", db as never);
+    expect(db.settingsTabs.open).not.toHaveBeenCalled();
+    expect(toasts.errors).toEqual([]);
   });
 });

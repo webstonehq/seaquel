@@ -1,6 +1,8 @@
 /**
  * Deep link handling for seaquel:// URLs.
- * Format: seaquel://open?r=<github-url-to-resource>
+ * Formats:
+ *   seaquel://open?r=<github-url-to-resource>
+ *   seaquel://settings/<section>   (e.g. `updates`, linked from seaquel.app)
  *
  * Users copy a file URL from the GitHub web interface and prepend seaquel://open?r=
  * to create a working deep link. The resource type is inferred from the file path.
@@ -13,6 +15,7 @@ import { errorToast } from "$lib/utils/toast";
 import { m } from "$lib/paraglide/messages.js";
 import { sharedProjectImportStore } from "$lib/stores/shared-project-import.svelte.js";
 import { templatePath } from "$lib/components/sidebar/manage/share-link";
+import { sectionToGroup, type SettingsSection } from "$lib/stores/settings-dialog.svelte.js";
 
 type DatabaseContext = ReturnType<typeof useDatabase>;
 
@@ -99,6 +102,29 @@ export function parseDeepLink(url: string): DeepLinkAction | null {
 }
 
 /**
+ * Parse a seaquel://settings/<section> deep link into an app settings
+ * section, or `null` for any other link or an unknown section. Opening
+ * settings only shows them; a link never changes a setting.
+ */
+export function parseSettingsLink(url: string): SettingsSection | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "seaquel:") return null;
+
+    // `seaquel://settings/updates` parses with host `settings`; some
+    // platforms hand the whole thing over as the path instead.
+    const parts = (parsed.hostname + parsed.pathname).replace(/^\/+/, "").split("/");
+    if (parts[0] !== "settings" || parts.length > 3) return null;
+    const section = parts[1] ?? "";
+    if (parts.length === 3 && parts[2] !== "") return null;
+
+    return Object.hasOwn(sectionToGroup, section) ? (section as SettingsSection) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Build a seaquel://open?r=<github-url> deep link.
  */
 export function buildDeepLinkUrl(githubRepoUrl: string, branch: string, filePath: string): string {
@@ -143,6 +169,13 @@ export function normalizeGitUrl(url: string): string {
  * to the file's directory (M5).
  */
 export async function handleDeepLink(url: string, db: DatabaseContext): Promise<void> {
+  const section = parseSettingsLink(url);
+  if (section) {
+    await db.whenReady();
+    db.settingsTabs.open("app", section);
+    return;
+  }
+
   const action = parseDeepLink(url);
   if (!action) return;
 

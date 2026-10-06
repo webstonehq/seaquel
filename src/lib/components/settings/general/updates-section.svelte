@@ -2,17 +2,12 @@
 	import { onMount } from "svelte";
 	import { getVersion } from "@tauri-apps/api/app";
 	import { m } from "$lib/paraglide/messages.js";
-	import {
-		Select,
-		SelectContent,
-		SelectItem,
-		SelectTrigger,
-	} from "$lib/components/ui/select";
+	import { Switch } from "$lib/components/ui/switch";
 	import { updateStore, type UpdateChannel } from "$lib/stores/update.svelte.js";
 
 	const uid = $props.id();
 	const labelId = `${uid}-label`;
-	const triggerId = `${uid}-trigger`;
+	const helpId = `${uid}-help`;
 
 	// Null until the version is known (or if it can't be read): the channel row
 	// stays hidden so a beta build never briefly shows or acts as Stable.
@@ -35,14 +30,8 @@
 		updateStore.channel ?? (isPrerelease ? "beta" : "stable")
 	);
 
-	const channelLabel = $derived(
-		current === "beta"
-			? m.settings_update_channel_beta()
-			: m.settings_update_channel_stable()
-	);
-
-	function handleChannelChange(value: string) {
-		if (value !== "stable" && value !== "beta") return;
+	function handleBetaChange(checked: boolean) {
+		const value: UpdateChannel = checked ? "beta" : "stable";
 		// Picking the effective channel again must not forget a download.
 		if (value === current) return;
 		void updateStore.setChannel(value);
@@ -58,36 +47,24 @@
 	</div>
 
 	{#if appVersion !== null}
-		<div class="space-y-2">
-			<div class="flex items-center justify-between">
-				<p id={labelId} class="text-sm font-medium">{m.settings_update_channel()}</p>
-				<Select
-					type="single"
-					value={current}
-					onValueChange={handleChannelChange}
-				>
-					<SelectTrigger
-						id={triggerId}
-						aria-labelledby="{labelId} {triggerId}"
-						class="w-32"
-					>
-						{channelLabel}
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="stable">{m.settings_update_channel_stable()}</SelectItem>
-						<SelectItem value="beta">{m.settings_update_channel_beta()}</SelectItem>
-					</SelectContent>
-				</Select>
-			</div>
-			{#if current === "beta"}
-				<p class="text-xs text-muted-foreground">
+		<div class="flex items-center justify-between gap-4">
+			<div>
+				<p id={labelId} class="text-sm font-medium">{m.settings_update_beta()}</p>
+				<p id={helpId} class="text-xs text-muted-foreground">
 					{m.settings_update_channel_beta_help()}
 				</p>
-			{:else if isPrerelease}
-				<p class="text-xs text-muted-foreground">
-					{m.settings_update_channel_stay({ version: appVersion })}
-				</p>
-			{/if}
+				{#if current === "stable" && isPrerelease}
+					<p class="text-xs text-muted-foreground mt-1">
+						{m.settings_update_channel_stay({ version: appVersion })}
+					</p>
+				{/if}
+			</div>
+			<Switch
+				checked={current === "beta"}
+				onCheckedChange={handleBetaChange}
+				aria-labelledby={labelId}
+				aria-describedby={helpId}
+			/>
 		</div>
 	{/if}
 </div>
