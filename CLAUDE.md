@@ -30,7 +30,7 @@ The DuckDB helper's digest is built into release apps. `src-tauri/build.rs` read
 
 Every script that runs Vite, svelte-check or vitest first runs `npm run wasm:build` (`scripts/build-wasm.mjs`), which builds `crates/seaquel-wasm` into `src/lib/wasm/pkg/` (gitignored). It needs the wasm32 target and wasm-bindgen-cli at the exact version in `Cargo.lock`:
 
-`mise install` sets up Node, Rust and wasm-bindgen-cli from `mise.toml`, and `rust-toolchain.toml` adds the wasm32 target. Without mise:
+`mise install` sets up Node, Rust (with the wasm32 target) and wasm-bindgen-cli from `mise.toml`. mise exports `RUSTUP_TOOLCHAIN` for its Rust version, which overrides `rust-toolchain.toml` (and, in `release.yml`, the toolchain `dtolnay/rust-toolchain` installs), so the target must be listed in `mise.toml`, not only in `rust-toolchain.toml`. Without mise, `rust-toolchain.toml` adds it, or:
 
 ```bash
 rustup target add wasm32-unknown-unknown

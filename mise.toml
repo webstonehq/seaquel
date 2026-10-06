@@ -1,5 +1,8 @@
 [tools]
 node = "24"
-rust = "latest"
+# mise exports RUSTUP_TOOLCHAIN=<this version>, which overrides rust-toolchain.toml
+# (and the toolchain dtolnay/rust-toolchain sets up in CI), so the wasm32 target
+# has to be installed here too.
+rust = { version = "latest", targets = "wasm32-unknown-unknown" }
 # Must match wasm-bindgen in Cargo.lock exactly (scripts/build-wasm.mjs checks).
 "cargo:wasm-bindgen-cli" = "0.2.128"
