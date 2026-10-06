@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Refine: tab | Save as: ctrl+s | Close: esc                      seaquel <version>
+Refine: tab | Save as: ctrl+s | Close: esc                     seaquel <version>

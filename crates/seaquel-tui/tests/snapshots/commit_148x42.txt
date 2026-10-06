@@ -39,4 +39,4 @@
 │                                               ││                                                                                                 │
 │space unstage   u undo   c commit              ││                                                                                                 │
 └─────────────────────────────────────────2 of 4┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
-Execute: enter | Preview SQL: tab | Cancel: esc                                                                                     seaquel <version>
+Execute: enter | Preview SQL: tab | Cancel: esc                                                                                    seaquel <version>

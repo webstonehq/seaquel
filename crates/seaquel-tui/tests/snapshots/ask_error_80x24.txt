@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Ask: enter | Mention: @ | Close: esc                            seaquel <version>
+Ask: enter | Mention: @ | Close: esc                           seaquel <version>

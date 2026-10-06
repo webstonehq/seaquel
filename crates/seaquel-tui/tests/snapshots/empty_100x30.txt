@@ -27,4 +27,4 @@
 │                               ││                                                                 │
 │                               ││                                                                 │
 └───────────────────────────────┘└─────────────────────────────────────────────────────────────────┘
-Select: j/k | Open: enter | Tabs: [ ] | Reload: r | Keybindings: ?                  seaquel <version>
+Select: j/k | Open: enter | Tabs: [ ] | Reload: r | Keybindings: ?                 seaquel <version>

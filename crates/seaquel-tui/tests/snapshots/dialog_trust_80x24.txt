@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Trust and connect: t | Cancel: esc                              seaquel <version>
+Trust and connect: t | Cancel: esc                             seaquel <version>

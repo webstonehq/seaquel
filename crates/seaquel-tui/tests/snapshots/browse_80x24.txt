@@ -21,4 +21,4 @@
 │ M id 48109  total        ││12:04:19  staged UPDATE "public"."invoices" SET "t│
 │space unstage   u undo   …││12:04:19  staged DELETE FROM "public"."invoices" W│
 └────────────────────1 of 2┘└──────────────────────────────────────────────────┘
-Move: h j k l | Edit: e | Stage delete: d | Keybindings: ?      seaquel <version>
+Move: h j k l | Edit: e | Stage delete: d | Keybindings: ?     seaquel <version>

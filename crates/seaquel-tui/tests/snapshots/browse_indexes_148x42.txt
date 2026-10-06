@@ -39,4 +39,4 @@
 │                                               ││                                                                                                 │
 │                                               ││                                                                                                 │
 └───────────────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
-Tabs: [ ] | Back: esc | Commit: c | Keybindings: ?                                                                                  seaquel <version>
+Tabs: [ ] | Back: esc | Commit: c | Keybindings: ?                                                                                 seaquel <version>

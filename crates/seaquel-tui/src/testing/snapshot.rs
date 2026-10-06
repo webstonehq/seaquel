@@ -1,8 +1,9 @@
 //! Render snapshots: a `TestBackend` buffer as plain text lines (trailing
 //! spaces trimmed), compared with `tests/snapshots/<name>.txt`.
 //! `UPDATE_SNAPSHOTS=1` writes them instead; a missing one fails until it
-//! has been written and reviewed. The app's version is written as
-//! `<version>`, so a release bump changes no snapshot.
+//! has been written and reviewed. Test builds draw the app's version as
+//! `<version>` (`text::SHOWN_VERSION`), so a release bump changes no
+//! snapshot.
 
 use std::path::PathBuf;
 
@@ -58,8 +59,6 @@ pub fn assert_snapshot(name: &str, buf: &Buffer) {
 
 /// Compares text with its snapshot.
 pub fn assert_text_snapshot(name: &str, actual: &str) {
-    let actual = actual.replace(seaquel_terminal::VERSION, "<version>");
-    let actual = actual.as_str();
     let file = path(name);
     if std::env::var_os("UPDATE_SNAPSHOTS").is_some_and(|v| v == "1") {
         std::fs::write(&file, actual).unwrap();

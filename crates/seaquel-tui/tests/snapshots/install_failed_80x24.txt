@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Retry: r | Close: esc                                           seaquel <version>
+Retry: r | Close: esc                                          seaquel <version>

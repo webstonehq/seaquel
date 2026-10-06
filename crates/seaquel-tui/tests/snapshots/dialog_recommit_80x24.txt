@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │! may be partly applied: …││                                                  │
 └────────────────────2 of 4┘└──────────────────────────────────────────────────┘
-Commit again: y | Cancel: esc                                   seaquel <version>
+Commit again: y | Cancel: esc                                  seaquel <version>

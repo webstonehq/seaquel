@@ -39,4 +39,4 @@
 │                                         │  h j k l  arrows move the cell cursor                        │                                         │
 │                                         │  g  G            first / last row of the page                │                                         │
 └─────────────────────────────────────────└─────────────────────────────────────────────────────esc close┘─────────────────────────────────────────┘
-Close: esc | Scroll: j/k                                                                                                            seaquel <version>
+Close: esc | Scroll: j/k                                                                                                           seaquel <version>

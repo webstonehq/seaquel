@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Quit: y | Stay: esc                                             seaquel <version>
+Quit: y | Stay: esc                                            seaquel <version>

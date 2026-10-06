@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Move: h j k l | Open cell: enter | Page: n p | Keybindings: ?   seaquel <version>
+Move: h j k l | Open cell: enter | Page: n p | Keybindings: ?  seaquel <version>

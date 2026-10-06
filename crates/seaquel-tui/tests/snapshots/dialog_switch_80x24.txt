@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │space unstage   u undo   …││                                                  │
 └────────────────────2 of 4┘└──────────────────────────────────────────────────┘
-Keep them: k | Discard them: d | Cancel: esc                    seaquel <version>
+Keep them: k | Discard them: d | Cancel: esc                   seaquel <version>

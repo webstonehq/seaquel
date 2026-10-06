@@ -21,4 +21,4 @@
 │ M id 48109  total        ││statements Seaquel runs show here                 │
 │space unstage   u undo   …││                                                  │
 └────────────────────1 of 4┘└──────────────────────────────────────────────────┘
-Execute: enter | Preview SQL: p | Cancel: esc                   seaquel <version>
+Execute: enter | Preview SQL: p | Cancel: esc                  seaquel <version>

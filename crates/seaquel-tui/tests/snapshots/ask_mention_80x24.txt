@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Insert: tab | Choose: arrows | Close: esc                       seaquel <version>
+Insert: tab | Choose: arrows | Close: esc                      seaquel <version>

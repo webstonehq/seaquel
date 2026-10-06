@@ -39,4 +39,4 @@
 │                                               ││                                                                                                 │
 │                                               ││                                                                                                 │
 └───────────────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
-Insert: enter | Run: ctrl+r | Refine: tab | Save as: ctrl+s | Close: esc                                                            seaquel <version>
+Insert: enter | Run: ctrl+r | Refine: tab | Save as: ctrl+s | Close: esc                                                           seaquel <version>

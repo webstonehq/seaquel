@@ -593,9 +593,16 @@ pub fn quit_staged(count: usize) -> String {
     }
 }
 
+/// The version the screen shows. Tests draw `<version>`, so a release bump
+/// (whose length decides how many hints fit beside it) changes no snapshot.
+#[cfg(not(test))]
+const SHOWN_VERSION: &str = seaquel_terminal::VERSION;
+#[cfg(test)]
+const SHOWN_VERSION: &str = "<version>";
+
 /// The key bar's right side when no mode is on: "seaquel <version>".
 pub fn version_label() -> String {
-    format!("{APP_NAME} {}", seaquel_terminal::VERSION)
+    format!("{APP_NAME} {SHOWN_VERSION}")
 }
 
 /// A password saved from the TUI. On macOS the app is asked
@@ -642,7 +649,7 @@ pub const INSTALL_QUESTION: &str = "Download now?";
 /// Which binary's version it is for, on a line of its own (so the
 /// version's length never moves a line break).
 pub fn install_for() -> String {
-    format!("For seaquel-tui {}.", seaquel_terminal::VERSION)
+    format!("For seaquel-tui {SHOWN_VERSION}.")
 }
 
 pub const INSTALL_CHECKED: &str =

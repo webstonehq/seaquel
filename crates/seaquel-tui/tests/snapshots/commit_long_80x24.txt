@@ -21,4 +21,4 @@
 │ │ type prod to confirm › pr▌                                               │ │
 │s└──────────────────────────────────────────────────────────────────────────┘ │
 └───────────────────1 of 30┘└──────────────────────────────────────────────────┘
-Execute: enter | Preview SQL: tab | Cancel: esc                 seaquel <version>
+Execute: enter | Preview SQL: tab | Cancel: esc                seaquel <version>

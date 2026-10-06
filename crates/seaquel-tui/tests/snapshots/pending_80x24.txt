@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │space unstage   u undo   …││                                                  │
 └────────────────────2 of 4┘└──────────────────────────────────────────────────┘
-Unstage: space | Undo: u | Edit value: e | Keybindings: ?       seaquel <version>
+Unstage: space | Undo: u | Edit value: e | Keybindings: ?      seaquel <version>

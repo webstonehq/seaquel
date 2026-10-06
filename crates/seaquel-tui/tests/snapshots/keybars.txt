@@ -1,15 +1,15 @@
 Connection
-Connect: enter | Next panel: tab | Focus panel: 1-4 | Main: 0 | Keybindings: ?                                                      seaquel <version>
+Connect: enter | Next panel: tab | Focus panel: 1-4 | Main: 0 | Keybindings: ?                                                     seaquel <version>
 Tables
-Select: j/k | Open: enter | Tabs: [ ] | Reload: r | Next panel: tab | Undo: u | Commit: c | Query: Q | Keybindings: ?               seaquel <version>
+Select: j/k | Open: enter | Tabs: [ ] | Reload: r | Next panel: tab | Undo: u | Commit: c | Query: Q | Keybindings: ?              seaquel <version>
 Saved
-Select: j/k | Open: enter | Open in a tab: o | Saved/History: [ ] | Reload: r | Next panel: tab | Query: Q | Keybindings: ?         seaquel <version>
+Select: j/k | Open: enter | Open in a tab: o | Saved/History: [ ] | Reload: r | Next panel: tab | Query: Q | Keybindings: ?        seaquel <version>
 Pending
-Unstage: space | Undo: u | Edit value: e | Commit: c | Discard all: D | Keybindings: ?                                              seaquel <version>
+Unstage: space | Undo: u | Edit value: e | Commit: c | Discard all: D | Keybindings: ?                                             seaquel <version>
 Main
-Tabs: [ ] | Back: esc | Commit: c | Keybindings: ?                                                                                  seaquel <version>
+Tabs: [ ] | Back: esc | Commit: c | Keybindings: ?                                                                                 seaquel <version>
 Grid
-Move: h j k l | Edit: e | Stage delete: d | Insert: a | Filter: / | Tabs: [ ] | Undo: u | Commit: c | Back: esc | Keybindings: ?    seaquel <version>
+Move: h j k l | Edit: e | Stage delete: d | Insert: a | Filter: / | Tabs: [ ] | Undo: u | Commit: c | Back: esc | Keybindings: ?   seaquel <version>
 CellEdit
 Save: enter | Cancel: esc                                                                                                                       EDIT
 Find
@@ -17,47 +17,47 @@ Apply: enter | Clear: esc                                                       
 FilterForm
 Next field: tab | Choose: arrows | Apply: enter | Cancel: esc                                                                                 FILTER
 Help
-Close: esc | Scroll: j/k                                                                                                            seaquel <version>
+Close: esc | Scroll: j/k                                                                                                           seaquel <version>
 ConfirmQuit
-Quit: y | Stay: esc                                                                                                                 seaquel <version>
+Quit: y | Stay: esc                                                                                                                seaquel <version>
 Picker
-Select: j/k | Choose: enter | Back: esc                                                                                             seaquel <version>
+Select: j/k | Choose: enter | Back: esc                                                                                            seaquel <version>
 Password
-Save password: tab | Connect: enter | Cancel: esc                                                                                   seaquel <version>
+Save password: tab | Connect: enter | Cancel: esc                                                                                  seaquel <version>
 PasswordNoSave
-Connect: enter | Cancel: esc                                                                                                        seaquel <version>
+Connect: enter | Cancel: esc                                                                                                       seaquel <version>
 Trust
-Trust and connect: t | Cancel: esc                                                                                                  seaquel <version>
+Trust and connect: t | Cancel: esc                                                                                                 seaquel <version>
 Problem
-Close: esc                                                                                                                          seaquel <version>
+Close: esc                                                                                                                         seaquel <version>
 ProblemRetry
-Enter the password again: r | Close: esc                                                                                            seaquel <version>
+Enter the password again: r | Close: esc                                                                                           seaquel <version>
 Notice
-OK: enter                                                                                                                           seaquel <version>
+OK: enter                                                                                                                          seaquel <version>
 Keychain
-Stop waiting: esc                                                                                                                   seaquel <version>
+Stop waiting: esc                                                                                                                  seaquel <version>
 ProblemReconnect
-Connect again: r | Close: esc                                                                                                       seaquel <version>
+Connect again: r | Close: esc                                                                                                      seaquel <version>
 InstallChecking
-Cancel: esc                                                                                                                         seaquel <version>
+Cancel: esc                                                                                                                        seaquel <version>
 InstallAsk
-Download: enter | Cancel: esc                                                                                                       seaquel <version>
+Download: enter | Cancel: esc                                                                                                      seaquel <version>
 InstallDownloading
-Stop: esc                                                                                                                           seaquel <version>
+Stop: esc                                                                                                                          seaquel <version>
 InstallFailed
-Retry: r | Close: esc                                                                                                               seaquel <version>
+Retry: r | Close: esc                                                                                                              seaquel <version>
 InstallFailedFinal
-Close: esc                                                                                                                          seaquel <version>
+Close: esc                                                                                                                         seaquel <version>
 Commit
-Execute: enter | Preview SQL: p | Cancel: esc                                                                                       seaquel <version>
+Execute: enter | Preview SQL: p | Cancel: esc                                                                                      seaquel <version>
 CommitProd
-Execute: enter | Preview SQL: tab | Cancel: esc                                                                                     seaquel <version>
+Execute: enter | Preview SQL: tab | Cancel: esc                                                                                    seaquel <version>
 ConfirmDiscard
-Discard: y | Keep: esc                                                                                                              seaquel <version>
+Discard: y | Keep: esc                                                                                                             seaquel <version>
 ConfirmRecommit
-Commit again: y | Cancel: esc                                                                                                       seaquel <version>
+Commit again: y | Cancel: esc                                                                                                      seaquel <version>
 QueueSwitch
-Keep them: k | Discard them: d | Cancel: esc                                                                                        seaquel <version>
+Keep them: k | Discard them: d | Cancel: esc                                                                                       seaquel <version>
 EditValue
 Save: enter | Cancel: esc                                                                                                                       EDIT
 QueryInsert
@@ -69,22 +69,22 @@ Run: enter | Cancel: esc                                                        
 Completion
 Insert: tab | Choose: arrows | Close: esc                                                                                      INSERT · Ln 1, Col 34
 Results
-Move: h j k l | Open cell: enter | Page: n p | Tabs: [ ] | Run: ctrl+r | Results: ctrl+w | Back: esc | Keybindings: ?               seaquel <version>
+Move: h j k l | Open cell: enter | Page: n p | Tabs: [ ] | Run: ctrl+r | Results: ctrl+w | Back: esc | Keybindings: ?              seaquel <version>
 Params
-Next: tab | Run: enter | Cancel: esc                                                                                                seaquel <version>
+Next: tab | Run: enter | Cancel: esc                                                                                               seaquel <version>
 RunConfirm
-Run: enter | Cancel: esc                                                                                                            seaquel <version>
+Run: enter | Cancel: esc                                                                                                           seaquel <version>
 SaveAs
-Save: enter | Cancel: esc                                                                                                           seaquel <version>
+Save: enter | Cancel: esc                                                                                                          seaquel <version>
 Cell
-Scroll: j/k | Close: esc                                                                                                            seaquel <version>
+Scroll: j/k | Close: esc                                                                                                           seaquel <version>
 AskPrompt
-Ask: enter | Mention: @ | Close: esc                                                                                                seaquel <version>
+Ask: enter | Mention: @ | Close: esc                                                                                               seaquel <version>
 AskMention
-Insert: tab | Choose: arrows | Close: esc                                                                                           seaquel <version>
+Insert: tab | Choose: arrows | Close: esc                                                                                          seaquel <version>
 AskWaiting
-Stop: esc                                                                                                                           seaquel <version>
+Stop: esc                                                                                                                          seaquel <version>
 AskAnswer
-Insert: enter | Run: ctrl+r | Refine: tab | Save as: ctrl+s | Close: esc                                                            seaquel <version>
+Insert: enter | Run: ctrl+r | Refine: tab | Save as: ctrl+s | Close: esc                                                           seaquel <version>
 AskDone
-Refine: tab | Save as: ctrl+s | Close: esc                                                                                          seaquel <version>
+Refine: tab | Save as: ctrl+s | Close: esc                                                                                         seaquel <version>

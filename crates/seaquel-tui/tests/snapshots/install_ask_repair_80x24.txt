@@ -5,7 +5,7 @@
 │no connection             ││                                                  │
 │       ┌ Download DuckDB support? ────────────────────────────────────┐       │
 │       │ DuckDB support is a separate download of 11.7 MB.            │       │
-│       │ For seaquel-tui <version>.                                    │       │
+│       │ For seaquel-tui <version>.                                   │       │
 │       │                                                              │       │
 │       │ The DuckDB helper already there is in a folder that isn't    │       │
 │       │ private. Installing again makes it private.                  │       │
@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Download: enter | Cancel: esc                                   seaquel <version>
+Download: enter | Cancel: esc                                  seaquel <version>

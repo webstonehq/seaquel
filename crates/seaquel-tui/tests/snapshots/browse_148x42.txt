@@ -39,4 +39,4 @@
 │                                               ││12:04:19  staged DELETE FROM "public"."invoices" WHERE "id" = $1                                 │
 │space unstage   u undo   c commit              ││                                                                                                 │
 └─────────────────────────────────────────1 of 2┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
-Move: h j k l | Edit: e | Stage delete: d | Insert: a | Filter: / | Tabs: [ ] | Undo: u | Commit: c | Back: esc | Keybindings: ?    seaquel <version>
+Move: h j k l | Edit: e | Stage delete: d | Insert: a | Filter: / | Tabs: [ ] | Undo: u | Commit: c | Back: esc | Keybindings: ?   seaquel <version>

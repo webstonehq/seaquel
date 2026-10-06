@@ -39,4 +39,4 @@
 │                                               ││                                                                                                 │
 │                                               ││                                                                                                 │
 └───────────────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
-Select: j/k | Open: enter | Tabs: [ ] | Reload: r | Next panel: tab | Undo: u | Commit: c | Query: Q | Keybindings: ?               seaquel <version>
+Select: j/k | Open: enter | Tabs: [ ] | Reload: r | Next panel: tab | Undo: u | Commit: c | Query: Q | Keybindings: ?              seaquel <version>

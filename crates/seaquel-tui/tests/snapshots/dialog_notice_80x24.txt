@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-OK: enter                                                       seaquel <version>
+OK: enter                                                      seaquel <version>

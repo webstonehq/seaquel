@@ -21,4 +21,4 @@
 │       │                                                              │       │
 │       │                                                              │       │
 └───────└──────────────────────────────────────────────────────────────┘───────┘
-Scroll: j/k | Close: esc                                        seaquel <version>
+Scroll: j/k | Close: esc                                       seaquel <version>

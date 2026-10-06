@@ -21,4 +21,4 @@
 │       │Saved and History                                             │       │
 │       │  [  ]            saved queries / history                     │       │
 └───────└─────────────────────────────────────────────────────esc close┘───────┘
-Close: esc | Scroll: j/k                                        seaquel <version>
+Close: esc | Scroll: j/k                                       seaquel <version>

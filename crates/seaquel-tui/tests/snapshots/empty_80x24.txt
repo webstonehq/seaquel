@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Select: j/k | Open: enter | Tabs: [ ] | Keybindings: ?          seaquel <version>
+Select: j/k | Open: enter | Tabs: [ ] | Keybindings: ?         seaquel <version>

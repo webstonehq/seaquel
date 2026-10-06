@@ -39,4 +39,4 @@
 │                                               ││                                                                                                 │
 │                                               ││                                                                                                 │
 └───────────────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
-Move: h j k l | Open cell: enter | Page: n p | Tabs: [ ] | Run: ctrl+r | Results: ctrl+w | Back: esc | Keybindings: ?               seaquel <version>
+Move: h j k l | Open cell: enter | Page: n p | Tabs: [ ] | Run: ctrl+r | Results: ctrl+w | Back: esc | Keybindings: ?              seaquel <version>

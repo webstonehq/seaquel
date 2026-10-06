@@ -39,4 +39,4 @@
 │                                               ││                                                                                                 │
 │space unstage   u undo   c commit              ││                                                                                                 │
 └─────────────────────────────────────────2 of 4┘└─────────────────────────────────────────────────────────────────────────────────────────────────┘
-Unstage: space | Undo: u | Edit value: e | Commit: c | Discard all: D | Keybindings: ?                                              seaquel <version>
+Unstage: space | Undo: u | Edit value: e | Commit: c | Discard all: D | Keybindings: ?                                             seaquel <version>

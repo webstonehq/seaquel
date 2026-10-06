@@ -10,7 +10,7 @@
 │                          ││                                                  │
 │       ┌ DuckDB support ──────────────────────────────────────────────┐       │
 │       │ DuckDB support isn't installed. Looking up its download…     │       │
-└───────│ For seaquel-tui <version>.                                    │       │
+└───────│ For seaquel-tui <version>.                                   │       │
 ┌[3]-Sav└──────────────────────────────────────────────────────────────┘       │
 │no saved queries          ││                                                  │
 │                          ││                                                  │
@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Cancel: esc                                                     seaquel <version>
+Cancel: esc                                                    seaquel <version>

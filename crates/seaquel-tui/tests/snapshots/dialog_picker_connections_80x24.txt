@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Select: j/k | Choose: enter | Back: esc                         seaquel <version>
+Select: j/k | Choose: enter | Back: esc                        seaquel <version>

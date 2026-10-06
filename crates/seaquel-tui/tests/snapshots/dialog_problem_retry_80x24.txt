@@ -21,4 +21,4 @@
 │                          ││statements Seaquel runs show here                 │
 │                          ││                                                  │
 └──────────────────────────┘└──────────────────────────────────────────────────┘
-Enter the password again: r | Close: esc                        seaquel <version>
+Enter the password again: r | Close: esc                       seaquel <version>
