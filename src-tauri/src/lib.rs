@@ -1047,7 +1047,15 @@ fn create_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let hide = PredefinedMenuItem::hide(app, None)?;
     let hide_others = PredefinedMenuItem::hide_others(app, None)?;
     let show_all = PredefinedMenuItem::show_all(app, None)?;
-    let quit = PredefinedMenuItem::quit(app, None)?;
+    // Not `PredefinedMenuItem::quit`: AppKit's `terminate:` ends the process
+    // without a `CloseRequested`, so the main window's flush never ran.
+    // This one closes the main window, which flushes and then exits as the
+    // close button does (`quit_from_menu`). The Dock's Quit and a logout
+    // still go through `terminate:`.
+    let quit = MenuItemBuilder::new("Quit Seaquel")
+        .id(QUIT_MENU_ID)
+        .accelerator("CmdOrCtrl+Q")
+        .build(app)?;
     let mut app_items: Vec<&dyn IsMenuItem<tauri::Wry>> = vec![&about, &separators[0], &settings];
     if let Some(item) = &install_cli {
         app_items.push(item);
@@ -1102,6 +1110,23 @@ fn create_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     )?;
 
     Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &window_menu])
+}
+
+const QUIT_MENU_ID: &str = "quit";
+
+/// Quits the way the main window's close button does: `close` (not
+/// `destroy`) fires its `CloseRequested`, whose handler flushes pending
+/// writes before destroying it, and the last window going ends the app.
+fn quit_from_menu(app: &tauri::AppHandle) {
+    match app.get_webview_window("main") {
+        Some(main) => {
+            if let Err(e) = main.close() {
+                error!(activity = "app.quit"; "Can't close the main window ({e}); exiting");
+                app.exit(0);
+            }
+        }
+        None => app.exit(0),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1264,6 +1289,8 @@ pub fn run() {
                     } else {
                         let _ = app.emit("menu-close-tab", ());
                     }
+                } else if event.id().as_ref() == QUIT_MENU_ID {
+                    quit_from_menu(app);
                 } else if event.id().as_ref() == "settings" {
                     let _ = app.emit("menu-settings", ());
                 } else if event.id().as_ref() == cli_install::MENU_ID {
