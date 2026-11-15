@@ -123,11 +123,15 @@ impl State {
         let kind = v["type"].as_str().or(event.name.as_deref()).unwrap_or("");
         match kind {
             "message_start" => {
-                if let Some(n) = v["message"]["usage"]["input_tokens"].as_u64() {
-                    out.push(RoundEvent::Usage(Usage {
-                        input_tokens: Some(n),
-                        output_tokens: None,
-                    }));
+                let usage = &v["message"]["usage"];
+                let u = Usage {
+                    input_tokens: usage["input_tokens"].as_u64(),
+                    cache_read_input_tokens: usage["cache_read_input_tokens"].as_u64(),
+                    cache_creation_input_tokens: usage["cache_creation_input_tokens"].as_u64(),
+                    ..Usage::default()
+                };
+                if u != Usage::default() {
+                    out.push(RoundEvent::Usage(u));
                 }
             }
             "content_block_start" => {
@@ -194,8 +198,8 @@ impl State {
                 }
                 if let Some(n) = v["usage"]["output_tokens"].as_u64() {
                     out.push(RoundEvent::Usage(Usage {
-                        input_tokens: None,
                         output_tokens: Some(n),
+                        ..Usage::default()
                     }));
                 }
             }

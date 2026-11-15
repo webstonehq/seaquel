@@ -3829,6 +3829,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
+name = "llm-wasm"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f9369a4b863665544fdf5f3b84b6b8933af3a88b261bdee6d84d2f3eead237f"
+dependencies = [
+ "lru",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6383,6 +6396,7 @@ name = "seaquel-ai"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "llm-wasm",
  "log",
  "ryu-js",
  "schemars 1.2.2",

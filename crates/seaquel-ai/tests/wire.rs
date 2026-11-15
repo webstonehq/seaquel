@@ -413,11 +413,11 @@ fn anthropic_two_tool_calls_in_a_round_decode_in_order() {
     ));
     assert!(events.contains(&RoundEvent::Usage(Usage {
         input_tokens: Some(12),
-        output_tokens: None
+        ..Usage::default()
     })));
     assert!(events.contains(&RoundEvent::Usage(Usage {
-        input_tokens: None,
-        output_tokens: Some(42)
+        output_tokens: Some(42),
+        ..Usage::default()
     })));
 }
 
@@ -437,6 +437,34 @@ fn every_split_position_decodes_the_same_round() {
             assert_eq!(stops_of(&got), stops_of(&whole), "{kind:?} cut {cut}");
         }
     }
+}
+
+#[test]
+fn anthropic_cache_tokens_are_read_and_priced() {
+    let mut events = scripts::anthropic_text("hi");
+    events[0] = scripts::anthropic_event(
+        "message_start",
+        json!({"type":"message_start","message":{"id":"msg_1","role":"assistant","content":[],"usage":{"input_tokens":12,"cache_read_input_tokens":20000,"cache_creation_input_tokens":1000,"output_tokens":1}}}),
+    );
+    let got = decode(ProviderKind::Anthropic, &events).unwrap();
+    let start = Usage {
+        input_tokens: Some(12),
+        cache_read_input_tokens: Some(20_000),
+        cache_creation_input_tokens: Some(1_000),
+        ..Usage::default()
+    };
+    assert!(got.contains(&RoundEvent::Usage(start)));
+    // A model the price table lists, with or without a provider prefix;
+    // cache reads cost less than the same tokens uncached.
+    let cost = start.cost_usd("claude-sonnet-4-5").unwrap();
+    assert!(cost > 0.0);
+    assert_eq!(start.cost_usd("anthropic/claude-sonnet-4-5"), Some(cost));
+    let uncached = Usage {
+        input_tokens: Some(21_012),
+        ..Usage::default()
+    };
+    assert!(cost < uncached.cost_usd("claude-sonnet-4-5").unwrap());
+    assert_eq!(start.cost_usd("claude-test"), None);
 }
 
 #[test]
@@ -640,7 +668,8 @@ fn openai_usage_after_finish_is_read() {
     let got = decode(ProviderKind::OpenAiCompatible, &events).unwrap();
     assert!(got.contains(&RoundEvent::Usage(Usage {
         input_tokens: Some(7),
-        output_tokens: Some(2)
+        output_tokens: Some(2),
+        ..Usage::default()
     })));
     assert!(matches!(
         got.last(),

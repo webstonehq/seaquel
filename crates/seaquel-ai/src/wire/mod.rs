@@ -212,11 +212,32 @@ pub enum StopReason {
     MaxTokens,
 }
 
-/// Token counts from `usage`, when the provider sent them.
+/// Token counts from `usage`, when the provider sent them. Anthropic counts
+/// prompt-cache reads and writes apart from `input_tokens`; an
+/// OpenAI-compatible provider's `prompt_tokens` already includes them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
+    pub cache_read_input_tokens: Option<u64>,
+    pub cache_creation_input_tokens: Option<u64>,
+}
+
+impl Usage {
+    /// What these tokens cost in US dollars at the model's list price
+    /// (llm-wasm's price table, cache reads and writes at their own
+    /// prices). `None` for a model the table doesn't list: a local model,
+    /// most OpenAI-compatible providers.
+    pub fn cost_usd(&self, model: &str) -> Option<f64> {
+        let pricing = llm_wasm::cost::pricing_for_model(model).ok()?;
+        let usage = llm_wasm::types::Usage::new(
+            self.input_tokens.unwrap_or(0),
+            self.output_tokens.unwrap_or(0),
+        )
+        .with_cache_read(self.cache_read_input_tokens.unwrap_or(0))
+        .with_cache_write(self.cache_creation_input_tokens.unwrap_or(0));
+        Some(pricing.cost(&usage))
+    }
 }
 
 /// What a round's stream decodes to, in order. A stream that decodes
