@@ -131,6 +131,7 @@ impl State {
             let u = Usage {
                 input_tokens: usage["prompt_tokens"].as_u64(),
                 output_tokens: usage["completion_tokens"].as_u64(),
+                ..Usage::default()
             };
             if u != Usage::default() {
                 out.push(RoundEvent::Usage(u));

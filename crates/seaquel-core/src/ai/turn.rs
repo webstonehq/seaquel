@@ -785,7 +785,8 @@ impl Turn<'_> {
                         result.calls.push(call);
                     }
                     RoundEvent::Usage(u) => {
-                        info!(activity = "ai.round", round = index, input_tokens = u.input_tokens, output_tokens = u.output_tokens; "Token usage");
+                        let cost_usd = u.cost_usd(&r.provider.model);
+                        info!(activity = "ai.round", round = index, input_tokens = u.input_tokens, output_tokens = u.output_tokens, cache_read_input_tokens = u.cache_read_input_tokens, cache_creation_input_tokens = u.cache_creation_input_tokens, cost_usd = cost_usd; "Token usage");
                     }
                     RoundEvent::Stop(s) => result.stop = s,
                 }
